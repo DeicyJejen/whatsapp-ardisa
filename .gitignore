@@ -1,0 +1,14 @@
+# Artefactos generados (se reconstruyen con build_f1.py)
+workflow-bot-f1.json
+__pycache__/
+*.pyc
+
+# Datos con PII / binarios — no van a control de versiones
+*.xlsx
+
+# Nunca versionar secretos (por si acaso)
+*token*.txt
+*apikey*.txt
+*.pem
+.env
+rollback-*.json
