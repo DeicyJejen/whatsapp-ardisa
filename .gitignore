@@ -12,3 +12,12 @@ __pycache__/
 *.pem
 .env
 rollback-*.json
+backups/
+reportes/
+workflow-bot-f1.json
+
+# Material de oficina y personal (PII) — no versionar
+oficina/
+entrevista/
+HV_*.pdf
+*.pdf
