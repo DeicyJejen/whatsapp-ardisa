@@ -276,6 +276,19 @@ function elige(opts){
 }
 // round-robin: devuelve el siguiente de la lista y avanza el contador persistente
 function rota(key,arr){ const c=store.rot[key]||0; store.rot[key]=c+1; return arr[c%arr.length]; }
+// PEGAJOSIDAD 48h (2026-07-23, caso Milena #101-103): si el cliente ya tuvo un lead hace <48h y su asesor de entonces
+// pertenece al MISMO pool que tocaría ahora (misma marca/grupo/ciudad -> está en `arr`), se le asigna el MISMO asesor
+// (no rotamos a otro: dos asesores atendiendo al mismo cliente). Si el pool es otro (cambió de grupo/ciudad), rota normal.
+function rotaSticky(key,arr){
+  try{
+    if(store.leads){ for(let _i=store.leads.length-1;_i>=0;_i--){ const _l=store.leads[_i];
+      if(_l && _l.wa===wa){
+        if((NOW-(_l.ts||0))<48*3600000 && _l.destino){ const _m=arr.find(function(x){return x && x.num===_l.destino;}); if(_m) return _m; }
+        break;   // solo el lead MÁS RECIENTE de este número decide
+      } } }
+  }catch(_e){}
+  return rota(key,arr);
+}
 // Fecha/hora Colombia (UTC-5) 'YYYY-MM-DD HH:MM:SS' — para el registro legal del consentimiento y otros
 function fechaCol(){ const p=n=>String(n).padStart(2,'0'); const c=new Date(NOW-5*3600000); return c.getUTCFullYear()+'-'+p(c.getUTCMonth()+1)+'-'+p(c.getUTCDate())+' '+p(c.getUTCHours())+':'+p(c.getUTCMinutes())+':'+p(c.getUTCSeconds()); }
 const POLITICA_URL='https://www.ardisa.com/politica-de-datos-personales/';
@@ -380,7 +393,7 @@ function cerrarLead(st,opts){
   // === SOLICITUD VAGA (2026-07-16, caso Sergio Aceros): el cliente pidió "cotización/ayuda/info" pero SIN decir el PRODUCTO.
   // No pasamos un lead a medias al asesor: le pedimos el producto UNA sola vez. Si trae foto/documento o pidió humano, NO preguntamos (ya hay contexto). ===
   {
-    const _dv = String(st.detalle||st.notas||'').toLowerCase();
+    const _dv = (String(st.detalle||'')+' '+String(st.notas||'')).toLowerCase().trim();   // detalle Y notas: el producto puede estar en cualquiera (2026-07-23, caso Andrés #104)
     const _tieneMedia = !!st.mediaId || !!(store.medias && store.medias[wa] && store.medias[wa].length);
     const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tablero|mdf|mdp|melamin|f[oó]rmica|triplex|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraje|canto|laca)/i.test(_dv);
     const _pareceVago = /(cotiz|cotizar|cotizaci|precio|presupuesto|asesor[ií]a|asesoren|me asesor|ayuda|ay[uú]den|orientaci[oó]n|informaci[oó]n|informes?|colabor|comprar|adquirir|interesad)/i.test(_dv) && !_tieneProd;
@@ -393,7 +406,7 @@ function cerrarLead(st,opts){
         || _dvLimpio.length < 5   // respuesta demasiado corta y sin producto reconocible
         || _soloSaludo             // el detalle es solo un saludo -> no hay solicitud real
     );
-    if((_pareceVago || _generico) && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk){
+    if((_pareceVago || _generico) && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){   // describir un proyecto/a-medida NO es vago (2026-07-23)
       st.asesoriaAsk=true; st.paso='detalle';
       return {wpp_body: txt(wa,'¡Con gusto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 🤝 Para pasarte con el asesor correcto y darte una cotización precisa, cuéntame: *¿qué producto(s) necesitas cotizar?*\nPor ejemplo: cemento, cerámica, grifería, tableros, láminas, sanitarios, pintura...'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
     }
@@ -440,6 +453,19 @@ function cerrarLead(st,opts){
     const _rw = _repeat ? txt(wa,'Ya tenemos tu solicitud registrada'+(st.nombre?(', '+st.nombre.split(' ')[0]):'')+'. Nuestro asesor te contactará dentro del horario de atención. 🤝') : null;
     return {wpp_body:_rw, aviso_body:null, aviso_medias:(_dm?[_dm]:null)};   // no duplicamos la tarjeta al asesor
   }
+  // === ALEXANDER SOLO PROYECTOS (2026-07-23, pedido Deicy; casos #104 "Formica" y #106 "accesorios"): el cliente toca
+  // "Proyecto a tu medida" creyendo que significa "tengo una necesidad/proyecto", pero Alexander SOLO atiende mobiliario
+  // a medida. Si el texto REAL del cliente no habla de proyecto/a-medida y SÍ nombra producto, manda el PRODUCTO:
+  // Construcción/Acabados -> ese grupo (Ardisa); fórmica/melamina/tableros/herrajes (KW_CARP) -> Carpincentro (Karime). ===
+  if(st.marca==='Ardisa' && st.grupo==='MOBILIARIO'){
+    const _cliTxt = (store.cliMsgs && store.cliMsgs[wa]) ? store.cliMsgs[wa].map(function(x){return typeof x==='object'?x.m:x;}).join(' ') : '';
+    const _txtP = (String(st.detalle||'')+' '+String(st.notas||'')+' '+_cliTxt).toLowerCase();
+    if(!ES_PROYECTO.test(_txtP) && _txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=4){
+      const _Rp = ruteoIA(ia, _txtP);
+      if(_Rp && _Rp.grupo && _Rp.grupo!=='MOBILIARIO'){ st.grupo=_Rp.grupo; st.interes=_gInt(_Rp.grupo); }
+      else if(_Rp && _Rp.marca==='Carpincentro'){ st.marca='Carpincentro'; delete st.grupo; st.interes=''; }
+    }
+  }
   let asesor;
   if (st.marca==='Carpincentro'){
     if(CARP_NACIONAL.activo){   // por ahora: TODA Carpincentro la recibe Karime a nivel NACIONAL -> al cliente NO se le menciona tienda/ciudad (solo "de Carpincentro"). El punto elegido va aparte en la tarjeta del asesor.
@@ -451,7 +477,7 @@ function cerrarLead(st,opts){
     } else {
       let tiendas = pts; let sede=false;
       if(!tiendas.length){ tiendas = DIR_CARP['BUCARAMANGA'] || []; sede=true; }   // ciudad SIN tienda -> la atiende Bucaramanga (sede)
-      if (tiendas.length){ const t=rota(sede?'CARP_SEDE':('CARP_'+st.ciudadId),tiendas); asesor={nombre:t.asesor,num:t.num,tienda:'Carpincentro '+t.tienda+(sede?' — atiende desde Bucaramanga':''),cc:t.cc,f:t.f}; }
+      if (tiendas.length){ const t=rotaSticky(sede?'CARP_SEDE':('CARP_'+st.ciudadId),tiendas); asesor={nombre:t.asesor,num:t.num,tienda:'Carpincentro '+t.tienda+(sede?' — atiende desde Bucaramanga':''),cc:t.cc,f:t.f}; }
       else asesor={nombre:'Equipo Carpincentro',num:'',tienda:'Carpincentro (asesor pendiente)'};
     }
     }
@@ -470,7 +496,7 @@ function cerrarLead(st,opts){
       asesor={nombre:'Alexander Arias Jacome',num:'573203525106',ciudad:'Bucaramanga',tienda:'Ardisa — Proyecto Arquitectónico (mobiliario a medida)'};
     } else if(_esAlum){   // ALUMINIOS: los atiende SOLO Jhon Jairo Vargas (especialista), sin rotación, atiende desde Bucaramanga
       asesor={nombre:'Jhon Jairo Vargas Herreño',num:'573164679556',ciudad:'Bucaramanga',tienda:'Ardisa Construcción — Aluminios'};
-    } else if (arr && arr.length){ const a=rota('ARD_'+(sede?'SEDE':st.ciudadId)+'_'+grupo,arr); asesor={nombre:a.asesor,num:a.num,f:a.f,ciudad:(sede?'Bucaramanga':(st.ciudad||'Bucaramanga')),tienda:'Ardisa '+interes+(sede?' — atiende desde Bucaramanga':' — '+(st.ciudad||'—'))}; }
+    } else if (arr && arr.length){ const a=rotaSticky('ARD_'+(sede?'SEDE':st.ciudadId)+'_'+grupo,arr); asesor={nombre:a.asesor,num:a.num,f:a.f,ciudad:(sede?'Bucaramanga':(st.ciudad||'Bucaramanga')),tienda:'Ardisa '+interes+(sede?' — atiende desde Bucaramanga':' — '+(st.ciudad||'—'))}; }
     else asesor={nombre:'Asesor Ardisa '+interes,num:'',ciudad:(st.ciudadId==='FLORIDABLANCA'?'Floridablanca':'Bucaramanga'),tienda:'Ardisa '+interes+' (asesor pendiente)'};
     st.interes=interes;
   }
@@ -501,7 +527,14 @@ function cerrarLead(st,opts){
              : (st.grupo==='MOBILIARIO' ? 'Cotización Proyecto Arquitectónico'
              : ((st.interes==='Acabados' || st.grupo==='ACABADOS') ? 'Cotización Acabados' : 'Cotización Ferretería'));
   // DETALLE = TODO lo que el cliente escribió en ESTA consulta (últimos 25 min), concatenado. Si no escribió nada, respaldo.
-  const _cliArr = (store.cliMsgs && store.cliMsgs[wa]) ? store.cliMsgs[wa].filter(x=>x && (NOW-((typeof x==='object'?x.t:0)||0))<25*60*1000).map(x=>typeof x==='object'?x.m:x) : [];
+  let _cliArr = (store.cliMsgs && store.cliMsgs[wa]) ? store.cliMsgs[wa].filter(x=>x && (NOW-((typeof x==='object'?x.t:0)||0))<25*60*1000).map(x=>typeof x==='object'?x.m:x) : [];
+  // Tarjetas PULIDAS (2026-07-23, pedido Deicy: "Hola! Estoy buscando asesoría · Formica"): si hay contenido real,
+  // el relleno saludo/"busco asesoría" (sin producto ni cifras) se omite del detalle que ve el asesor.
+  if(_cliArr.length>1){
+    const _relleno = /^((hola+|holi+|buen[oa]s?( d[ií]as| tardes| noches)?|saludos|hey+|q'?hubo)[\s!¡.,]*)*((estoy |ando |vengo )?(buscando|busco|necesito|quiero|deseo|solicito|requiero)\s+)?(una?\s+)?(asesor[ií]a|ayuda|informaci[oó]n|informes|cotizaci[oó]n|orientaci[oó]n)[\s!¡.,]*$/i;
+    const _conInfo = _cliArr.filter(function(m){ return !( !/\d/.test(m) && _relleno.test(String(m).trim()) ); });
+    if(_conInfo.length) _cliArr = _conInfo;
+  }
   const _cliAll = _cliArr.length ? _cliArr.join('  ·  ') : '';
   const _detShown = _cliAll || st.detalle || _detFallback;
   // DETALLE para el EXCEL (columna "Solicitud del cliente"): lo que escribió el cliente + la lectura de la IA de la imagen (si envió).
@@ -622,11 +655,13 @@ const MSG_INFO='¡Hola! 🙏 Con gusto te orientamos.\n\nEste canal es nuestra *
 const MSG_PROVEEDOR='¡Hola! 🙏 Gracias por escribirnos.\n\nEste canal es la *línea comercial de atención a clientes* de *Grupo Ardisa* (cotizaciones y compras). Si deseas *ofrecernos productos o servicios como proveedor*, agradecemos tu interés, pero por este medio solo atendemos a nuestros clientes. 🤝';
 // Frases típicas de proveedor OFRECIENDO (para números de Colombia que igual son proveedores).
 const KW_PROVEEDOR=/(soy de una f[aá]brica|somos (una )?f[aá]brica|somos fabricantes|soy fabricante|f[aá]brica (en|de)|te ofrezco|le ofrezco|les ofrezco|me gustar[ií]a ofrecer|quisiera ofrecer|ofrecemos (precios|productos|nuestr|muestr|materiales)|mejores precios y calidad|buenos precios y calidad|env[ií]o de muestras|muestras gratis|linyi|shandong|guangzhou|foshan|somos (distribuidores|importadores|exportadores|proveedores)|represent(o|amos) (una|a) (f[aá]brica|empresa|marca)|manufactur)/i;
+// Frases CLARAS de proyecto/mobiliario a medida (Alexander Arias). Conservador: un producto de mostrador NO es proyecto.
+const ES_PROYECTO=/(proyecto arquitect|dise[ñn]o arquitect|mobiliario a (la )?medida|(mueble|cocina|closet|mobiliario)s?.{0,20}\ba (la |su |tu )?medida|a (la|su|tu) medida.{0,25}(mueble|cocina|closet|mobiliario)|cocinas? integrales?|proyecto (integral|completo|arquitect|a (la |su |tu )?medida))/i;
 function ruteoIA(ia, rutTxt){   // devuelve {marca,grupo}; null = "no seguro -> preguntar". LA IA ENTIENDE Y MANDA; las palabras clave (KW) son SOLO respaldo (si la IA se cayó o no opinó).
   const t=(rutTxt||'').toLowerCase();
   // PROYECTO ARQUITECTÓNICO / mobiliario A LA MEDIDA (Alexander Arias, Ardisa) -> PRIORIDAD. Solo frases CLARAS de proyecto/hecho a medida
   // (no un producto de mostrador). Conservador para NO quitarle leads normales a Carpincentro. (2026-07-21, pedido Deicy.)
-  if(/(proyecto arquitect|dise[ñn]o arquitect|mobiliario a (la )?medida|(mueble|cocina|closet|mobiliario)s?\s+a (la |su |tu )?medida|a (la|su|tu) medida.{0,25}(mueble|cocina|closet|mobiliario)|proyecto (integral|completo|arquitect|a (la )?medida))/i.test(t)){
+  if(ES_PROYECTO.test(t)){
     return {marca:'Ardisa', grupo:'MOBILIARIO'};
   }
   const kc=KW_CONS.test(t), ka=KW_ACAB.test(t), kp=KW_CARP.test(t);
@@ -660,9 +695,14 @@ function _norm(s){ return String(s||'').toLowerCase().replace(/á/g,'a').replace
 // Capitaliza el nombre (los clientes escriben en minúscula): "pedro perez" -> "Pedro Perez"
 function capNombre(s){ s=String(s||'').replace(/\s+/g,' ').trim(); return s.split(' ').map(w=> w?(w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()):w).join(' '); }
 // Valida que un texto PAREZCA un nombre real de persona (no un producto, cantidad, medida ni una solicitud).
+// CIUDAD escrita como "nombre" (2026-07-23, caso #107 nombre="Barranquilla"): si al pedir el nombre el cliente responde
+// su ciudad/departamento, NO es un nombre válido -> se re-pregunta. Solo coincidencia EXACTA (ciudad sola o "ciudad depto"),
+// para no rechazar apellidos reales dentro de un nombre completo.
+const ES_CIUDAD_TXT=/^(bucaramanga|floridablanca|giron|piedecuesta|lebrija|bogota( dc)?|medellin|cali|barranquilla|cartagena|cucuta|santa marta|villavicencio|pereira|manizales|armenia|ibague|pasto|monteria|valledupar|sincelejo|riohacha|tunja|duitama|sogamoso|neiva|popayan|barrancabermeja|san gil|socorro|malaga|matanza|rionegro|sabana de torres|puerto wilches|aguachica|ocana|el banco|yopal|santander|antioquia|cundinamarca|boyaca|tolima|risaralda|magdalena|atlantico|colombia)( (santander|antioquia|atlantico|cundinamarca|boyaca|tolima|risaralda|magdalena|cesar|bolivar|norte de santander|valle( del cauca)?|meta|huila|casanare|choco|quindio|caldas|narino|cordoba|sucre|(la )?guajira))?$/;
 function esNombreValido(s){
   s=String(s||'').replace(/\s+/g,' ').trim();
   if(s.length<2 || s.length>50) return false;
+  if(ES_CIUDAD_TXT.test(s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''))) return false;   // es una ciudad, no un nombre
   if(/\d/.test(s)) return false;                                                   // nombres no llevan números (productos sí: "2/0", "700 ml")
   if(/[<>@#%*/\\|=_"“”·•]|½|¼|¾/.test(s)) return false;                             // símbolos/medidas
   if(/\b(mm|cm|mts?|ml|kg|lt|und|unid|pulg|pulgadas?|metros?|serie|thhn|acsr|pvc|ref|cod|calibre|voltaje|kv|amp|placa|tubo|cable|varilla|cemento|cer[aá]mica|tablero|l[aá]mina|grifer[ií]a)\b/i.test(s)) return false;  // jerga de producto
@@ -913,7 +953,9 @@ if(!es_media && texto && !id){
 }
 // Captura de DETALLE EXTRA: si el cliente escribe algo tipo producto/solicitud MIENTRAS el bot pide otro dato
 // (nombre/ciudad/perfil), no se pierde -> lo guardamos en st.notas y se suma al detalle que ve el asesor.
-if(!es_media && texto && st && !reinicia && ['nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','consent','marca'].includes(st.paso) && [...texto].length>=12 && ( /\d/.test(texto) || /(requiero|necesito|quiero|busco|cotiz|coti|precio|inodoro|sanitario|bizcocho|grifer|cambio|revisi|instala|medid|color|cantidad|referenc|cemento|cer[aá]mica|tablero|l[aá]mina|producto|material|combo|ducha|lavamanos|lavaplatos|nevera|estufa|porcelan|pintura|madera|piso|muro|pared|banca|banco|enchap|mosaico|sauna|turco|metro|m2|mt2)/i.test(low) )){
+// `!id`: SOLO texto libre — un TOQUE de botón trae su etiqueta como texto ("🛋️ Proyecto a tu medida" contiene "medida")
+// y se colaba como "nota del cliente" -> saltaba la pregunta de producto y cerraba con basura (2026-07-23, caso Alicia #106).
+if(!es_media && !id && texto && st && !reinicia && ['nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','consent','marca'].includes(st.paso) && [...texto].length>=12 && ( /\d/.test(texto) || /(requiero|necesito|quiero|busco|cotiz|coti|precio|inodoro|sanitario|bizcocho|grifer|cambio|revisi|instala|medid|color|cantidad|referenc|cemento|cer[aá]mica|tablero|l[aá]mina|producto|material|combo|ducha|lavamanos|lavaplatos|nevera|estufa|porcelan|pintura|madera|piso|muro|pared|banca|banco|enchap|mosaico|sauna|turco|metro|m2|mt2)/i.test(low) )){
   st.notas = (st.notas ? (st.notas+' | ') : '') + [...texto].slice(0,300).join('');
   if(ia && (ia.grupo_pista==='CONSTRUCCION'||ia.grupo_pista==='ACABADOS')) st.notasGrupo=ia.grupo_pista;   // guarda el grupo que la IA vio en el producto (para rutear al cerrar sin re-preguntar)
 }
@@ -1091,8 +1133,12 @@ if(preguntaHorario){
   const _nom = prev.nombre ? (' '+prev.nombre.split(' ')[0]) : '';
   const _bienv = prev.nombre ? ('¡Hola de nuevo'+_nom+'! ') : '¡Bienvenido a *Grupo Ardisa*! ';
   wpp_body=boton(wa,_bienv+'Con gusto te asesoramos.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
-} else if(!st || (reinicia && !(st.paso==='cerrado' && (NOW-(st.closedAt||0))<3*3600000))){
+} else if(!st || (reinicia && !(st.paso==='cerrado' && (NOW-(st.closedAt||0))<48*3600000))){
   // (un "Hola" de un cliente que YA cerró hace poco NO reinicia el flujo -> cae al manejo de 'cerrado' de abajo, que lo saluda y le dice que su pedido ya está en gestión.)
+  // VENTANA 48h (2026-07-23, caso Milena #101-103): antes era 3h y anulaba el estado 'cerrado' reconstruido por
+  // CLIENTE QUE VUELVE -> un "Buenos días" del día siguiente reiniciaba TODO (consentimiento + flujo) y la rotación
+  // le asignaba OTRO asesor. Con 48h el saludo cae al manejo de 'cerrado' ("ya está en gestión con X"); si trae una
+  // consulta nueva, las ramas de IA de arriba la arrancan sin muro y la pegajosidad de rotaSticky conserva su asesor.
   if(consintioHoy()){
     // === Ya autorizó antes -> NO re-preguntamos el consentimiento (dura hasta que lo revoque) ===
     st=S[wa]={paso:'marca',t:NOW,consent:true}; etapa='marca';
@@ -1623,10 +1669,17 @@ nodes.append(node("¿Hay aviso al asesor?", "n8n-nodes-base.if", 2,
 nodes.append(node("Avisar al asesor (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.aviso_body"), 1760, 280, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 LEAD_PATH="$('Cerebro conversacional').item.json.lead"
 _leadcols=["creado_en","telefono","nombre","marca","ciudad","tipo_cliente","solicitud","detalle","asesor","asesor_tel","fuera_horario","modo_prueba"]
+# ANTI-CARRERA A NIVEL BD (2026-07-23, caso Milena #101/#102): dos ejecuciones traslapadas (foto + texto en segundos)
+# leen staticData viejo y AMBAS cierran el lead. El candado del Cerebro no alcanza (se persiste al FINAL de cada
+# ejecución), así que la BD es la última línea: si YA hay un lead de este teléfono en los últimos 5 min, NO insertamos
+# otro. 5 min no bloquea una segunda consulta legítima (el flujo exige >=5 min para 'nueva consulta' tras cerrar).
+_LEAD_INSERT_SQL = ("INSERT INTO leads (creado_en,telefono,nombre,marca,ciudad,tipo_cliente,solicitud,detalle,asesor,asesor_tel,fuera_horario,modo_prueba) "
+    "SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12 FROM DUAL "
+    "WHERE NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM leads WHERE telefono=$13 AND creado_en > NOW() - INTERVAL 5 MINUTE LIMIT 1) _dup)")
 nodes.append(node("Guardar lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"INSERT INTO leads (creado_en,telefono,nombre,marca,ciudad,tipo_cliente,solicitud,detalle,asesor,asesor_tel,fuera_horario,modo_prueba) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-     "options":{"queryReplacement":"={{ ["+", ".join(LEAD_PATH+"."+c for c in _leadcols)+"] }}"}},
+     "query":_LEAD_INSERT_SQL,
+     "options":{"queryReplacement":"={{ ["+", ".join(LEAD_PATH+"."+c for c in _leadcols)+", "+LEAD_PATH+".telefono] }}"}},
     1760, 460, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # Monitor de conversaciones: registra CADA intercambio (entrada+salida) en la tabla 'mensajes'
 nodes.append(node("¿Registrar chat?", "n8n-nodes-base.if", 2,
@@ -1720,8 +1773,8 @@ nodes.append(node("¿Hay lead 2?", "n8n-nodes-base.if", 2,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1980, 880))
 nodes.append(node("Guardar lead 2 (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"INSERT INTO leads (creado_en,telefono,nombre,marca,ciudad,tipo_cliente,solicitud,detalle,asesor,asesor_tel,fuera_horario,modo_prueba) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-     "options":{"queryReplacement":"={{ ["+", ".join("$('Finalizar cierre').item.json.lead."+c for c in _leadcols)+"] }}"}},
+     "query":_LEAD_INSERT_SQL,
+     "options":{"queryReplacement":"={{ ["+", ".join("$('Finalizar cierre').item.json.lead."+c for c in _leadcols)+", $('Finalizar cierre').item.json.lead.telefono] }}"}},
     2200, 840, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # === SEGUIMIENTO: guardar el reporte del asesor (Estado/Valor/Observación) en el lead ===
 nodes.append(node("¿Guardar seguimiento?", "n8n-nodes-base.if", 2,

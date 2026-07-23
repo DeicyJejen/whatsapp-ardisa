@@ -5,15 +5,17 @@ Workflow n8n: `botArdisaFase1x` ("Bot WhatsApp Ardisa - FASE 1"). Webhook: `http
 
 ## Build + pruebas (siempre antes de desplegar)
 ```bash
-export SP=/tmp/claude-1000/-home-ubuntu-whatsapp-ardisa/56c9d386-67e9-4199-8fa6-390fc8280a84/scratchpad
+export SP=<scratchpad de la sesión actual>            # los scratchpads son POR SESIÓN y se borran; regenerar lo que falte
 cd /home/ubuntu/whatsapp-ardisa
-python3 build_f1.py                                   # aborta si el token no es válido; chmod 600 al JSON
+VERIFY_TOKEN=ardisa2026 python3 build_f1.py           # node --check de cada nodo; aborta si hay error; chmod 600 al JSON
 python3 -c "import build_f1; open('$SP/cerebro.js','w').write(build_f1.CODE_CEREBRO)"
-node "$SP/test_cerebro.js" && node "$SP/test.js" && node "$SP/test_extraer.js"   # 76 pruebas, deben dar todo verde
+# Las suites viejas (test_cerebro/test/test_extraer, 76 pruebas) se perdieron con un scratchpad borrado.
+# Escribir pruebas dirigidas al cambio (harness: stub de $('Extraer datos'), $getWorkflowStaticData, $env; ejemplo 2026-07-23 test_fix_milena.js).
 ```
 
 ## Deploy (con snapshot para rollback)
-Se hace vía API pública de n8n (`X-N8N-API-KEY` en `$SP/n8n_apikey.txt`):
+Se hace vía API pública de n8n. La API key (label "CLAUDE") se recupera de la BD:
+`docker cp n8n:/home/node/.n8n/database.sqlite /tmp/x.sqlite && sqlite3 /tmp/x.sqlite "SELECT apiKey FROM user_api_keys WHERE label='CLAUDE'"` (borrar la copia: pesa ~600MB).
 1. `GET /api/v1/workflows/botArdisaFase1x` → guardar en `$SP/rollback-botArdisaFase1x.json` (SNAPSHOT).
 2. `POST .../deactivate` → `PUT .../botArdisaFase1x` (solo name/nodes/connections/settings) → `POST .../activate`.
 3. Verificar `active:true` y `curl -X POST {entry:[]}` al webhook → 200.
