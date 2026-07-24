@@ -274,8 +274,20 @@ function elige(opts){
   if(texto){const t=texto.toLowerCase();const o=opts.find(x=>{const l=x[1].toLowerCase().replace(/[^a-záéíóúñ0-9 \/]/g,'').trim();const k=l.split(' /')[0].split(' (')[0].trim();return t===l||t===k||(k.length>2&&t.includes(k));});if(o)return o;}
   return null;
 }
-// round-robin: devuelve el siguiente de la lista y avanza el contador persistente
-function rota(key,arr){ const c=store.rot[key]||0; store.rot[key]=c+1; return arr[c%arr.length]; }
+// round-robin: devuelve el siguiente de la lista y avanza el contador persistente.
+// COMPENSACIÓN (2026-07-24, pedido de Deicy): si un asesor recibió leads DIRECTOS fuera de rotación
+// (p.ej. aluminios -> Jhon Jairo), acumula "deuda" en store.rotDeuda[num] y la rotación lo salta
+// esa cantidad de turnos, para que el total quede parejo (Miguel/Yormy no se atrasan).
+function rota(key,arr){
+  store.rotDeuda = store.rotDeuda || {};
+  for(let _t=0;_t<arr.length;_t++){
+    const c=store.rot[key]||0; store.rot[key]=c+1;
+    const a=arr[c%arr.length];
+    if(arr.length>1 && a && a.num && (store.rotDeuda[a.num]||0)>0){ store.rotDeuda[a.num]--; continue; }
+    return a;
+  }
+  return arr[(store.rot[key]-1)%arr.length];   // todos con deuda -> igual se asigna el último
+}
 // PEGAJOSIDAD 48h (2026-07-23, caso Milena #101-103): si el cliente ya tuvo un lead hace <48h y su asesor de entonces
 // pertenece al MISMO pool que tocaría ahora (misma marca/grupo/ciudad -> está en `arr`), se le asigna el MISMO asesor
 // (no rotamos a otro: dos asesores atendiendo al mismo cliente). Si el pool es otro (cambió de grupo/ciudad), rota normal.
@@ -496,7 +508,9 @@ function cerrarLead(st,opts){
       asesor={nombre:'Alexander Arias Jacome',num:'573203525106',ciudad:'Bucaramanga',tienda:'Ardisa — Proyecto Arquitectónico (mobiliario a medida)'};
     } else if(_esAlum){   // ALUMINIOS: los atiende SOLO Jhon Jairo Vargas (especialista), sin rotación, atiende desde Bucaramanga
       asesor={nombre:'Jhon Jairo Vargas Herreño',num:'573164679556',ciudad:'Bucaramanga',tienda:'Ardisa Construcción — Aluminios'};
-    } else if (arr && arr.length){ const a=rotaSticky('ARD_'+(sede?'SEDE':st.ciudadId)+'_'+grupo,arr); asesor={nombre:a.asesor,num:a.num,f:a.f,ciudad:(sede?'Bucaramanga':(st.ciudad||'Bucaramanga')),tienda:'Ardisa '+interes+(sede?' — atiende desde Bucaramanga':' — '+(st.ciudad||'—'))}; }
+      // deuda de turno: este lead directo cuenta como su turno en la rotación de Construcción (compensación 24-jul)
+      store.rotDeuda = store.rotDeuda || {}; store.rotDeuda['573164679556'] = (store.rotDeuda['573164679556']||0) + 1;
+    } else if (arr && arr.length){ const a=rotaSticky('ARD_'+(sede?'BUCARAMANGA':st.ciudadId)+'_'+grupo,arr); asesor={nombre:a.asesor,num:a.num,f:a.f,ciudad:(sede?'Bucaramanga':(st.ciudad||'Bucaramanga')),tienda:'Ardisa '+interes+(sede?' — atiende desde Bucaramanga':' — '+(st.ciudad||'—'))}; }
     else asesor={nombre:'Asesor Ardisa '+interes,num:'',ciudad:(st.ciudadId==='FLORIDABLANCA'?'Floridablanca':'Bucaramanga'),tienda:'Ardisa '+interes+' (asesor pendiente)'};
     st.interes=interes;
   }
