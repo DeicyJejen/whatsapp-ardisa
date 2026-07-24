@@ -2024,6 +2024,78 @@ if(store.segPend && store.segPend.mruo99kiicg && !store.segPend.mruo99kiicg.ases
 // migración puntual (2026-07-22): pendiente fantasma del lead 93 (duplicado de Paola/lead 90, borrado de la BD).
 // El pendiente REAL de Paola es mrvcdodioam (lead 90). Retirar esta línea en agosto.
 if(store.segPend && store.segPend.mrw9ltbsicl) delete store.segPend.mrw9ltbsicl;
+// MIGRACIÓN 2026-07-24 (pedido Deicy): reactivar recordatorios del ATRASO — leads sin reportar o en estado
+// interino cuyo pendiente ya venció o se purgó. Corre UNA vez (marca store.migSeg2407b); crea segPend nuevos
+// (t = hace 4h para que el recordatorio salga hoy mismo) SIN duplicar los que aún existen. RETIRAR en agosto.
+if(!store.migSeg2407b){ store.migSeg2407b=1; store.segPend=store.segPend||{};
+  const _MIG=[
+  ['573152010138','2026-07-16 09:52:51','José Vargas','573124802093',''],
+  ['573016715623','2026-07-16 11:04:39','Natalia Marín','573174293535',''],
+  ['573125270897','2026-07-16 12:02:07','Sergio Aceros','573164679556',''],
+  ['573125118688','2026-07-16 15:02:14','Octavio Mantilla','573107577394',''],
+  ['573222567132','2026-07-16 15:23:15','Diana Vargas','573174293535','En gestión'],
+  ['573114667249','2026-07-17 08:05:59','Mayerly Arenas S','573124802093',''],
+  ['573184986573','2026-07-16 10:11:46','Yohana Cardona','573173636561',''],
+  ['573115380932','2026-07-17 09:53:58','Yolanda Diaz Ortiz','573158189532',''],
+  ['573172750342','2026-07-17 10:24:53','Brayhan Parada','573174293535',''],
+  ['573146521873','2026-07-17 10:27:59','Arley Ramirez','573174293535',''],
+  ['573046719327','2026-07-17 10:34:25','Valentina Manotas','573174293535',''],
+  ['573143049252','2026-07-17 12:25:20','Yeny Neira','573124802093',''],
+  ['573227576322','2026-07-17 12:30:22','Indesco','573164679556',''],
+  ['573144203777','2026-07-17 12:48:15','Jaiber Osorio','573174293535',''],
+  ['573177580172','2026-07-17 13:08:52','Liliana','573107577394',''],
+  ['573153829406','2026-07-17 14:36:14','Deybi Meza Velasquez','573107577394',''],
+  ['573186093717','2026-07-17 15:17:36','Sofía M','573164679556',''],
+  ['573184511898','2026-07-17 15:25:56','Martha Cardozo','573124802093',''],
+  ['573183084679','2026-07-18 11:10:03','Daniel Gutiérrez','573164679556',''],
+  ['573134540621','2026-07-18 11:15:36','Mauricio Rodriguez','573182988592',''],
+  ['573115799250','2026-07-18 11:23:12','Shirley Rocha','573174293535',''],
+  ['573212460665','2026-07-18 11:58:36','Sara González','573173636561',''],
+  ['573052044563','2026-07-21 09:00:36','Luis Murillo','573174293535',''],
+  ['573118814370','2026-07-21 10:44:47','Lorena Martinez','573182988592','Cotización enviada - Seguimiento'],
+  ['573005391744','2026-07-21 10:49:47','Luis Orlando Suarez Fernandez','573158189532','Cotización enviada - Seguimiento'],
+  ['573004438218','2026-07-21 11:11:45','Patricia','573158189532',''],
+  ['573505820747','2026-07-21 11:44:33','Stephanie Naffah','573174293535',''],
+  ['573153710862','2026-07-21 12:14:32','Humberto Vega','573164679556',''],
+  ['573104988668','2026-07-21 12:54:57','Daniela Vanegas','573124802093','En gestión'],
+  ['573113936289','2026-07-21 14:58:49','Manuela Arevalo','573182988592',''],
+  ['573224500877','2026-07-21 15:46:41','Daniela Pabon','573173636561','Cotización enviada - Seguimiento'],
+  ['573142641816','2026-07-21 19:26:18','Paola Cacua','573174293535',''],
+  ['573105780336','2026-07-22 06:42:30','Victor Cárdenas','573174293535',''],
+  ['573142739176','2026-07-22 08:56:48','Andrea Alvarez','573174293535',''],
+  ['573155065063','2026-07-22 11:29:17','Alejandra Medina','573203525106',''],
+  ['573142739176','2026-07-22 12:17:30','Andrea Alvarez','573174293535',''],
+  ['573054224866','2026-07-22 13:42:04','Natalia Marin','573174293535',''],
+  ['573167954489','2026-07-22 14:08:44','Sonia Mantilla','573174293535',''],
+  ['573180594803','2026-07-22 14:36:00','Javier Burgos','573158189532',''],
+  ['573112863761','2026-07-22 14:52:14','Asix Publicidad','573174293535',''],
+  ['573115054441','2026-07-23 10:43:18','Jeison Amado','573158189532','Cotización enviada - Seguimiento'],
+  ['573116602577','2026-07-23 11:05:47','Barranquilla','573174293535',''],
+  ['573178877231','2026-07-23 11:07:03','Carolina Gomez','573164679556',''],
+  ['573023955602','2026-07-23 11:29:52','Diego Abril','573174293535',''],
+  ['573203715129','2026-07-23 13:58:40','Ivan Garay','573174293535',''],
+  ['573173651670','2026-07-23 14:03:52','Alberto Dominguez','573174293535',''],
+  ['573219065143','2026-07-23 14:06:04','Kevin Carvajal','573174293535',''],
+  ['573223739781','2026-07-23 14:32:05','Javier Lopez','573174293535',''],
+  ['573143542491','2026-07-23 14:50:33','Yenny Bayona','573164679556',''],
+  ['573142739176','2026-07-23 15:24:09','Andrea Alvarez','573174293535',''],
+  ['573185329547','2026-07-23 17:30:07','Mueble','573174293535',''],
+  ['573002994271','2026-07-24 09:29:22','Sebastián Hernández','573124802093','En gestión'],
+  ['573184286995','2026-07-24 10:22:12','Estefany Florez','573174293535',''],
+  ['573005530494','2026-07-24 10:52:30','Lina Cotamo','573107577394',''],
+  ['573186897170','2026-07-24 11:29:19','Javier Orejarena','573174293535',''],
+  ['573172893895','2026-07-24 12:55:47','Jennifer Galvis','573107577394',''],
+  ['573023402863','2026-07-24 14:29:34','Jose Diaz','573124802093',''],
+  ['573184626756','2026-07-24 14:33:37','Javier Galvis','573173636561','']];
+  const _ya={}; for(const _t0 in store.segPend){ const _s0=store.segPend[_t0]; if(_s0) _ya[(_s0.telefono||'')+'|'+(_s0.creado_en||'')]=1; }
+  let _mi=0;
+  for(const _m of _MIG){ if(_ya[_m[0]+'|'+_m[1]]) continue;
+    const _tk='mig24'+(_mi++).toString(36)+Math.floor(Math.random()*1e6).toString(36);
+    const _e={telefono:_m[0], creado_en:_m[1], cliente:_m[2], asesor:'', asesor_num:_m[3], t:NOW-4*3600000};
+    if(_m[4]){ _e.follow=1; _e.estado=_m[4]; }
+    store.segPend[_tk]=_e;
+  }
+}
 // === SEGUIMIENTO: RECORDATORIOS al asesor (EN VIVO 2026-07-21). Se apoyan en store.segPend. ===
 // Regla (Deicy 2026-07-24: "en el día debe recordarles"): recordatorio agrupado a CADA asesor, TAMBIÉN el mismo
 // día del lead (3h después de asignado). Máx 2 recordatorios/día por asesor, mínimo 4h entre uno y otro, solo día
