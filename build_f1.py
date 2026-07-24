@@ -1680,8 +1680,8 @@ nodes.append(node("¿Hay aviso al asesor?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"a1","leftValue":"={{ $('Cerebro conversacional').item.json.hay_aviso }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1540, 320))
-nodes.append(node("Avisar al asesor (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.aviso_body"), 1760, 280, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
-LEAD_PATH="$('Cerebro conversacional').item.json.lead"
+nodes.append(node("Avisar al asesor (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').first().json.aviso_body"), 1760, 280, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
+LEAD_PATH="$('Cerebro conversacional').first().json.lead"
 _leadcols=["creado_en","telefono","nombre","marca","ciudad","tipo_cliente","solicitud","detalle","asesor","asesor_tel","fuera_horario","modo_prueba"]
 # ANTI-CARRERA A NIVEL BD (2026-07-23, caso Milena #101/#102): dos ejecuciones traslapadas (foto + texto en segundos)
 # leen staticData viejo y AMBAS cierran el lead. El candado del Cerebro no alcanza (se persiste al FINAL de cada
@@ -1695,7 +1695,19 @@ nodes.append(node("Guardar lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
      "query":_LEAD_INSERT_SQL,
      "options":{"queryReplacement":"={{ ["+", ".join(LEAD_PATH+"."+c for c in _leadcols)+", "+LEAD_PATH+".telefono] }}"}},
     1760, 460, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
-# Monitor de conversaciones: registra CADA intercambio (entrada+salida) en la tabla 'mensajes'
+# === AVISO DETRÁS DEL CANDADO (2026-07-24, caso Lina Cotamo): antes el aviso y el guardado iban EN PARALELO,
+# así que el candado NOT EXISTS bloqueaba la fila duplicada pero el AVISO ya había salido al 2º asesor.
+# Ahora: Guardar (candado) -> ¿la BD dejó pasar? -> solo entonces avisar. affectedRows===0 = duplicado bloqueado.
+# Si el nodo MySQL FALLA (BD caída), affectedRows es undefined -> el aviso SÍ sale (mejor aviso doble que asesor sin enterarse).
+nodes.append(node("¿Hay lead?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"hl1","leftValue":"={{ $('Cerebro conversacional').first().json.lead ? true : false }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1540, 460))
+nodes.append(node("¿Lead ya existía?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"dx1","leftValue":"={{ $json.affectedRows === 0 }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1980, 460))
+nodes.append(node("Aviso omitido (duplicado)", "n8n-nodes-base.noOp", 1, {}, 2200, 520))
 nodes.append(node("¿Registrar chat?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"c1","leftValue":"={{ $('Cerebro conversacional').item.json.chat ? true : false }}","rightValue":True,
@@ -1777,9 +1789,9 @@ nodes.append(node("Esperar (cierre)", "n8n-nodes-base.wait", 1.1,
 nodes.append(node("Finalizar cierre", "n8n-nodes-base.code", 2, {"jsCode":CODE_FINALIZAR}, 1760, 700))
 nodes.append(node("¿Hay aviso 2?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
-     "conditions":[{"id":"a2","leftValue":"={{ $('Finalizar cierre').item.json.hay_aviso }}","rightValue":True,
+     "conditions":[{"id":"a2","leftValue":"={{ $('Finalizar cierre').first().json.hay_aviso }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1980, 700))
-nodes.append(node("Avisar al asesor 2 (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Finalizar cierre').item.json.aviso_body"), 2200, 640, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
+nodes.append(node("Avisar al asesor 2 (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Finalizar cierre').first().json.aviso_body"), 2200, 640, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 # El guardado del lead NO debe depender del aviso: fuera de horario el aviso se retiene (hay_aviso=false) pero el lead SÍ debe guardarse.
 nodes.append(node("¿Hay lead 2?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
@@ -1790,6 +1802,40 @@ nodes.append(node("Guardar lead 2 (MySQL)", "n8n-nodes-base.mySql", 2.5,
      "query":_LEAD_INSERT_SQL,
      "options":{"queryReplacement":"={{ ["+", ".join("$('Finalizar cierre').item.json.lead."+c for c in _leadcols)+", $('Finalizar cierre').item.json.lead.telefono] }}"}},
     2200, 840, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+# === AVISO 2 DETRÁS DEL CANDADO + RESCATE (2026-07-24, caso Lina Cotamo #120): si el candado bloqueó el lead
+# (otro cierre del mismo cliente hace <5 min ya lo guardó), NO se manda la tarjeta al 2º asesor. En su lugar,
+# se busca en la BD quién tiene el lead original y se le reenvía a ÉL la info nueva (nota + fotos), para no perderla.
+nodes.append(node("¿Lead 2 ya existía?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"dx2","leftValue":"={{ $json.affectedRows === 0 }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 2420, 840))
+nodes.append(node("Buscar asesor del lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":"SELECT asesor, asesor_tel, telefono FROM leads WHERE telefono=$1 AND creado_en > NOW() - INTERVAL 10 MINUTE ORDER BY id DESC LIMIT 1",
+     "options":{"queryReplacement":"={{ [ ($('Finalizar cierre').first().json.lead||{}).telefono ] }}"}},
+    2640, 900, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+_CODE_REDIRIGIR = r"""
+// Duplicado bloqueado: rearma la info nueva (nota + fotos) para el asesor que YA tiene el lead.
+// Las copias de monitoreo (items dirigidos a otro número distinto del asesor equivocado) se conservan tal cual.
+const fz = $('Finalizar cierre').first().json;
+const row = ($input.all()[0]||{}).json||{};
+const tel = row.asesor_tel ? String(row.asesor_tel).replace(/[^0-9]/g,'') : '';
+if(!tel) return [];
+const wrong = (fz.aviso_body && fz.aviso_body.to) ? String(fz.aviso_body.to).replace(/[^0-9]/g,'') : '';
+if(wrong && tel===wrong) return [];   // mismo asesor (pegajosidad funcionó): la tarjeta repetida se omite y ya
+const lead = fz.lead||{};
+const out = [{json:{media:{messaging_product:'whatsapp', to:tel, type:'text',
+  text:{body:'➕ *'+(lead.nombre||'El cliente')+'*'+(lead.telefono?(' (+'+lead.telefono+')'):'')+' envió *más información* de la solicitud que ya tienes asignada 👇'+(lead.detalle?('\n📝 '+[...String(lead.detalle)].slice(0,500).join('')):'')}}}}];
+for(const m of (fz.aviso_medias||[])){
+  if(!m || !m.to) continue;
+  const mto = String(m.to).replace(/[^0-9]/g,'');
+  if(wrong && mto===wrong){ const c=JSON.parse(JSON.stringify(m)); c.to=tel; out.push({json:{media:c}}); }
+  else out.push({json:{media:m}});   // copia de monitoreo u otro destino: se respeta
+}
+return out;
+"""
+nodes.append(node("Redirigir al asesor original", "n8n-nodes-base.code", 2, {"jsCode":_CODE_REDIRIGIR}, 2860, 900))
+nodes.append(node("Reenviar al asesor original (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$json.media"), 3080, 900, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 # === SEGUIMIENTO: guardar el reporte del asesor (Estado/Valor/Observación) en el lead ===
 nodes.append(node("¿Guardar seguimiento?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
@@ -1802,7 +1848,7 @@ nodes.append(node("Guardar seguimiento (MySQL)", "n8n-nodes-base.mySql", 2.5,
     1980, 1240, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("¿Hay adjunto 2?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
-     "conditions":[{"id":"m2","leftValue":"={{ $('Finalizar cierre').item.json.hay_media }}","rightValue":True,
+     "conditions":[{"id":"m2","leftValue":"={{ $('Finalizar cierre').first().json.hay_media }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 2420, 700))
 nodes.append(node("Separar adjuntos 2", "n8n-nodes-base.code", 2,
     {"jsCode":"const ms=($('Finalizar cierre').first().json.aviso_medias)||[]; return ms.map(m=>({json:{media:m}}));"}, 2640, 700))
@@ -2004,9 +2050,13 @@ connections = {
  "¿Guardar seguimiento?": {"main":[[{"node":"Guardar seguimiento (MySQL)","type":"main","index":0}],[]]},
  "¿Esperar cierre?": {"main":[[{"node":"Esperar (cierre)","type":"main","index":0}],[]]},
  "Esperar (cierre)": {"main":[[{"node":"Finalizar cierre","type":"main","index":0}]]},
- "Finalizar cierre": {"main":[[{"node":"¿Hay aviso 2?","type":"main","index":0},{"node":"¿Hay lead 2?","type":"main","index":0}]]},
+ "Finalizar cierre": {"main":[[{"node":"¿Hay lead 2?","type":"main","index":0}]]},
+ "¿Hay lead 2?": {"main":[[{"node":"Guardar lead 2 (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},
+ "Guardar lead 2 (MySQL)": {"main":[[{"node":"¿Lead 2 ya existía?","type":"main","index":0}]]},
+ "¿Lead 2 ya existía?": {"main":[[{"node":"Buscar asesor del lead (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},
+ "Buscar asesor del lead (MySQL)": {"main":[[{"node":"Redirigir al asesor original","type":"main","index":0}]]},
+ "Redirigir al asesor original": {"main":[[{"node":"Reenviar al asesor original (Meta)","type":"main","index":0}]]},
  "¿Hay aviso 2?": {"main":[[{"node":"Avisar al asesor 2 (Meta)","type":"main","index":0}],[]]},
- "¿Hay lead 2?": {"main":[[{"node":"Guardar lead 2 (MySQL)","type":"main","index":0}],[]]},
  "Avisar al asesor 2 (Meta)": {"main":[[{"node":"¿Hay adjunto 2?","type":"main","index":0}]]},
  "¿Hay adjunto 2?": {"main":[[{"node":"Separar adjuntos 2","type":"main","index":0}],[]]},
  "Separar adjuntos 2": {"main":[[{"node":"Reenviar adjunto 2 (Meta)","type":"main","index":0}]]},
@@ -2016,7 +2066,10 @@ connections = {
  "¿Registrar consentimiento?": {"main":[[{"node":"Guardar consentimiento (MySQL)","type":"main","index":0}],[]]},
  "¿Responder al cliente?": {"main":[[{"node":"Enviar al cliente (Meta)","type":"main","index":0}],[{"node":"Sin respuesta (dup/vacío)","type":"main","index":0}]]},
  "Enviar al cliente (Meta)": {"main":[[{"node":"¿Hay aviso al asesor?","type":"main","index":0}]]},
- "¿Hay aviso al asesor?": {"main":[[{"node":"Avisar al asesor (Meta)","type":"main","index":0},{"node":"Guardar lead (MySQL)","type":"main","index":0}],[]]},
+ "¿Hay aviso al asesor?": {"main":[[{"node":"¿Hay lead?","type":"main","index":0}],[]]},
+ "¿Hay lead?": {"main":[[{"node":"Guardar lead (MySQL)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
+ "Guardar lead (MySQL)": {"main":[[{"node":"¿Lead ya existía?","type":"main","index":0}]]},
+ "¿Lead ya existía?": {"main":[[{"node":"Aviso omitido (duplicado)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
  "Avisar al asesor (Meta)": {"main":[[{"node":"¿Hay adjunto?","type":"main","index":0}]]},
  "¿Hay adjunto?": {"main":[[{"node":"Separar adjuntos","type":"main","index":0}],[]]},
  "Separar adjuntos": {"main":[[{"node":"Reenviar adjunto al asesor (Meta)","type":"main","index":0}]]},
@@ -2056,11 +2109,14 @@ _POS = {
   "Sin respuesta (dup/vacío)": (2220, 660),
   "Enviar al cliente (Meta)": (2440, 460),
   "¿Hay aviso al asesor?": (2660, 460),
-  "Avisar al asesor (Meta)": (2880, 420),
-  "Guardar lead (MySQL)": (2880, 640),
-  "¿Hay adjunto?": (3100, 420),
-  "Separar adjuntos": (3320, 420),
-  "Reenviar adjunto al asesor (Meta)": (3540, 420),
+  "¿Hay lead?": (2880, 520),
+  "Guardar lead (MySQL)": (3100, 560),
+  "¿Lead ya existía?": (3320, 560),
+  "Aviso omitido (duplicado)": (3540, 620),
+  "Avisar al asesor (Meta)": (3540, 420),
+  "¿Hay adjunto?": (3760, 420),
+  "Separar adjuntos": (3980, 420),
+  "Reenviar adjunto al asesor (Meta)": (4200, 420),
   # carril del monitor (registro de chats)
   "¿Registrar chat?": (2220, 820),
   "Guardar chat (MySQL)": (2440, 820),
@@ -2071,13 +2127,17 @@ _POS = {
   "¿Esperar cierre?": (2220, 1160),
   "Esperar (cierre)": (2440, 1160),
   "Finalizar cierre": (2660, 1160),
-  "¿Hay aviso 2?": (2880, 1100),
-  "Avisar al asesor 2 (Meta)": (3100, 1060),
-  "¿Hay lead 2?": (2880, 1320),
-  "Guardar lead 2 (MySQL)": (3100, 1320),
-  "¿Hay adjunto 2?": (3320, 1100),
-  "Separar adjuntos 2": (3540, 1100),
-  "Reenviar adjunto 2 (Meta)": (3760, 1100),
+  "¿Hay lead 2?": (2880, 1160),
+  "Guardar lead 2 (MySQL)": (3100, 1220),
+  "¿Lead 2 ya existía?": (3320, 1220),
+  "Buscar asesor del lead (MySQL)": (3540, 1300),
+  "Redirigir al asesor original": (3760, 1300),
+  "Reenviar al asesor original (Meta)": (3980, 1300),
+  "¿Hay aviso 2?": (3540, 1100),
+  "Avisar al asesor 2 (Meta)": (3760, 1060),
+  "¿Hay adjunto 2?": (3980, 1100),
+  "Separar adjuntos 2": (4200, 1100),
+  "Reenviar adjunto 2 (Meta)": (4420, 1100),
   # carril de SEGUIMIENTO (reporte del asesor -> guarda estado/valor/observación)
   "¿Guardar seguimiento?": (2220, 1440),
   "Guardar seguimiento (MySQL)": (2440, 1440),
