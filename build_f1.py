@@ -856,6 +856,21 @@ if(SEG_ACTIVO && (String(id||'').indexOf('SEG')===0 || store.segSes[wa])){
     return _R({etapa:'seg_estado', wpp_body:lista(wa,'📊 *Reporte — '+(pend.cliente||pend.telefono)+'*\n\n¿Cuál fue el *resultado*?','Elegir resultado','Resultado',SEG_ESTADOS)});
   }
   if(ss && (NOW-(ss.t||0))>3600000){ delete store.segSes[wa]; ss=null; }   // reporte a medias >1h -> expira
+  // BOTÓN DE ESTADO HUÉRFANO (2026-07-24, caso Karina/Sebastián): el asesor tocó "Ganado/Perdido..." cuando el
+  // reporte ya había quedado registrado (la sesión de reporte se borra al terminar). ANTES ese toque se colaba al
+  // flujo de CLIENTES (¡muro de consentimiento + "¿sigues en línea?" al asesor!). Ahora:
+  //  - si tiene UN solo pendiente por reportar -> se REABRE ese reporte con el estado tocado (sigue normal);
+  //  - si no, se le orienta y NUNCA cae al flujo de clientes.
+  if(!ss && String(id||'').indexOf('SEGE_')===0){
+    const _mios=[]; for(const _t in store.segPend){ const _sp=store.segPend[_t]; if(_sp && _sp.asesor_num===wa) _mios.push({tok:_t,sp:_sp}); }
+    if(_mios.length===1){ const _p1=_mios[0]; ss = store.segSes[wa] = {step:'estado', tok:_p1.tok, telefono:_p1.sp.telefono, creado_en:_p1.sp.creado_en, cliente:_p1.sp.cliente, t:NOW}; }
+    else return _R({etapa:'seg_huerfano', wpp_body:txt(wa, _mios.length
+      ? 'Ese botón ya venció. Escríbeme *hola* y en la lista "Por reportar" toca la solicitud para dejar el resultado. 🤝'
+      : 'Ese reporte ya quedó *registrado* ✅. Si necesitas actualizar un resultado, escríbeme *hola* y te muestro tus solicitudes por reportar. 🤝')});
+  }
+  if(!ss && String(id||'').indexOf('SEG')===0 && String(id||'').indexOf('SEG:')!==0){   // otros SEG* huérfanos (SEGM_, SEG_NOOBS)
+    return _R({etapa:'seg_huerfano', wpp_body:txt(wa,'Ese botón ya venció. Escríbeme *hola* para retomar el reporte. 🤝')});
+  }
   if(ss && !id && texto && /^(cancelar|cancela|salir|cerrar|no reportar|dejar|luego)\b/i.test(String(texto).trim().toLowerCase())){
     delete store.segSes[wa]; return _R({etapa:'seg_cancel', wpp_body:txt(wa,'Listo, cancelé el reporte. Cuando quieras lo retomas con el botón 📊. 🤝')});
   }
@@ -914,7 +929,9 @@ if(SEG_ACTIVO && (String(id||'').indexOf('SEG')===0 || store.segSes[wa])){
   }
 }
 // === ASESOR que escribe al bot (2026-07-21, decisión Deicy): NO es cliente -> confirmación personalizada de que está ACTIVO + sus pendientes por reportar. ===
-if(ASESORES[wa] && String(id||'').indexOf('SEG')!==0 && !(store.segSes && store.segSes[wa])){
+// (2026-07-24) Se quitó la exclusión de ids SEG*: si el bloque de seguimiento de arriba no manejó el toque
+// (huérfano con SEG_ACTIVO=false, etc.), un asesor JAMÁS debe caer al flujo de clientes.
+if(ASESORES[wa] && !(store.segSes && store.segSes[wa])){
   const _nomAs=String(ASESORES[wa]).split(' ')[0];
   const _pend=[]; if(store.segPend){ for(const _t in store.segPend){ const _sp=store.segPend[_t]; if(_sp && _sp.asesor_num===wa) _pend.push({tok:_t,sp:_sp}); } }
   // ¿Escribió una NOTA libre (caso María Delia 22-jul: reportaba escribiendo y el bot repetía la confirmación enlatada
