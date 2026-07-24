@@ -2025,8 +2025,10 @@ if(store.segPend && store.segPend.mruo99kiicg && !store.segPend.mruo99kiicg.ases
 // El pendiente REAL de Paola es mrvcdodioam (lead 90). Retirar esta línea en agosto.
 if(store.segPend && store.segPend.mrw9ltbsicl) delete store.segPend.mrw9ltbsicl;
 // === SEGUIMIENTO: RECORDATORIOS al asesor (EN VIVO 2026-07-21). Se apoyan en store.segPend. ===
-// Regla (decisión Deicy): 1 recordatorio por DÍA HÁBIL a CADA asesor (agrupado: todos sus pendientes en UNA lista),
-// hasta que reporte o pasen 5 días hábiles (interino: hasta 10 días hábiles). Nunca el mismo día del lead ni fuera de horario.
+// Regla (Deicy 2026-07-24: "en el día debe recordarles"): recordatorio agrupado a CADA asesor, TAMBIÉN el mismo
+// día del lead (3h después de asignado). Máx 2 recordatorios/día por asesor, mínimo 4h entre uno y otro, solo día
+// hábil 8am-5pm, hasta que reporte o pasen 5 días hábiles (interino: 10). (Antes: nunca el mismo día — cambiado
+// porque los asesores no estaban reportando.)
 if(store.segPend){
   const _nowC=_colDate(NOW); const _hCol=_nowC.getUTCHours(); const _hoyCol=_ymd(_nowC);
   if(_hCol>=8 && _hCol<17 && _esHabil(_nowC)){   // solo día HÁBIL, en horario de atención
@@ -2037,14 +2039,19 @@ if(store.segPend){
       const dest = sp.asesor_num || '573205662947';                 // asesor real; Deicy si el lead no tenía número
       const _bd = _diasHabiles(sp.t||NOW, NOW);
       const _limite = sp.follow ? 10 : 5;                            // sin reportar: 5 días hábiles; interino: hasta 10
-      if(_bd < 1 || _bd > _limite) continue;                        // el día del lead NO se recuerda; después, hasta el límite
+      if(_bd > _limite) continue;                                    // muy viejo -> fuera de la ventana de recordatorios
+      if(_bd===0 && (NOW-(sp.t||0)) < 3*3600000) continue;           // mismo día: solo si el lead lleva >=3h asignado (Deicy 24-jul)
       (_porAses[dest]=_porAses[dest]||[]).push({tok, sp});
     }
     for(const dest in _porAses){
-      if(store.segRemDay[dest]===_hoyCol) continue;                 // a este asesor ya se le recordó hoy
+      // marca por asesor: {d:'YYYY-MM-DD', n:cuántos hoy, t:último} -> máx 2/día con >=4h de separación
+      let _mk=store.segRemDay[dest];
+      if(typeof _mk==='string'){ _mk=(_mk===_hoyCol)?{d:_hoyCol,n:1,t:0}:null; }   // compat marca vieja
+      if(_mk && _mk.d!==_hoyCol) _mk=null;
+      if(_mk && (_mk.n>=2 || (NOW-(_mk.t||0)) < 4*3600000)) continue;
       const items=_porAses[dest].filter(Boolean).sort((a,b)=>(a.sp.t||0)-(b.sp.t||0)).slice(0,10);   // WhatsApp: máx 10 filas
       if(!items.length) continue;
-      store.segRemDay[dest]=_hoyCol;
+      store.segRemDay[dest]={d:_hoyCol, n:((_mk&&_mk.n)||0)+1, t:NOW};
       const rows=items.map(x=>({id:'SEG:'+x.tok, title:String(x.sp.cliente||x.sp.telefono||'Cliente').slice(0,24), description:String(x.sp.estado?('Reportaste: '+x.sp.estado):('📱 +'+(x.sp.telefono||''))).slice(0,72)}));
       const _n=items.length;
       // VENTANA del asesor: abierta -> lista interactiva (gratis). CERRADA -> PLANTILLA 'recordatorio_reporte' (siempre llega;
@@ -2067,7 +2074,7 @@ if(store.segPend){
       out.push({json:{msg:_msg,
         chat:{creado_en:FECHA, wa_id:dest, nombre:'', entrada:'(seguimiento asesor)', salida:'Recordatorio de reporte al asesor ('+_n+')'+(_winA?'':' [plantilla]'), etapa:'seg_recordatorio'}}});
     }
-    for(const k in store.segRemDay){ if(store.segRemDay[k]!==_hoyCol) delete store.segRemDay[k]; }   // limpia marcas de días anteriores
+    for(const k in store.segRemDay){ const _v=store.segRemDay[k]; const _d=(typeof _v==='string')?_v:(_v&&_v.d); if(_d!==_hoyCol) delete store.segRemDay[k]; }   // limpia marcas de días anteriores
   }
 }
 return out;
