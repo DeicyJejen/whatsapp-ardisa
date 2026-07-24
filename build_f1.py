@@ -1430,6 +1430,20 @@ if(preguntaHorario){
     const _asNom = st.asesorNom ? ((st.asesorF?'nuestra asesora *':'nuestro asesor *')+st.asesorNom+'*') : 'nuestro equipo de asesores';
     const _quien = st.asesorNom ? 'quien' : 'que';
     wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud ya está *en gestión* con '+_asNom+', '+_quien+' te contactará dentro del horario de atención. ¿Hay *algo más* en lo que te pueda ayudar? 🤝');
+    // DÍA SIGUIENTE SIN ATENDER (2026-07-24, pedido Deicy): si el cierre fue OTRO día (y <48h) y el cliente vuelve
+    // a escribir, se RE-REGISTRA el lead marcado "no atendido ayer" (MISMO asesor, sale en el reporte) y se le
+    // recuerda al asesor aunque el cliente solo diga "buen día". Máximo 1 vez por día por cliente.
+    const _dColF=e=>{const c=new Date(e-5*3600000);return c.getUTCFullYear()+'-'+(c.getUTCMonth()+1)+'-'+c.getUTCDate();};
+    const _hoyC=_dColF(NOW);
+    if(_dest && st.closedAt && (NOW-st.closedAt)<48*3600000 && _dColF(st.closedAt)!==_hoyC && st.dia2Reg!==_hoyC){
+      st.dia2Reg=_hoyC; st.lastRemind=NOW; etapa='seguimiento_dia2';
+      leadRow={creado_en:fechaCol(), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||'Ardisa'), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||'—'),
+        solicitud:'Reintento — no atendido ayer', detalle:'⚠️ El cliente escribió AYER, no fue atendido y volvió a escribir hoy.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):''),
+        asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
+      const _rec2=txt(_dest,'⚠️ *Cliente de AYER aún sin atender — volvió a escribir*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\nPor favor contáctalo hoy. 📲 *Escríbele:* https://wa.me/'+wa);
+      if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else encolarMedia(_rec2, st.nombre||'');
+      wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud sigue *en gestión* con '+_asNom+' y le acabamos de *recordar* que te contacte hoy. Gracias por tu paciencia. 🤝');
+    }
     // Solo si es una QUEJA/insistencia REAL (no un simple "Hola") le recordamos al asesor (máx 1 cada 10 min).
     const _esQueja = !reinicia && /(no me (han|has|an)? ?(atend|contest|respond|llam)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|cu[aá]ndo me (atienden|contestan|llaman))/i.test(low);
     if(_esQueja && _dest && (NOW-(st.lastRemind||0) > 10*60*1000)){
@@ -1678,7 +1692,7 @@ nodes.append(node("Sin respuesta (dup/vacío)", "n8n-nodes-base.noOp", 1, {}, 13
 nodes.append(node("Enviar al cliente (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.wpp_body"), 1320, 300, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("¿Hay aviso al asesor?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
-     "conditions":[{"id":"a1","leftValue":"={{ $('Cerebro conversacional').item.json.hay_aviso }}","rightValue":True,
+     "conditions":[{"id":"a1","leftValue":"={{ $('Cerebro conversacional').first().json.hay_aviso || ($('Cerebro conversacional').first().json.lead ? true : false) }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1540, 320))
 nodes.append(node("Avisar al asesor (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').first().json.aviso_body"), 1760, 280, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 LEAD_PATH="$('Cerebro conversacional').first().json.lead"
@@ -1708,6 +1722,10 @@ nodes.append(node("¿Lead ya existía?", "n8n-nodes-base.if", 2,
      "conditions":[{"id":"dx1","leftValue":"={{ $json.affectedRows === 0 }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1980, 460))
 nodes.append(node("Aviso omitido (duplicado)", "n8n-nodes-base.noOp", 1, {}, 2200, 520))
+nodes.append(node("¿Hay aviso 1?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"av1","leftValue":"={{ $('Cerebro conversacional').first().json.hay_aviso }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 2200, 400))
 nodes.append(node("¿Registrar chat?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"c1","leftValue":"={{ $('Cerebro conversacional').item.json.chat ? true : false }}","rightValue":True,
@@ -1741,16 +1759,23 @@ nodes.append(node("Reenviar adjunto al asesor (Meta)", "n8n-nodes-base.httpReque
 
 # === DEBOUNCE del cierre: espera ~45s y manda al asesor UNA tarjeta + TODAS las fotos juntas (solo si es el último token) ===
 CODE_FINALIZAR = r"""
+// 2026-07-24 (caso Sebastián #118): este nodo ya NO corre dentro de la ejecución del mensaje (el Wait de 12s
+// retenía el staticData ~15s y un 2º mensaje en ese lapso veía estado viejo -> re-cierre, tarjeta pisada y
+// despedida repetida). Ahora lo alimenta el cron de inactivos (item {fin_cierre, wa_id, pend_token}) con
+// staticData FRESCO, cuando el hold lleva >=25s quieto.
 const store=$getWorkflowStaticData('global');
-const d=$('Extraer datos').first().json; const wa=d && d.wa_id;
-const myTok = $('Cerebro conversacional').first().json.pend_token;
+const wa=$json.wa_id; const myTok=$json.pend_token;
 const p = (wa && store.pendCierre) ? store.pendCierre[wa] : null;
 if(!p || p.token!==myTok){ return [{json:{fin:'super', hay_aviso:false, hay_media:false, hay_lead:false, aviso_body:null, aviso_medias:null, lead:null}}]; }
 const _seen={}; let medias=[];
 (store.medias&&store.medias[wa]?store.medias[wa]:[]).forEach(m=>{ if(m&&m.id&&['image','audio','video','document','sticker'].indexOf(m.type)>=0&&!_seen[m.id]){ _seen[m.id]=1; const o={messaging_product:'whatsapp',to:p.destino,type:m.type}; o[m.type]={id:m.id}; medias.push(o); if(p.copiaTo && p.copiaTo!==p.destino){ const o2={messaging_product:'whatsapp',to:p.copiaTo,type:m.type}; o2[m.type]={id:m.id}; medias.push(o2); } } });
 let aviso=p.aviso;
 if(p.tipo==='reclamo'){ medias=[]; }   // reclamo: solo el mensaje al cliente, sin reenviar adjuntos ni "también escribió"
-else if(p.avisoExtra){ try{ const b=JSON.parse(JSON.stringify(p.aviso)); b.text.body=b.text.body+'\n\n➕ *El cliente también escribió:* '+p.avisoExtra; aviso=b; }catch(e){ aviso=p.aviso; } }
+else if(p.avisoExtra){ try{ const b=JSON.parse(JSON.stringify(p.aviso)); b.text.body=b.text.body+'\n\n➕ *El cliente también escribió:* '+p.avisoExtra; aviso=b; }catch(e){ aviso=p.aviso;
+  // la tarjeta es PLANTILLA (sin .text, ventana cerrada): el extra va como mensaje aparte por el canal de reenvío
+  // (si la ventana del asesor sigue cerrada, cae a la cola mediaPend y se entrega cuando abra) — 2026-07-24
+  medias.push({messaging_product:'whatsapp', to:p.destino, type:'text', text:{body:'➕ *El cliente también escribió:* '+p.avisoExtra}});
+} }
 if(p.avisoCopia){ medias.push(p.avisoCopia); }   // copia de monitoreo (texto) a PRUEBA_NUM cuando el aviso va EN VIVO -> se envía por el mismo canal de reenvío
 if(p.segPrompt){ medias.push(p.segPrompt); }   // SEGUIMIENTO (prueba): botón "Reportar resultado" a Deicy, por el mismo canal de reenvío
 try{ delete store.pendCierre[wa]; }catch(e){}
@@ -1780,12 +1805,13 @@ medias.forEach(o=>{
 });
 return [{json:{fin:'ok', hay_aviso:!!aviso, hay_media:!!_sendNow.length, hay_lead:!!p.lead, aviso_body:aviso, aviso_medias:_sendNow, lead:p.lead}}];
 """
-nodes.append(node("¿Esperar cierre?", "n8n-nodes-base.if", 2,
+# (2026-07-24) Los nodos "¿Esperar cierre?" y "Esperar (cierre)" se ELIMINARON: el Wait mantenía viva la ejecución
+# ~15s sin persistir staticData y cualquier mensaje en ese lapso re-cerraba (caso Sebastián #118). Ahora el cron de
+# inactivos (cada 1 min) alimenta "Finalizar cierre" vía el IF "¿Cierre listo?" con items {fin_cierre, wa_id, pend_token}.
+nodes.append(node("¿Cierre listo?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
-     "conditions":[{"id":"pc1","leftValue":"={{ $('Cerebro conversacional').item.json.pend_cierre }}","rightValue":True,
-                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1320, 700))
-nodes.append(node("Esperar (cierre)", "n8n-nodes-base.wait", 1.1,
-    {"resume":"timeInterval","amount":12,"unit":"seconds","options":{}}, 1540, 700, {"webhookId":"f1-debounce-cierre"}))
+     "conditions":[{"id":"fc1","leftValue":"={{ $json.fin_cierre === true }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1540, 700))
 nodes.append(node("Finalizar cierre", "n8n-nodes-base.code", 2, {"jsCode":CODE_FINALIZAR}, 1760, 700))
 nodes.append(node("¿Hay aviso 2?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
@@ -1795,12 +1821,12 @@ nodes.append(node("Avisar al asesor 2 (Meta)", "n8n-nodes-base.httpRequest", 4.2
 # El guardado del lead NO debe depender del aviso: fuera de horario el aviso se retiene (hay_aviso=false) pero el lead SÍ debe guardarse.
 nodes.append(node("¿Hay lead 2?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
-     "conditions":[{"id":"l2","leftValue":"={{ $('Finalizar cierre').item.json.hay_lead }}","rightValue":True,
+     "conditions":[{"id":"l2","leftValue":"={{ $('Finalizar cierre').first().json.hay_lead }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1980, 880))
 nodes.append(node("Guardar lead 2 (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
      "query":_LEAD_INSERT_SQL,
-     "options":{"queryReplacement":"={{ ["+", ".join("$('Finalizar cierre').item.json.lead."+c for c in _leadcols)+", $('Finalizar cierre').item.json.lead.telefono] }}"}},
+     "options":{"queryReplacement":"={{ ["+", ".join("$('Finalizar cierre').first().json.lead."+c for c in _leadcols)+", $('Finalizar cierre').first().json.lead.telefono] }}"}},
     2200, 840, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # === AVISO 2 DETRÁS DEL CANDADO + RESCATE (2026-07-24, caso Lina Cotamo #120): si el candado bloqueó el lead
 # (otro cierre del mismo cliente hace <5 min ya lo guardó), NO se manda la tarjeta al 2º asesor. En su lugar,
@@ -1898,6 +1924,18 @@ if(store.pendCierre){ const _COPIA='573205662947';
       delete store.pendCierre[w];
     }
   }
+}
+// === ENTREGA DEL CIERRE (2026-07-24, caso Sebastián #118): la tarjeta ya NO se envía con un Wait dentro de la
+// ejecución del mensaje. El cierre queda en store.pendCierre y ESTE cron (cada 1 min, staticData fresco) lo entrega
+// cuando lleva >=25s quieto (mensajes que sigan llegando lo extienden vía 'acumula_cierre' y entran a la tarjeta).
+// 1 por tick (el más viejo, entre 25s y 10 min; los >10 min son de la poda de varados de arriba).
+if(store.pendCierre){
+  let _rw=null;
+  for(const w in store.pendCierre){ const _pc=store.pendCierre[w]; if(!_pc||!_pc.t) continue;
+    const _age=NOW-_pc.t;
+    if(_age>=25000 && _age<=10*60*1000 && (!_rw || _pc.t<store.pendCierre[_rw].t)) _rw=w;
+  }
+  if(_rw){ out.push({json:{fin_cierre:true, wa_id:_rw, pend_token:store.pendCierre[_rw].token}}); }
 }
 for(const wa in S){
   const st=S[wa]; if(!st||!st.t) continue;
@@ -2017,8 +2055,8 @@ if(store.segPend){
 }
 return out;
 """
-nodes.append(node("Cada 2 min (inactivos)", "n8n-nodes-base.scheduleTrigger", 1.2,
-    {"rule":{"interval":[{"field":"minutes","minutesInterval":2}]}}, 620, 980))
+nodes.append(node("Cada 1 min (inactivos)", "n8n-nodes-base.scheduleTrigger", 1.2,
+    {"rule":{"interval":[{"field":"minutes","minutesInterval":1}]}}, 620, 980))   # 1 min (antes 2): también entrega las tarjetas de cierre -> latencia 25-85s
 nodes.append(node("Revisar inactivos", "n8n-nodes-base.code", 2, {"jsCode":CODE_INACTIVOS}, 860, 980))
 nodes.append(node("Enviar recordatorio (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$json.msg"), 1100, 980, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("Guardar recordatorio (MySQL)", "n8n-nodes-base.mySql", 2.5,
@@ -2046,10 +2084,8 @@ connections = {
  "Preparar IA": {"main":[[{"node":"¿Gastar IA?","type":"main","index":0}]]},
  "¿Gastar IA?": {"main":[[{"node":"🤖 IA Anthropic","type":"main","index":0}],[{"node":"Cerebro conversacional","type":"main","index":0}]]},
  "🤖 IA Anthropic": {"main":[[{"node":"Cerebro conversacional","type":"main","index":0}]]},
- "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Esperar cierre?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0}]]},
+ "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0}]]},
  "¿Guardar seguimiento?": {"main":[[{"node":"Guardar seguimiento (MySQL)","type":"main","index":0}],[]]},
- "¿Esperar cierre?": {"main":[[{"node":"Esperar (cierre)","type":"main","index":0}],[]]},
- "Esperar (cierre)": {"main":[[{"node":"Finalizar cierre","type":"main","index":0}]]},
  "Finalizar cierre": {"main":[[{"node":"¿Hay lead 2?","type":"main","index":0}]]},
  "¿Hay lead 2?": {"main":[[{"node":"Guardar lead 2 (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},
  "Guardar lead 2 (MySQL)": {"main":[[{"node":"¿Lead 2 ya existía?","type":"main","index":0}]]},
@@ -2060,8 +2096,9 @@ connections = {
  "Avisar al asesor 2 (Meta)": {"main":[[{"node":"¿Hay adjunto 2?","type":"main","index":0}]]},
  "¿Hay adjunto 2?": {"main":[[{"node":"Separar adjuntos 2","type":"main","index":0}],[]]},
  "Separar adjuntos 2": {"main":[[{"node":"Reenviar adjunto 2 (Meta)","type":"main","index":0}]]},
- "Cada 2 min (inactivos)": {"main":[[{"node":"Revisar inactivos","type":"main","index":0}]]},
- "Revisar inactivos": {"main":[[{"node":"Enviar recordatorio (Meta)","type":"main","index":0},{"node":"Guardar recordatorio (MySQL)","type":"main","index":0}]]},
+ "Cada 1 min (inactivos)": {"main":[[{"node":"Revisar inactivos","type":"main","index":0}]]},
+ "Revisar inactivos": {"main":[[{"node":"¿Cierre listo?","type":"main","index":0}]]},
+ "¿Cierre listo?": {"main":[[{"node":"Finalizar cierre","type":"main","index":0}],[{"node":"Enviar recordatorio (Meta)","type":"main","index":0},{"node":"Guardar recordatorio (MySQL)","type":"main","index":0}]]},
  "¿Registrar chat?": {"main":[[{"node":"Guardar chat (MySQL)","type":"main","index":0}],[]]},
  "¿Registrar consentimiento?": {"main":[[{"node":"Guardar consentimiento (MySQL)","type":"main","index":0}],[]]},
  "¿Responder al cliente?": {"main":[[{"node":"Enviar al cliente (Meta)","type":"main","index":0}],[{"node":"Sin respuesta (dup/vacío)","type":"main","index":0}]]},
@@ -2069,7 +2106,8 @@ connections = {
  "¿Hay aviso al asesor?": {"main":[[{"node":"¿Hay lead?","type":"main","index":0}],[]]},
  "¿Hay lead?": {"main":[[{"node":"Guardar lead (MySQL)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
  "Guardar lead (MySQL)": {"main":[[{"node":"¿Lead ya existía?","type":"main","index":0}]]},
- "¿Lead ya existía?": {"main":[[{"node":"Aviso omitido (duplicado)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
+ "¿Lead ya existía?": {"main":[[{"node":"Aviso omitido (duplicado)","type":"main","index":0}],[{"node":"¿Hay aviso 1?","type":"main","index":0}]]},
+ "¿Hay aviso 1?": {"main":[[{"node":"Avisar al asesor (Meta)","type":"main","index":0}],[]]},
  "Avisar al asesor (Meta)": {"main":[[{"node":"¿Hay adjunto?","type":"main","index":0}]]},
  "¿Hay adjunto?": {"main":[[{"node":"Separar adjuntos","type":"main","index":0}],[]]},
  "Separar adjuntos": {"main":[[{"node":"Reenviar adjunto al asesor (Meta)","type":"main","index":0}]]},
@@ -2112,6 +2150,7 @@ _POS = {
   "¿Hay lead?": (2880, 520),
   "Guardar lead (MySQL)": (3100, 560),
   "¿Lead ya existía?": (3320, 560),
+  "¿Hay aviso 1?": (3320, 440),
   "Aviso omitido (duplicado)": (3540, 620),
   "Avisar al asesor (Meta)": (3540, 420),
   "¿Hay adjunto?": (3760, 420),
@@ -2123,9 +2162,8 @@ _POS = {
   # carril legal (registro de consentimiento habeas data)
   "¿Registrar consentimiento?": (2220, 980),
   "Guardar consentimiento (MySQL)": (2440, 980),
-  # carril de CIERRE con debounce (espera 12s -> aviso al asesor + guarda lead + reenvía adjuntos)
-  "¿Esperar cierre?": (2220, 1160),
-  "Esperar (cierre)": (2440, 1160),
+  # carril de CIERRE (2026-07-24: lo alimenta el cron cada 1 min vía "¿Cierre listo?" — ya no hay Wait en la ejecución del mensaje)
+  "¿Cierre listo?": (680, 1160),
   "Finalizar cierre": (2660, 1160),
   "¿Hay lead 2?": (2880, 1160),
   "Guardar lead 2 (MySQL)": (3100, 1220),
@@ -2142,7 +2180,7 @@ _POS = {
   "¿Guardar seguimiento?": (2220, 1440),
   "Guardar seguimiento (MySQL)": (2440, 1440),
   # carril de INACTIVIDAD (disparador propio cada 2 min, independiente del webhook)
-  "Cada 2 min (inactivos)": (240, 900),
+  "Cada 1 min (inactivos)": (240, 900),
   "Revisar inactivos": (460, 900),
   "Enviar recordatorio (Meta)": (700, 840),
   "Guardar recordatorio (MySQL)": (700, 1040),
