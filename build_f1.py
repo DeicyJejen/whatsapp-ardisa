@@ -120,6 +120,13 @@ CODE_CEREBRO = r"""
 // Cerebro conversacional MODERNO. Marca -> nombre -> ciudad -> (Ardisa: producto | Carpincentro: ocupación) -> solicitud -> detalle -> RESUMEN al asesor con ROTACIÓN justa.
 // Fixes: (1) MEDIA = lead válido (foto/audio se aceptan), (2) ESCAPE a humano en cualquier paso, (4) TONO "asistente virtual" + SLA honesto.
 const d = $('Extraer datos').first().json;   // Fase 2: insumos SIEMPRE del extractor (venga de la rama con IA o sin IA)
+// === LEAD PENDIENTE (2026-07-29, pedido Deicy): lo trae "Unir pendiente" desde la BD en CADA mensaje. ===
+// La BD es la ÚNICA memoria que una carrera de n8n no puede pisar y que no caduca. Antes el amarre cliente↔asesor
+// vivía en staticData con ventana de 48h: por eso Stephanie Naffah (lead #82, 21-jul, Karime, NUNCA reportado)
+// volvió a los 6 días y la rotación se la dio a Yormy -> dos asesores sobre el mismo cliente. Ahora, mientras el
+// lead siga SIN REPORTAR, el cliente vuelve SIEMPRE al mismo asesor, sin importar cuánto tiempo pase.
+let PEND = {}; try{ PEND = $('Unir pendiente').first().json || {}; }catch(e){}
+const PEND_TEL = String(PEND.pend_tel||''), PEND_ASE = String(PEND.pend_asesor||''), PEND_ID = PEND.pend_id||0;
 // FIX CRÍTICO de estado: los callbacks de estado de WhatsApp (sent/delivered/read) y no-mensajes
 // entran aquí SIN wa_id. Si cargáramos staticData, n8n la re-guardaría al terminar y PISARÍA la sesión
 // que otra ejecución acaba de actualizar (bug del ping-pong ciudad↔ocupación). Salimos ANTES de tocar la memoria.
@@ -184,6 +191,7 @@ const PRUEBA_NUM = '573205662947'; // número de PRUEBA del asesor (Deicy)
 const CLIENTES_PRUEBA = ['573205662947'];   // agrega aquí los números desde los que quieras hacer demos
 const DEMO_DEST = '573205662947';           // a dónde llega el aviso de la demo (Deicy)
 const COPIA_MONITOR = '573205662947'; // copia de monitoreo de CADA aviso a Deicy (poner '' para desactivar cuando ya no la necesite)
+const MONITOR_ADMIN = '573205662947'; // Deicy: dueña del sistema. Escribe al bot para pedir el PANEL, NO para ser atendida como clienta (2026-07-29)
 
 // === SEGUIMIENTO POR ASESOR (reporte del resultado con botones) — EN VIVO PARA TODOS LOS ASESORES (decisión Deicy 2026-07-21) ===
 const SEG_ACTIVO = true;               // true: el botón "Reportar resultado" y los recordatorios van al ASESOR REAL (asesor.num). false: apaga la función.
@@ -251,9 +259,12 @@ const ARD = {
 };
 // Mapa de NÚMEROS de asesores (Ardisa + Carpincentro) -> nombre. Para responderles con confirmación cuando escriben al bot (NO tratarlos como clientes).
 const ASESORES = {};
-for(const _ciu in ARD){ for(const _gr in ARD[_ciu]){ (ARD[_ciu][_gr]||[]).forEach(_a=>{ if(_a&&_a.num) ASESORES[_a.num]=_a.asesor; }); } }
-if(CARP_NACIONAL&&CARP_NACIONAL.num) ASESORES[CARP_NACIONAL.num]=CARP_NACIONAL.asesor;
-for(const _c in DIR_CARP){ (DIR_CARP[_c]||[]).forEach(_p=>{ if(_p&&_p.num) ASESORES[_p.num]=_p.asesor; }); }
+// ASESORES_F: num -> 1 si es asesora (para decir "nuestra asesora" y no "nuestro asesor" cuando el amarre
+// al lead pendiente cambia de asesor y ya no sirve el flag de la rotación). 2026-07-29.
+const ASESORES_F = {};
+for(const _ciu in ARD){ for(const _gr in ARD[_ciu]){ (ARD[_ciu][_gr]||[]).forEach(_a=>{ if(_a&&_a.num){ ASESORES[_a.num]=_a.asesor; if(_a.f) ASESORES_F[_a.num]=1; } }); } }
+if(CARP_NACIONAL&&CARP_NACIONAL.num){ ASESORES[CARP_NACIONAL.num]=CARP_NACIONAL.asesor; ASESORES_F[CARP_NACIONAL.num]=1; }
+for(const _c in DIR_CARP){ (DIR_CARP[_c]||[]).forEach(_p=>{ if(_p&&_p.num){ ASESORES[_p.num]=_p.asesor; if(_p.f) ASESORES_F[_p.num]=1; } }); }
 
 const txt = (to,b)=>({messaging_product:'whatsapp',to,type:'text',text:{body:b}});
 // PLANTILLA 'nuevo_cliente' (aprobada por Meta) para avisar al asesor SIN depender de la ventana de 24h. 6 variables sanitizadas (sin saltos de línea).
@@ -484,7 +495,11 @@ function cerrarLead(st,opts){
   if(st.marca==='Ardisa' && st.grupo==='MOBILIARIO'){
     const _cliTxt = (store.cliMsgs && store.cliMsgs[wa]) ? store.cliMsgs[wa].map(function(x){return typeof x==='object'?x.m:x;}).join(' ') : '';
     const _txtP = (String(st.detalle||'')+' '+String(st.notas||'')+' '+_cliTxt).toLowerCase();
-    if(!ES_PROYECTO.test(_txtP) && _txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=4){
+    // 2026-07-29 (Deicy, tajante): "Alexander NO atiende nada de construcción, de cemento entre otras, ni acabados.
+    // Si son proyectos sí." -> además de ES_PROYECTO (frases estrictas) aceptamos señales SUELTAS de proyecto
+    // ("un proyecto para mi casa", "a la medida"), que antes se escapaban y mandaban el lead lejos de Alexander.
+    const _proyLoose = /(\bproyect|a (la |su |tu )?medida|dise[nñ]o de (cocina|closet|mueble))/i.test(_txtP);
+    if(!ES_PROYECTO.test(_txtP) && !_proyLoose && _txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=4){
       const _Rp = ruteoIA(ia, _txtP);
       if(_Rp && _Rp.grupo && _Rp.grupo!=='MOBILIARIO'){ st.grupo=_Rp.grupo; st.interes=_gInt(_Rp.grupo); }
       else if(_Rp && _Rp.marca==='Carpincentro'){ st.marca='Carpincentro'; delete st.grupo; st.interes=''; }
@@ -495,6 +510,9 @@ function cerrarLead(st,opts){
         const _g2 = KW_CONS.test(_txtP) && !KW_ACAB.test(_txtP) ? 'CONSTRUCCION' : 'ACABADOS';
         st.grupo=_g2; st.interes=_gInt(_g2);
       }
+      // Última red: el cliente escribió algo con sustancia, NO habló de proyecto y no reconocimos el producto.
+      // Antes se quedaba con Alexander por descarte. Ahora cae a Acabados (mostrador), nunca a proyectos.
+      else if(_txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=12){ st.grupo='ACABADOS'; st.interes=_gInt('ACABADOS'); }
     }
   }
   let asesor;
@@ -535,6 +553,15 @@ function cerrarLead(st,opts){
     else asesor={nombre:'Asesor Ardisa '+interes,num:'',ciudad:(st.ciudadId==='FLORIDABLANCA'?'Floridablanca':'Bucaramanga'),tienda:'Ardisa '+interes+' (asesor pendiente)'};
     st.interes=interes;
   }
+  // === AMARRE AL ASESOR PENDIENTE (2026-07-29, pedido Deicy; caso Stephanie Naffah #82→#139) ===
+  // Si este cliente YA tiene un lead SIN REPORTAR en la BD, su nuevo lead vuelve al MISMO asesor, sin importar
+  // cuánto tiempo pasó ni qué dijo la rotación. "En vez de pasárselo al mismo se fue para otro asesor y eso es
+  // duplicar." Solo cede ante casos de especialista (aluminios/proyectos) y si el asesor sigue activo.
+  let _reintento = false;
+  if(PEND_TEL && PEND_ASE && asesor.num && PEND_TEL!==asesor.num && ASESORES[PEND_TEL]){
+    _reintento = true;
+    asesor = {nombre:PEND_ASE, num:PEND_TEL, ciudad:asesor.ciudad, tienda:asesor.tienda, f:(ASESORES_F[PEND_TEL]?1:0)};
+  } else if(PEND_TEL && PEND_TEL===asesor.num){ _reintento = true; }
   const numDisp = asesor.num ? ('+'+asesor.num) : '(número pendiente)';
   // CLIENTE DE PRUEBA/DEMO: si el que escribe es un número de demo, el aviso va SOLO a DEMO_DEST (no al asesor real).
   const _esDemo = CLIENTES_PRUEBA.indexOf(wa) >= 0;
@@ -583,8 +610,16 @@ function cerrarLead(st,opts){
   const _ptObj = (st.marca==='Carpincentro' && st.puntoIdx!=null && DIR_CARP[st.ciudadId] && DIR_CARP[st.ciudadId][st.puntoIdx]) ? DIR_CARP[st.ciudadId][st.puntoIdx] : null;
   const _puntoNom = _ptObj ? _ptObj.tienda : '';
   const _puntoDir = _ptObj ? (_ptObj.dir||'') : '';
-  const _avisoBody =
-    '🔔 *Nuevo cliente para atender*\n\n'+
+  // === REINTENTO: el cliente YA tenía un lead SIN REPORTAR y volvió a escribir (2026-07-29, pedido Deicy). ===
+  // Encabezado URGENTE en la tarjeta + marca en el Excel, para que el asesor entienda que NO es un cliente nuevo
+  // sino uno que lleva días esperándolo. "No se debe perder nada de información."
+  const _urg = _reintento
+    ? ('🚨 *URGENTE — el cliente volvió a escribir y AÚN NO LO HAN ATENDIDO*\n'+
+       '📌 Ya tenía la solicitud'+(PEND_ID?(' *#'+PEND_ID+'*'):'')+' registrada contigo'+(PEND.pend_fecha?(' desde el *'+PEND.pend_fecha+'*'):'')+'.\n'+
+       '➡️ Sigue siendo TU cliente: no se le pasó a nadie más. Contáctalo hoy.\n\n')
+    : '';
+  const _avisoBody = _urg +
+    (_reintento ? '🔔 *El cliente insiste — nueva solicitud del MISMO cliente*\n\n' : '🔔 *Nuevo cliente para atender*\n\n')+
     '👤 *Cliente:* '+st.nombre+'\n'+
     '📱 *WhatsApp:* +'+wa+'\n'+
     '📍 *Ciudad:* '+(st.ciudad||'—')+'\n'+
@@ -616,7 +651,7 @@ function cerrarLead(st,opts){
   store.leads.push({ts:NOW, wa, nombre:st.nombre, ciudad:(st.ciudad||''), ciudadId:(st.ciudadId||''), marca:st.marca, ocupacion:(st.ocupacion||''), interes:(st.interes||''), tiposol:(st.tiposol||''), detalle:_detExcel, asesor:asesor.nombre, tienda:asesor.tienda, destino:destino, fuera:!!st.fuera});
   if(store.leads.length>2000) store.leads.splice(0, store.leads.length-2000);   // cota
   const _p=n=>String(n).padStart(2,'0'); const _cd=new Date(NOW-5*3600000);   // hora Colombia (UTC-5)
-  leadRow={creado_en:_cd.getUTCFullYear()+'-'+_p(_cd.getUTCMonth()+1)+'-'+_p(_cd.getUTCDate())+' '+_p(_cd.getUTCHours())+':'+_p(_cd.getUTCMinutes())+':'+_p(_cd.getUTCSeconds()), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||''), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||''), solicitud:(st.tiposol||''), detalle:_detExcel, asesor:(asesor.nombre||''), asesor_tel:(asesor.num||''), fuera_horario: st.fuera?1:0, modo_prueba: (MODO_PRUEBA||_esDemo)?1:0};
+  leadRow={creado_en:_cd.getUTCFullYear()+'-'+_p(_cd.getUTCMonth()+1)+'-'+_p(_cd.getUTCDate())+' '+_p(_cd.getUTCHours())+':'+_p(_cd.getUTCMinutes())+':'+_p(_cd.getUTCSeconds()), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||''), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||''), solicitud:(_reintento?('⚠️ REINTENTO — '+(st.tiposol||'')):(st.tiposol||'')), detalle:(_reintento?('⚠️ CLIENTE SIN ATENDER: volvió a escribir'+(PEND_ID?(' (ya tenía la solicitud #'+PEND_ID+' con el mismo asesor)'):'')+'. '+_detExcel):_detExcel), asesor:(asesor.nombre||''), asesor_tel:(asesor.num||''), fuera_horario: st.fuera?1:0, modo_prueba: (MODO_PRUEBA||_esDemo)?1:0};
   // Reenvío al asesor de TODOS los adjuntos que el cliente mandó en la conversación (mismo phone number id -> reusamos los media id).
   let aviso_medias = [];
   const _seenM = {};
@@ -951,6 +986,46 @@ if(SEG_ACTIVO && (String(id||'').indexOf('SEG')===0 || store.segSes[wa])){
     if(ss.step==='estado') return _R({etapa:'seg_estado', wpp_body:lista(wa,'Elige el *resultado* 👇','Elegir resultado','Resultado',SEG_ESTADOS)});
   }
 }
+// === NÚMERO DE MONITOREO — DEICY (2026-07-29, pedido suyo) ===
+// "Yo tengo mi número para monitorear, debería darme razón de cómo va. Yo hice este sistema y lo entiendo:
+//  quiero un informe de cómo va el bot, NO que me trate como una cliente."
+// Su número también está en CLIENTES_PRUEBA (lo usa para demos), así que:
+//   - por defecto -> INFORME del sistema
+//   - escribe "demo" -> entra a modo demo y el bot la atiende como clienta hasta que pida "informe"
+if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
+  store.demoAdmin = store.demoAdmin || {};
+  const _pideDemo   = /^(demo|probar|prueba|simular|modo demo|modo cliente)\b/i.test(low);
+  const _pideInform = /(informe|reporte|estado|status|c[oó]mo va|como va|pulso|resumen|salir|fin demo)/i.test(low);
+  if(_pideDemo){ store.demoAdmin[wa]=NOW; delete S[wa];
+    return [{json:{etapa:'admin_demo', wa_id:wa, wpp_body:txt(wa,'🧪 *Modo demo activado.* Te atiendo como si fueras una clienta para que pruebes el flujo.\n\nCuando quieras volver al panel, escribe *informe*.'), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:{creado_en:fechaCol(), wa_id:wa, nombre:'Deicy (monitoreo)', entrada:[...String(texto||'')].slice(0,200).join(''), salida:'modo demo ON', etapa:'admin_demo'}, consent_log:null, pend_cierre:false, pend_token:0}}];
+  }
+  const _enDemo = !_pideInform && store.demoAdmin[wa] && (NOW-store.demoAdmin[wa])<3*3600000;
+  if(!_enDemo){
+    if(_pideInform) delete store.demoAdmin[wa];
+    // Conversaciones vivas AHORA (sesiones sin cerrar) y trabajo en cola dentro del bot.
+    let _enLinea=0; for(const _w in S){ const _s=S[_w]; if(_s && _s.t && (NOW-_s.t)<30*60*1000 && _s.paso!=='cerrado') _enLinea++; }
+    const _colaMedia = (store.mediaPend? Object.keys(store.mediaPend).length : 0);
+    const _colaHold  = (store.holdAviso? store.holdAviso.length : 0);
+    const _porEntregar = (store.pendCierre? Object.keys(store.pendCierre).length : 0);
+    const _ultimo = (store.leads && store.leads.length) ? store.leads[store.leads.length-1] : null;
+    const _hhmm = _ultimo ? new Date(_ultimo.ts-5*3600000).toISOString().slice(11,16) : '—';
+    const _lst = s => String(s||'').split(' · ').filter(Boolean).map(x=>'   • '+x).join('\n') || '   • (ninguno)';
+    const _inf =
+      '📊 *PANEL DEL BOT — Grupo Ardisa*\n'+
+      '🕒 '+fechaCol().slice(0,16)+'\n\n'+
+      '✅ *Bot operando normalmente.*\n'+
+      '💬 Conversaciones activas ahora: *'+_enLinea+'*\n\n'+
+      '📥 *Leads de hoy: '+(PEND.rep_hoy||0)+'*\n'+_lst(PEND.rep_hoy_det)+'\n'+
+      '🔖 Último lead: '+_hhmm+(_ultimo?(' — '+(_ultimo.nombre||'—')+' → '+(_ultimo.asesor||'—')):'')+'\n\n'+
+      '⏳ *Sin reportar por los asesores: '+(PEND.rep_pend||0)+'*\n'+_lst(PEND.rep_pend_det)+'\n\n'+
+      '⚙️ *Cola interna* (0 = todo entregado)\n'+
+      '   • Cierres por entregar: '+_porEntregar+'\n'+
+      '   • Avisos retenidos (fuera de horario): '+_colaHold+'\n'+
+      '   • Adjuntos en espera de ventana: '+_colaMedia+'\n\n'+
+      '_Escribe *informe* cuando quieras este panel, o *demo* para probar el bot como clienta._';
+    return [{json:{etapa:'admin_informe', wa_id:wa, wpp_body:txt(wa,_inf), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:{creado_en:fechaCol(), wa_id:wa, nombre:'Deicy (monitoreo)', entrada:[...String(texto||'(botón)')].slice(0,200).join(''), salida:'panel del sistema', etapa:'admin_informe'}, consent_log:null, pend_cierre:false, pend_token:0}}];
+  }
+}
 // === ASESOR que escribe al bot (2026-07-21, decisión Deicy): NO es cliente -> confirmación personalizada de que está ACTIVO + sus pendientes por reportar. ===
 // (2026-07-24) Se quitó la exclusión de ids SEG*: si el bloque de seguimiento de arriba no manejó el toque
 // (huérfano con SEG_ACTIVO=false, etc.), un asesor JAMÁS debe caer al flujo de clientes.
@@ -1271,7 +1346,7 @@ if(preguntaHorario){
   if(!cc){ etapa='consent';
     const _yaPidio = !!(st.pendTexto || st.pendMediaId);
     const _cab = _yaPidio
-      ? ('¡Claro que sí! 🙌 Ya *anoté tu solicitud* y no se pierde.\n\nSolo necesito un permiso para poder pasársela a un asesor: tu *autorización para el tratamiento de datos personales*. 👇')
+      ? ('Con gusto te ayudamos. Tu solicitud *quedó registrada* y la tenemos presente.\n\nPara asignarte un asesor necesitamos tu *autorización para el tratamiento de datos personales*. 👇')
       : 'Para continuar necesitamos tu *autorización* para el tratamiento de tus datos. Por favor elige una opción 👇';
     wpp_body=boton(wa, _cab+'\n\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]); }
   else if(cc[0]==='CONSENT_NO'){ etapa='noconsent';
@@ -1713,6 +1788,51 @@ nodes.append(node("¿Es mensaje?", "n8n-nodes-base.if", 2,
      "conditions":[{"id":"m1","leftValue":"={{ $json.es_mensaje }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 640, 360))
 nodes.append(node("Fin (no es mensaje)", "n8n-nodes-base.noOp", 1, {}, 860, 520))
+# === LEAD PENDIENTE + PULSO DEL SISTEMA (2026-07-29, pedido Deicy) ===
+# En CADA mensaje se le pregunta a la BD si ese teléfono tiene un lead SIN REPORTAR y con qué asesor. La BD es la
+# única memoria que no caduca ni la pisa una carrera de n8n: por eso Stephanie Naffah (#82, 21-jul, Karime, nunca
+# reportado) volvió a los 6 días y la rotación se la dio a Yormy. Con esto vuelve SIEMPRE al mismo asesor.
+# De paso trae 4 métricas del sistema para el informe que Deicy pide desde su número de monitoreo.
+# TODAS las columnas son subconsultas ESCALARES -> la consulta devuelve SIEMPRE 1 fila (NULLs si no hay nada),
+# nunca 0 filas; si devolviera 0 el flujo se cortaría y el bot dejaría de responder.
+# Tope de 30 días para el AMARRE: un lead más viejo ya no fuerza al asesor (evita "zombis" si alguien sale del
+# equipo o el lead quedó abandonado). No se pierde nada: el lead viejo sigue en la BD y en el Excel.
+_PEND_COND = "modo_prueba=0 AND (estado IS NULL OR estado='') AND creado_en > NOW() - INTERVAL 30 DAY"
+# Para el PANEL de Deicy se cuentan TODOS los sin reportar, sin tope de fecha.
+_REP_COND  = "modo_prueba=0 AND (estado IS NULL OR estado='')"
+_PEND_SQL = ("SELECT "
+    "(SELECT id FROM leads WHERE telefono=$1 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_id, "
+    "(SELECT asesor FROM leads WHERE telefono=$2 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_asesor, "
+    "(SELECT asesor_tel FROM leads WHERE telefono=$3 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_tel, "
+    # ya formateada en SQL: si devolvemos el datetime crudo, n8n lo pasa a ISO/UTC y la fecha se ve corrida
+    "(SELECT DATE_FORMAT(creado_en,'%d/%m a las %H:%i') FROM leads WHERE telefono=$4 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_fecha, "
+    "(SELECT COUNT(*) FROM leads WHERE modo_prueba=0 AND DATE(creado_en)=CURDATE()) AS rep_hoy, "
+    "(SELECT COUNT(*) FROM leads WHERE "+_REP_COND+") AS rep_pend, "
+    "(SELECT GROUP_CONCAT(CONCAT(a.asesor,' ',a.n) ORDER BY a.n DESC SEPARATOR ' · ') FROM "
+      "(SELECT asesor, COUNT(*) n FROM leads WHERE modo_prueba=0 AND DATE(creado_en)=CURDATE() GROUP BY asesor) a) AS rep_hoy_det, "
+    "(SELECT GROUP_CONCAT(CONCAT(b.asesor,' ',b.n) ORDER BY b.n DESC SEPARATOR ' · ') FROM "
+      "(SELECT asesor, COUNT(*) n FROM leads WHERE "+_REP_COND+" GROUP BY asesor) b) AS rep_pend_det")
+nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery", "query":_PEND_SQL,
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+    860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+# El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
+# abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
+nodes.append(node("Unir pendiente", "n8n-nodes-base.code", 2, {"jsCode": r"""
+const d = $('Extraer datos').first().json;
+let p = {}; try{ p = $input.first().json || {}; }catch(e){}
+if(p && p.error) p = {};
+return [{ json: Object.assign({}, d, {
+  pend_id:      p.pend_id      || 0,
+  pend_asesor:  p.pend_asesor  || '',
+  pend_tel:     p.pend_tel     || '',
+  pend_fecha:   p.pend_fecha   ? String(p.pend_fecha) : '',
+  rep_hoy:      p.rep_hoy      || 0,
+  rep_pend:     p.rep_pend     || 0,
+  rep_hoy_det:  p.rep_hoy_det  || '',
+  rep_pend_det: p.rep_pend_det || ''
+}) }];
+"""}, 1080, 360))
 # === Fase 2: capa de IA (entre "¿Es mensaje?" y el Cerebro), detrás del kill-switch USAR_IA ===
 nodes.append(node("¿Usar IA?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and","conditions":[
@@ -2265,7 +2385,9 @@ connections = {
  "Verificar firma": {"main":[[{"node":"¿Firma válida?","type":"main","index":0}]]},
  "¿Firma válida?": {"main":[[{"node":"Extraer datos","type":"main","index":0}],[{"node":"Descartado (firma inválida)","type":"main","index":0}]]},
  "Extraer datos": {"main":[[{"node":"¿Es mensaje?","type":"main","index":0}]]},
- "¿Es mensaje?": {"main":[[{"node":"¿Es imagen?","type":"main","index":0}],[{"node":"Fin (no es mensaje)","type":"main","index":0}]]},
+ "¿Es mensaje?": {"main":[[{"node":"Buscar pendiente (MySQL)","type":"main","index":0}],[{"node":"Fin (no es mensaje)","type":"main","index":0}]]},
+ "Buscar pendiente (MySQL)": {"main":[[{"node":"Unir pendiente","type":"main","index":0}]]},
+ "Unir pendiente": {"main":[[{"node":"¿Es imagen?","type":"main","index":0}]]},
  "¿Es imagen?": {"main":[[{"node":"Obtener URL imagen (Meta)","type":"main","index":0}],[{"node":"¿Usar IA?","type":"main","index":0}]]},
  "Obtener URL imagen (Meta)": {"main":[[{"node":"Descargar imagen (Meta)","type":"main","index":0}]]},
  "Descargar imagen (Meta)": {"main":[[{"node":"Preparar IA Visión","type":"main","index":0}]]},
@@ -2321,6 +2443,8 @@ _POS = {
   "Descartado (firma inválida)": (560, 580),
   "Extraer datos": (720, 380),
   "¿Es mensaje?": (900, 380),
+  "Buscar pendiente (MySQL)": (1000, 260),
+  "Unir pendiente": (1220, 260),
   "Fin (no es mensaje)": (900, 600),
   "¿Es imagen?": (1120, 380),
   # carril VISIÓN (arriba): descarga la foto y la hace ver por la IA
