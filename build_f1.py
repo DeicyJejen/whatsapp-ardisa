@@ -965,10 +965,10 @@ if(SEG_ACTIVO && (String(id||'').indexOf('SEG')===0 || store.segSes[wa])){
       : 'Ese reporte ya quedó *registrado* ✅. Si necesitas actualizar un resultado, escríbeme *hola* y te muestro tus solicitudes por reportar. 🤝')});
   }
   if(!ss && String(id||'').indexOf('SEG')===0 && String(id||'').indexOf('SEG:')!==0){   // otros SEG* huérfanos (SEGM_, SEG_NOOBS)
-    return _R({etapa:'seg_huerfano', wpp_body:txt(wa,'Ese botón ya venció. Escríbeme *hola* para retomar el reporte. 🤝')});
+    return _R({etapa:'seg_huerfano', wpp_body:txt(wa,'Ese botón ya venció. Escríbenos *hola* y te mostramos tus solicitudes pendientes. 🤝')});
   }
   if(ss && !id && texto && /^(cancelar|cancela|salir|cerrar|no reportar|dejar|luego)\b/i.test(String(texto).trim().toLowerCase())){
-    delete store.segSes[wa]; return _R({etapa:'seg_cancel', wpp_body:txt(wa,'Listo, cancelé el reporte. Cuando quieras lo retomas con el botón 📊. 🤝')});
+    delete store.segSes[wa]; return _R({etapa:'seg_cancel', wpp_body:txt(wa,'Listo, cancelamos el reporte. Cuando quieras retomarlo escríbenos *hola* y te mostramos tus solicitudes pendientes. 🤝')});
   }
   if(ss){
     ss.t=NOW;
@@ -1338,9 +1338,9 @@ if(preguntaHorario){
 // pendiente. Reiniciar de cero solo si lo pide explícito ("menú", "reiniciar", "empezar") o si ya pasó rato.
 } else if(reinicia && _puedeRetomar(st, low)){
   st.t=NOW; delete st.dormido; delete st.recordado; etapa='retoma';
-  const _n1 = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
-  // "no perdiste nada" sugiere que el sistema pierde cosas -> se retoma con naturalidad, sin mencionarlo.
-  wpp_body = repreguntar(st, 'Hola de nuevo'+_n1+'. 👋 Continuamos con tu solicitud.\n\n');
+  const _n1 = st.nombre ? (', '+String(st.nombre).split(' ')[0]) : '';
+  // Se retoma con naturalidad: nada de mencionar que la conversación se había cerrado ni que algo pudo perderse.
+  wpp_body = repreguntar(st, 'Hola de nuevo'+_n1+'. 👋 Con gusto continuamos con tu solicitud.\n\n');
 } else if(!st || (reinicia && !(st.paso==='cerrado' && (NOW-(st.closedAt||0))<48*3600000))){
   // (un "Hola" de un cliente que YA cerró hace poco NO reinicia el flujo -> cae al manejo de 'cerrado' de abajo, que lo saluda y le dice que su pedido ya está en gestión.)
   // VENTANA 48h (2026-07-23, caso Milena #101-103): antes era 3h y anulaba el estado 'cerrado' reconstruido por
@@ -2266,7 +2266,7 @@ for(const wa in S){
   const _nom = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
   if(!st.recordado && inact>=REMIND && inact<=MAXREM){
     st.recordado=NOW;
-    out.push(emit(wa,st,'Hola'+_nom+'. 👋 ¿Sigues por ahí? Cuando quieras continuamos con tu solicitud. 🤝','recordatorio'));
+    out.push(emit(wa,st,'Hola'+_nom+'. 👋 ¿Continuamos con tu solicitud? Si no recibimos respuesta en unos minutos, cerraremos la conversación y podrás retomarla cuando nos escribas de nuevo. 🤝','recordatorio'));
   } else if(st.recordado && (NOW-st.recordado)>=CLOSE){
     out.push(emit(wa,st,'Gracias por comunicarte con *Grupo Ardisa*. 🙏\n\nCerramos esta conversación por ahora. Cuando lo necesites, escríbenos y con gusto retomamos tu solicitud.\n\nQue tengas un excelente día. 🌟','cierre_inactividad'));
     st.dormido=NOW; delete st.recordado;   // NO borramos la sesión: la dejamos "dormida" -> si el cliente responde o toca el botón pendiente, RETOMA donde iba (no reinicia el menú de marca)
