@@ -878,6 +878,38 @@ function carpSiguiente(st){
   return {etapa:'ocupacion', wpp_body: lista(wa,'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA)};
 }
 
+// ¿El saludo debe RETOMAR en vez de reiniciar? Sí cuando la sesión venía a mitad de la recolección, es reciente
+// (<3h) y ya tiene datos del cliente. Se evalúa como función (no como const) porque `st` se reconstruye en varios
+// puntos antes de llegar a la cadena de decisión; así siempre mira el estado REAL del momento.
+const _PASOS_MEDIO = ['marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','detalle','confirmGrupo'];
+function _puedeRetomar(st, low){
+  if(!st) return false;
+  if(/^\s*(menu|men[uú]|inicio|reiniciar|empezar|start)\s*$/i.test(low||'')) return false;   // pidió empezar de cero: se respeta
+  if(_PASOS_MEDIO.indexOf(st.paso)<0) return false;
+  if((NOW-(st.t||0)) >= 3*3600000) return false;
+  return !!(st.nombre || st.marca || st.ciudad);
+}
+// RE-PREGUNTAR el paso pendiente (2026-07-29): cuando un saludo llega a mitad de la recolección, en vez de
+// borrar el perfil se repite EXACTAMENTE la pregunta donde iba. Devuelve el wpp_body listo para enviar.
+function repreguntar(st, pre){
+  pre = pre || '';
+  switch(st.paso){
+    case 'nombre':      return txt(wa, pre+'👤 ¿Me confirmas tu *nombre y apellido*?');
+    case 'ciudad':      return ciudadMenu(pre+'📍 ¿En qué *ciudad* te encuentras?', (st.marca==='Ardisa'?CIU_ARD:CIU));
+    case 'ciudadOtra':  return txt(wa, pre+'📍 ¿En qué *ciudad* te encuentras? Escríbela aquí (ciudad y departamento).');
+    case 'ocuArd':      return lista(wa, pre+'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR);
+    case 'ocupacion':   return lista(wa, pre+'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA);
+    case 'punto': {
+      const _p = puntosDe(st.ciudadId);
+      if(_p.length>1) return lista(wa, pre+'📍 ¿Cuál punto de *Carpincentro* te queda más cerca?','Ver puntos',('Puntos '+(st.ciudad||'')),_p.map((p,i)=>['PT_'+i,p.tienda,p.dir]));
+      return txt(wa, pre+MSG_DETALLE);
+    }
+    case 'detalle':      return txt(wa, pre+MSG_DETALLE);
+    case 'confirmGrupo': return grupoMenu(pre);
+    default:             return boton(wa, pre+'¿Seguimos con *Ardisa* o con *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes', MARCA);
+  }
+}
+
 const low=texto.toLowerCase();
 // reinicia: saludos/menú, tolerante a errores de tipeo ("hol", "holaaa", "ola", "buenass"...)
 const reinicia = /^\s*(h?o+l+a*|buen[oa]s?(\s+(d[ií]as|tardes|noches))?|hi+|hey+|hello+|menu|men[uú]|inicio|reiniciar|empezar|start)\s*$/i.test(low);
@@ -994,8 +1026,11 @@ if(SEG_ACTIVO && (String(id||'').indexOf('SEG')===0 || store.segSes[wa])){
 //   - escribe "demo" -> entra a modo demo y el bot la atiende como clienta hasta que pida "informe"
 if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
   store.demoAdmin = store.demoAdmin || {};
-  const _pideDemo   = /^(demo|probar|prueba|simular|modo demo|modo cliente)\b/i.test(low);
-  const _pideInform = /(informe|reporte|estado|status|c[oó]mo va|como va|pulso|resumen|salir|fin demo)/i.test(low);
+  // Coincidencia del mensaje COMPLETO, no del comienzo: con /^prueba\b/ el nombre "Prueba Retoma" reactivaba el
+  // modo demo y se tragaba el mensaje (mismo error que el ^no del consentimiento, detectado probando en vivo 29-jul).
+  const _cmd = low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim();
+  const _pideDemo   = /^(demo|modo demo|modo cliente|simular|probar el bot|quiero probar)$/i.test(_cmd);
+  const _pideInform = /^(informe|reporte|estado|status|panel|pulso|resumen|salir|fin demo|salir del demo|c[oó]mo va|como va|c[oó]mo va el bot|como va el bot)$/i.test(_cmd);
   if(_pideDemo){ store.demoAdmin[wa]=NOW; delete S[wa];
     return [{json:{etapa:'admin_demo', wa_id:wa, wpp_body:txt(wa,'🧪 *Modo demo activado.* Te atiendo como si fueras una clienta para que pruebes el flujo.\n\nCuando quieras volver al panel, escribe *informe*.'), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:{creado_en:fechaCol(), wa_id:wa, nombre:'Deicy (monitoreo)', entrada:[...String(texto||'')].slice(0,200).join(''), salida:'modo demo ON', etapa:'admin_demo'}, consent_log:null, pend_cierre:false, pend_token:0}}];
   }
@@ -1274,6 +1309,16 @@ if(preguntaHorario){
   const _nom = prev.nombre ? (' '+prev.nombre.split(' ')[0]) : '';
   const _bienv = prev.nombre ? ('¡Hola de nuevo'+_nom+'! ') : '¡Bienvenido a *Grupo Ardisa*! ';
   wpp_body=boton(wa,_bienv+'Con gusto te asesoramos.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
+// === UN SALUDO NO BORRA UN PERFIL A MEDIO LLENAR (2026-07-29, caso Stephanie Naffah 27-jul) ===
+// Ella eligió Carpincentro, dio nombre, ciudad Bogotá y punto Restrepo; se demoró 7 min en el paso del perfil,
+// el bot la cerró por inactividad (15 min) y al escribir "Buenas tardes" la REINICIÓ DESDE CERO. Volvió a llenar
+// todo y esta vez tocó "Ardisa" -> su MDF (producto de Carpincentro) terminó en Ardisa/Construcción con Yormy.
+// Ahora, si venía a mitad de la recolección hace <3h, el saludo RETOMA donde iba y le repetimos la pregunta
+// pendiente. Reiniciar de cero solo si lo pide explícito ("menú", "reiniciar", "empezar") o si ya pasó rato.
+} else if(reinicia && _puedeRetomar(st, low)){
+  st.t=NOW; delete st.dormido; delete st.recordado; etapa='retoma';
+  const _n1 = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
+  wpp_body = repreguntar(st, '¡Hola de nuevo'+_n1+'! 👋 Seguimos justo donde íbamos, *no perdiste nada*.\n\n');
 } else if(!st || (reinicia && !(st.paso==='cerrado' && (NOW-(st.closedAt||0))<48*3600000))){
   // (un "Hola" de un cliente que YA cerró hace poco NO reinicia el flujo -> cae al manejo de 'cerrado' de abajo, que lo saluda y le dice que su pedido ya está en gestión.)
   // VENTANA 48h (2026-07-23, caso Milena #101-103): antes era 3h y anulaba el estado 'cerrado' reconstruido por
@@ -1516,6 +1561,18 @@ if(preguntaHorario){
     else { const _nt=[...texto].slice(0,300).join(''); st.detalle = (st.detalle && st.detalle.length>1) ? [...(st.detalle+' '+_nt)].slice(0,400).join('') : _nt; rutTxt=st.detalle.toLowerCase(); }
     // Ruteo Ardisa por PRODUCTO: corrobora IA + palabras clave. Si mezcla/duda -> PREGUNTA (nunca adivina).
     let cerrarDet = true;
+    // === LA IA CORRIGE LA MARCA (2026-07-29, caso Stephanie Naffah #139) ===
+    // El cliente había tocado "Ardisa" en el menú, escribió "mdf enchapado" y la IA respondió
+    // {marca:'Carpincentro', productos:['MDF enchapado'], confianza:'alta'} — CORRECTO. Pero aquí solo se usaba
+    // R2.grupo y se ignoraba R2.marca, así que el toque del menú se imponía sobre la IA: el lead salió como
+    // Ardisa y la rotación se lo dio a Yormy en vez de a Karime (Carpincentro). El principio del sistema es
+    // "la IA manda, las palabras clave son respaldo" -> también debe mandar en la MARCA.
+    // Conservador: solo corrige con evidencia fuerte (producto identificado + confianza ALTA + en alcance).
+    if(ia && ia.en_alcance===true && ia.confianza==='alta' && ia.productos && ia.productos.length &&
+       (ia.marca==='Ardisa'||ia.marca==='Carpincentro') && ia.marca!==st.marca && !es_media){
+      st.marca = ia.marca; st.marcaCorregida = 1;
+      if(ia.marca==='Carpincentro'){ delete st.grupo; st.interes=''; }
+    }
     if(st.marca==='Ardisa' && rutTxt){
       const R2 = ruteoIA(ia, ((ia && ia.productos)?ia.productos.join(' '):'') + ' ' + rutTxt);
       if(R2.grupo){ st.grupo=R2.grupo; st.interes=_gInt(R2.grupo); }
