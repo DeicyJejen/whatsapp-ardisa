@@ -418,7 +418,7 @@ function cerrarLead(st,opts){
     if(_rec){
       S[wa]={paso:'cerrado', t:NOW, closedAt:(_rec.t||NOW), nombre:(_rec.nombre||st.nombre||''), ciudad:(_rec.ciudad||''), ciudadId:st.ciudadId, asesorNom:(_rec.asesorNom||''), asesorNum:(_rec.asesorNum||''), destino:(_rec.destino||''), marca:(_rec.marca||st.marca||'')};
       const _nm=(_rec.nombre||st.nombre)?(', '+String(_rec.nombre||st.nombre).split(' ')[0]):'';
-      return {wpp_body: txt(wa,'¡Listo'+_nm+'! ✅ Tu solicitud ya está *registrada* y '+(_rec.asesorNom?('*'+_rec.asesorNom+'*'):'tu asesor')+' te contactará. Si quieres *agregar algo*, escríbelo y lo sumo a tu solicitud. 🤝'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
+      return {wpp_body: txt(wa,'¡Listo'+_nm+'! ✅ Tu solicitud ya está *registrada* y '+(_rec.asesorNom?('*'+_rec.asesorNom+'*'):'tu asesor')+' te contactará. Si necesitas *agregar algo*, escríbelo y lo sumamos a tu solicitud. 🤝'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
     }
   }
   // RE-EVALUAR HORARIO AL MOMENTO DEL CIERRE (2026-07-17, caso Mayerly): el cliente pudo ENTRAR fuera de horario (7:46)
@@ -786,6 +786,9 @@ function esNombreValido(s){
   if(!pal.every(w=>/^[a-záéíóúñü'’.\-]+$/i.test(w))) return false;                  // cada palabra: solo letras (y ' . -)
   if(!/[a-záéíóúñ]{2}/i.test(s)) return false;
   if(/^(s[ií]|no|ok|okay|listo|vale|hola|buenas|buenos|gracias|claro|dale)$/i.test(s)) return false;
+  // 2026-07-29: NUNCA aceptar como nombre de la persona una etiqueta del propio menú. Así se coló "Otra Ciudad"
+  // como nombre del cliente en el lead #156 (Daniel Feldman), y en pruebas "Ardisa" pasó como nombre.
+  if(/^(ardisa|carpincentro|grupo ardisa|otra ciudad|otra|ciudad|construcci[oó]n|acabados|ferreter[ií]a|mobiliario|proyecto|proyecto a tu medida|proyecto arquitect[oó]nico|cliente final|especialista|ferretero|empresa|carpintero|industrial del mueble|negocio mobiliario|s[ií] autorizo|no autorizo|autorizo|reportar resultado)$/i.test(s.replace(/\s+/g,' ').trim())) return false;
   return true;
 }
 // Extrae SOLO el nombre real: quita saludos e intros ("mi nombre es", "me llamo", "soy", "con"...) que la gente antepone.
@@ -827,7 +830,7 @@ function siguientePaso(st){
     wpp_body=boton(wa,'¡Con gusto te ayudamos! ¿Tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA); return; }
   if(!st.nombre){ st.paso='nombre'; etapa='nombre'; st.acuse='';
     const _lead = _op || (prodTxt?('¡Perfecto! Con gusto gestionamos tu consulta'+prodTxt+'.\n'):'¡Perfecto! ');
-    wpp_body=txt(wa,_lead+'👤 Para asignarte el asesor especializado, ¿me confirmas tu *nombre y apellido*?'); return; }
+    wpp_body=txt(wa,_lead+'👤 Para asignarte el asesor especializado, ¿nos confirmas tu *nombre y apellido*?'); return; }
   if(!st.ciudadId){ st.paso='ciudad'; etapa='ciudad'; st.acuse='';
     const _lead = _op || ('Gracias, '+nom+'. ');
     wpp_body=ciudadMenu(_lead+'📍 ¿En qué *ciudad* te encuentras?', (st.marca==='Ardisa'?CIU_ARD:CIU)); return; }
@@ -1077,12 +1080,12 @@ if(ASESORES[wa] && !(store.segSes && store.segSes[wa])){
   if(_pend.length){
     const _rows=_pend.sort(function(a,b){return (a.sp.t||0)-(b.sp.t||0);}).slice(0,10).map(function(x){return ['SEG:'+x.tok, String(x.sp.cliente||x.sp.telefono||'Cliente').slice(0,24), '📱 +'+(x.sp.telefono||'')];});
     const _intro = _esNota
-      ? ('📝 Recibí tu nota, '+_nomAs+' — quedó guardada. 🙏\n\nPara que el resultado quede en el *informe*, toca la solicitud y elige qué pasó 👇')
+      ? ('📝 Recibimos tu nota, '+_nomAs+' — quedó guardada. 🙏\n\nPara que el resultado quede en el *informe*, toca la solicitud y elige qué pasó 👇')
       : ('¡Hola, '+_nomAs+'! 👋 Ya estás *activo* ✅\n\nTienes *'+_pend.length+'* solicitud'+(_pend.length>1?'es':'')+' por reportar. Toca para dejar el resultado 👇');
     _msgAs = lista(wa, _intro, 'Ver solicitudes','Por reportar',_rows); _saliLog=_intro;
   } else {
     _saliLog = _esNota
-      ? ('📝 Recibí tu nota, '+_nomAs+' — quedó guardada. 🙏 No tienes solicitudes pendientes por reportar ✅')
+      ? ('📝 Recibimos tu nota, '+_nomAs+' — quedó guardada. 🙏 No tienes solicitudes pendientes por reportar ✅')
       : ('¡Hola, '+_nomAs+'! 👋\n\n✅ Ya estás *activo* para recibir tus clientes y reportar resultados.\n\nCuando el bot te pase un cliente, al terminar de atenderlo te llegará el botón *"Reportar resultado"* — tócalo y déjanos cómo te fue (Ganado, Cotización, Perdido…). ¡Gracias! 💚');
     _msgAs = txt(wa, _saliLog);
   }
@@ -1187,7 +1190,7 @@ if(es_media && d.media_id && st && st.destino && !(store.pendCierre && store.pen
   const _ab=_am.some(function(x){return x&&x.to===_dest;}) ? txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó '+(MTYPE_ES[d.mtype]||'un archivo')+'* a su solicitud'+(_r2?(': '+[...(_r2)].slice(0,300).join('')):'')+(_cap?(' — "'+[...(_cap)].slice(0,160).join('')+'"'):'')+'\n📱 +'+wa) : null;   // el texto solo si el adjunto SÍ sale ya hacia el asesor
   if(!_ab && _am.length){ _am.forEach(function(x){ encolarMedia(x, st.nombre||''); }); _am=[]; }   // sin aviso no hay ruta de envío para las copias -> a la cola (el cron las entrega en <=2 min)
   st.addN=(st.addN||0)+1; if(S[wa]) S[wa].t=NOW;
-  const _wb=(st.addN<=1) ? txt(wa,'Recibido'+(st.nombre?(', '+st.nombre.split(' ')[0]):'')+', lo sumo a tu solicitud. Nuestro asesor lo tendrá en cuenta. 🤝') : null;
+  const _wb=(st.addN<=1) ? txt(wa,'Gracias'+(st.nombre?(', '+st.nombre.split(' ')[0]):'')+'. Agregamos esta información a tu solicitud para que tu asesor la tenga en cuenta. 🤝') : null;
   return [{json:{etapa:'adicion_media', wa_id:wa, wpp_body:_wb, aviso_body:_ab, aviso_medias:(_am.length?_am:null), hay_aviso:!!_ab, hay_media:!!_am.length, lead:null, chat:null, consent_log:null, pend_cierre:false, pend_token:0}}];
 }
 if(st && st.t && (NOW-st.t)>TTL){ st=null; delete S[wa]; }   // sesión expirada (6h) -> reinicia
@@ -1336,7 +1339,8 @@ if(preguntaHorario){
 } else if(reinicia && _puedeRetomar(st, low)){
   st.t=NOW; delete st.dormido; delete st.recordado; etapa='retoma';
   const _n1 = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
-  wpp_body = repreguntar(st, '¡Hola de nuevo'+_n1+'! 👋 Seguimos justo donde íbamos, *no perdiste nada*.\n\n');
+  // "no perdiste nada" sugiere que el sistema pierde cosas -> se retoma con naturalidad, sin mencionarlo.
+  wpp_body = repreguntar(st, 'Hola de nuevo'+_n1+'. 👋 Continuamos con tu solicitud.\n\n');
 } else if(!st || (reinicia && !(st.paso==='cerrado' && (NOW-(st.closedAt||0))<48*3600000))){
   // (un "Hola" de un cliente que YA cerró hace poco NO reinicia el flujo -> cae al manejo de 'cerrado' de abajo, que lo saluda y le dice que su pedido ya está en gestión.)
   // VENTANA 48h (2026-07-23, caso Milena #101-103): antes era 3h y anulaba el estado 'cerrado' reconstruido por
@@ -1409,8 +1413,8 @@ if(preguntaHorario){
   if(!cc){ etapa='consent';
     const _yaPidio = !!(st.pendTexto || st.pendMediaId);
     const _cab = _yaPidio
-      ? ('Con gusto te ayudamos. Tu solicitud *quedó registrada* y la tenemos presente.\n\nPara asignarte un asesor necesitamos tu *autorización para el tratamiento de datos personales*. 👇')
-      : 'Para continuar necesitamos tu *autorización* para el tratamiento de tus datos. Por favor elige una opción 👇';
+      ? ('Con gusto te ayudamos. Ya tenemos tu consulta.\n\nPara asignarte un asesor y darle trámite necesitamos tu *autorización para el tratamiento de datos personales*. 👇')
+      : 'Para continuar necesitamos tu *autorización* para el tratamiento de tus datos. Por favor elige una opción. 👇';
     wpp_body=boton(wa, _cab+'\n\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]); }
   else if(cc[0]==='CONSENT_NO'){ etapa='noconsent';
     consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'NO', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id };   // registro legal: también guardamos la NEGATIVA
@@ -1435,7 +1439,7 @@ if(preguntaHorario){
       arrancarIA(st, _ia, _t);   // ya había escrito/mostrado su solicitud y la IA la entendió -> la retomamos (no re-preguntar)
     } else { const _pt=st.pendTexto; delete st.pendTexto; delete st.pendIA; delete st.pendImgDesc; st.paso='marca'; etapa='marca';
       if(_pt) st.notas=(st.notas?(st.notas+' | '):'')+_pt;   // escribió algo (aunque la IA no lo entendiera) -> NO se pierde, le llega al asesor
-      const _ack = (_pt || st.mediaId) ? 'Recibí tu mensaje y lo sumaré a tu solicitud para el asesor. 🙌\n\n' : '';   // el cliente mandó audio/texto -> que sienta que SÍ lo escuchamos
+      const _ack = (_pt || st.mediaId) ? 'Ya tenemos tu mensaje y lo sumamos a tu solicitud para el asesor. 🙌\n\n' : '';   // el cliente mandó audio/texto -> que sienta que SÍ lo escuchamos
       wpp_body=boton(wa,'¡Gracias! Tu autorización quedó registrada ✅\n\n'+_ack+'Con gusto te conectamos con el asesor ideal para lo que necesitas.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA); } }
   }
 } else if(st.paso==='marca'){
@@ -1461,8 +1465,8 @@ if(preguntaHorario){
   }
 } else if(st.paso==='nombre'){
   // Fix 1 (parte nombre): si llega media, usa el nombre de perfil de WhatsApp en vez de descartar
-  if(es_media){ const _pn=[...String(d.profileName||'')].slice(0,50).join('').trim(); if(esNombreValido(_pn)){ st.nombre=capNombre(_pn); siguientePaso(st); } else { etapa='nombre'; wpp_body=txt(wa,'Recibí tu archivo. Para asignarte el asesor, ¿me confirmas tu *nombre y apellido*? ✍️'); } }
-  else if(!texto){ etapa='nombre'; wpp_body=txt(wa,'Por favor escríbenos tu *nombre y apellido* en texto'); }
+  if(es_media){ const _pn=[...String(d.profileName||'')].slice(0,50).join('').trim(); if(esNombreValido(_pn)){ st.nombre=capNombre(_pn); siguientePaso(st); } else { etapa='nombre'; wpp_body=txt(wa,'Recibimos tu archivo. Para asignarte un asesor, ¿nos confirmas tu *nombre y apellido*? ✍️'); } }
+  else if(!texto){ etapa='nombre'; wpp_body=txt(wa,'Por favor escríbenos tu *nombre y apellido*. ✍️'); }
   else { const _n=limpiaNombre([...texto].slice(0,60).join(''));   // quita "mi nombre es", "soy", "me llamo"... -> solo el nombre real
     // valida que parezca un nombre REAL de persona (no un producto, cantidad ni una solicitud). Sin nombre válido NO avanza.
     if(!esNombreValido(_n)){
@@ -1470,11 +1474,11 @@ if(preguntaHorario){
       etapa='nombre';
       wpp_body= (st.nombreIntentos>=2)
         ? txt(wa,'Para registrar tu solicitud necesito el *nombre de la persona* (nombre y apellido). ✍️')
-        : txt(wa,'👤 Para asignarte el asesor correcto, ¿me confirmas tu *nombre y apellido*?');
+        : txt(wa,'👤 Para asignarte el asesor correcto, ¿nos confirmas tu *nombre y apellido*?');
     } else { delete st.nombreIntentos; st.nombre=capNombre(_n); siguientePaso(st); } }
 } else if(st.paso==='ciudad'){
   const c=elige(st.marca==='Ardisa'?CIU_ARD:CIU);
-  if(!c){ wpp_body=ciudadMenu('Por favor elige tu *ciudad* en la lista 👇', (st.marca==='Ardisa'?CIU_ARD:CIU)); }
+  if(!c){ wpp_body=ciudadMenu('Por favor selecciona tu *ciudad* en la lista. Si no aparece, elige *Otra ciudad*. 👇', (st.marca==='Ardisa'?CIU_ARD:CIU)); }
   else if(c[0]==='OTRA'){ st.ciudadId='OTRA'; st.paso='ciudadOtra'; etapa='ciudadOtra';
     wpp_body=txt(wa,'📍 ¿En qué *ciudad* te encuentras? Escríbela aquí (ciudad y departamento).'); }
   else { st.ciudad=c[1]; st.ciudadId=c[0];
@@ -1483,7 +1487,7 @@ if(preguntaHorario){
       wpp_body=lista(wa,'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR); }
     else { const r=carpSiguiente(st); etapa=r.etapa; wpp_body=r.wpp_body; } }
 } else if(st.paso==='ciudadOtra'){   // capturó "Otra ciudad" -> pedimos la ciudad real por texto (ciudadId sigue 'OTRA' -> sin asesor asignado, pero guardamos la ciudad para el humano)
-  if(es_media||!texto){ etapa='ciudadOtra'; wpp_body=txt(wa,'Escríbenos tu *ciudad* en texto, por favor'); }
+  if(es_media||!texto){ etapa='ciudadOtra'; wpp_body=txt(wa,'Por favor escríbenos tu *ciudad*. 📍'); }
   else { st.ciudad=[...texto].slice(0,40).join('');
     // Si escribió una ciudad CONOCIDA (p.ej. "Floridablanca", "Bucaramanga") aunque haya entrado por "Otra ciudad",
     // la mapeamos a su ID -> se rutea al asesor correcto de esa sede (Floridablanca -> María Delia), NO al de Bucaramanga por defecto.
@@ -1528,7 +1532,7 @@ if(preguntaHorario){
 } else if(st.paso==='punto'){   // Carpincentro: el cliente elige el punto de venta más cercano
   const pts=puntosDe(st.ciudadId); const opts=pts.map((p,i)=>['PT_'+i,p.tienda,p.dir]);
   const o=elige(opts);
-  if(!o){ etapa='punto'; wpp_body=lista(wa,'Por favor elige el *punto* más cercano 👇','Ver puntos',('Puntos '+(st.ciudad||'')),opts); }
+  if(!o){ etapa='punto'; wpp_body=lista(wa,'Por favor elige el *punto* más cercano. 👇','Ver puntos',('Puntos '+(st.ciudad||'')),opts); }
   else { st.puntoIdx=parseInt(o[0].slice(3),10); st.paso='ocupacion'; etapa='ocupacion';
     wpp_body=lista(wa,'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA); }
 } else if(st.paso==='detalle'){
@@ -1536,7 +1540,7 @@ if(preguntaHorario){
   // "ok / gracias / listo / dale" en este paso = el cliente confirma (su solicitud ya cerró, o solo asiente). NO lo interrogamos con "cuéntanos más".
   if(!es_media && texto && /^((ok(ay)?|listo|dale|vale|bueno|buenas|perfecto|de acuerdo|gracias|muchas|mil|muy|amable|va|hecho|entendido|correcto|👍|🙏|👌)[\s.,!👍🙏👌]*)+$/i.test(low)){
     etapa='detalle_ack'; wpp_body=txt(wa,'¡Perfecto'+(st.nombre?(', '+st.nombre.split(' ')[0]):'')+'! 🤝 Aquí estamos para lo que necesites.'); }
-  else if(!es_media && (!texto || [...texto].length<=2)){ etapa='detalle'; wpp_body=txt(wa,'¿Nos cuentas un poco más en *texto*, por favor? Cuéntanos *qué producto* necesitas'); }
+  else if(!es_media && (!texto || [...texto].length<=2)){ etapa='detalle'; wpp_body=txt(wa,'¿Nos cuentas un poco más, por favor? Indícanos *qué producto* necesitas. ✍️'); }
   // La IA valida: si el texto NO es un producto real (p.ej. "prueba ti", "asdf"), NO cerramos con basura.
   // PERO si hay intención comercial clara (cotización/materiales/necesito/comprar...), aunque sea vaga, NO interrogamos:
   // lo pasamos al asesor por el cierre normal (que si hace falta pregunta Construcción/Acabados con 1 toque).
@@ -1545,13 +1549,13 @@ if(preguntaHorario){
     st.revalidos = (st.revalidos||0) + 1;
     if(st.revalidos < 2){
       etapa='detalle';
-      wpp_body=txt(wa,'Para ayudarte mejor, ¿me indicas *qué producto necesitas* en concreto? Por ejemplo: cemento, cerámica, tableros MDF o grifería.');
+      wpp_body=txt(wa,'Para ayudarte mejor, ¿nos indicas *qué producto necesitas* en concreto? Por ejemplo: cemento, cerámica, tableros MDF o grifería.');
     } else {
       // Nunca especificó un producto real (basura tipo "prueba ti", "oruan ti") -> NO creamos lead: no le hacemos
       // perder tiempo al asesor. Cierre amable, sin pasar nada. Sigue en 'detalle': si luego escribe un producto
       // real, se procesa normal. (Si el cliente quiere un HUMANO, eso se maneja aparte con "asesor"/escape.)
       st.revalidos=0; etapa='sin_producto';
-      wpp_body=txt(wa,'No logramos identificar el producto que necesitas. 🤝 Cuando tengas claro *qué producto* buscas (por ejemplo: cemento, cerámica, grifería...), escríbenos y con gusto te ayudamos.');
+      wpp_body=txt(wa,'Para darte una cotización precisa necesitamos saber qué producto buscas. Cuando lo tengas definido (por ejemplo: cemento, cerámica, grifería...), escríbenos y con gusto te atendemos. 🤝');
     }
   }
   // Pide COTIZACIÓN / ASESORÍA / INFO pero SIN decir el PRODUCTO ("realizar una cotización", "necesito asesoría", "precios").
@@ -1571,7 +1575,7 @@ if(preguntaHorario){
   // Red de seguridad: la IA NO corrió (rate-limit/tope/caída) y el texto es muy corto -> re-pregunta 1 vez en vez de cerrar a ciegas
   else if(!es_media && !ia && [...texto].length<=8 && !st.revalidos){
     st.revalidos=1; etapa='detalle';
-    wpp_body=txt(wa,'¿Me cuentas un poco más sobre *qué producto* necesitas? Por ejemplo: cemento, cerámica, tableros MDF...');
+    wpp_body=txt(wa,'¿Nos cuentas un poco más sobre *qué producto* necesitas? Por ejemplo: cemento, cerámica, tableros MDF...');
   }
   else {
     let mediaNota='', rutTxt='';
@@ -1638,7 +1642,7 @@ if(preguntaHorario){
         aviso_body=txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó un '+(MTYPE_ES[d.mtype]||'archivo')+'* a su solicitud'+(_r?(': '+_r):'')+(_cap?(' — "'+[...(_cap)].slice(0,160).join('')+'"'):'')+'\n📱 +'+wa);
       } else { encolarMedia(_o, st.nombre||''); }   // ventana del asesor cerrada -> a la cola (131047); se entrega cuando escriba
     }
-    wpp_body = (st.addN<=1) ? txt(wa,'Recibido'+_nom+', lo sumo a tu solicitud. Nuestro asesor lo tendrá en cuenta. 🤝') : null;
+    wpp_body = (st.addN<=1) ? txt(wa,'Gracias'+_nom+'. Agregamos esta información a tu solicitud para que tu asesor la tenga en cuenta. 🤝') : null;
   } else if(nuevaConsulta && (NOW-(st.closedAt||0) >= 5*60*1000)){
     // NUEVA consulta (producto nuevo claro y ya pasó rato) -> arrancamos conservando nombre/ciudad.
     st.paso='marca'; etapa='marca'; delete st.escape; delete st.fuera; delete st.detalle; delete st.tiposol; delete st.ocupacion; delete st.grupo; delete st.interes; delete st.marca; delete st.cuando; delete st.pidioHumano; delete st.puntoIdx; delete st.iaPend; delete st.revalidos; delete st.addN; delete st.closedAt;
@@ -1647,13 +1651,13 @@ if(preguntaHorario){
     // ADICIÓN de texto justo tras cerrar (<5 min): se lo pasamos al asesor.
     etapa='adicion'; st.addN=(st.addN||0)+1;
     if(_dest && st.addN<=2){ aviso_body=txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó:* '+[...texto].slice(0,300).join('')+'\n📱 +'+wa); }
-    wpp_body = (st.addN===1) ? txt(wa,'Recibido'+_nom+', lo sumo a tu solicitud. Nuestro asesor lo tendrá en cuenta. 🤝') : null;
+    wpp_body = (st.addN===1) ? txt(wa,'Gracias'+_nom+'. Agregamos esta información a tu solicitud para que tu asesor la tenga en cuenta. 🤝') : null;
   } else {
     // SALUDO / SEGUIMIENTO / QUEJA (no es producto nuevo): saludamos, confirmamos que su pedido YA está en gestión y ofrecemos ayuda. NUNCA reiniciamos.
     etapa='seguimiento'; st.t=NOW;
     const _asNom = st.asesorNom ? ((st.asesorF?'nuestra asesora *':'nuestro asesor *')+st.asesorNom+'*') : 'nuestro equipo de asesores';
     const _quien = st.asesorNom ? 'quien' : 'que';
-    wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud ya está *en gestión* con '+_asNom+', '+_quien+' te contactará dentro del horario de atención. ¿Hay *algo más* en lo que te pueda ayudar? 🤝');
+    wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud ya está *en gestión* con '+_asNom+', '+_quien+' te contactará dentro del horario de atención. ¿Hay *algo más* en lo que te podamos ayudar? 🤝');
     // DÍA SIGUIENTE SIN ATENDER (2026-07-24, pedido Deicy): si el cierre fue OTRO día (y <48h) y el cliente vuelve
     // a escribir, se RE-REGISTRA el lead marcado "no atendido ayer" (MISMO asesor, sale en el reporte) y se le
     // recuerda al asesor aunque el cliente solo diga "buen día". Máximo 1 vez por día por cliente.
@@ -1666,7 +1670,9 @@ if(preguntaHorario){
         asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
       const _rec2=txt(_dest,'⚠️ *Cliente de AYER aún sin atender — volvió a escribir*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\nPor favor contáctalo hoy. 📲 *Escríbele:* https://wa.me/'+wa);
       if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else encolarMedia(_rec2, st.nombre||'');
-      wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud sigue *en gestión* con '+_asNom+' y le acabamos de *recordar* que te contacte hoy. Gracias por tu paciencia. 🤝');
+      // 2026-07-29 (Deicy): NUNCA contarle al cliente que hubo que recordarle al asesor — es un problema interno.
+      // Se reconoce la demora, se compromete el contacto y punto.
+      wpp_body=txt(wa,'Hola'+_nom+'. Lamentamos la demora en comunicarnos contigo. 🙏\n\nTu solicitud está *priorizada* con '+_asNom+', quien te contactará *hoy* dentro del horario de atención.\n\nGracias por tu paciencia. 🤝');
     }
     // Solo si es una QUEJA/insistencia REAL (no un simple "Hola") le recordamos al asesor (máx 1 cada 10 min).
     const _esQueja = !reinicia && /(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|cu[aá]ndo me (atienden|contestan|llaman))/i.test(low);
@@ -1682,9 +1688,9 @@ if(preguntaHorario){
         (MODO_PRUEBA?('\n\n🧪 _MODO PRUEBA: en producción este recordatorio iría al asesor asignado._'):''));
     }
   }
-} else { delete S[wa]; wpp_body=txt(wa,'Escribe *Hola* para empezar'); }
+} else { delete S[wa]; wpp_body=txt(wa,'Escríbenos *Hola* y con gusto te atendemos. 🤝'); }
 } catch(e){
-  wpp_body=txt(wa,'Tuvimos un inconveniente técnico. Escribe *Hola* para empezar de nuevo.');
+  wpp_body=txt(wa,'No pudimos procesar tu último mensaje. Escríbenos *Hola* y con gusto retomamos tu solicitud. 🤝');
   aviso_body=null; etapa='error'; try{ delete S[wa]; }catch(_){}
 }
 if(S[wa]) S[wa].t=NOW;   // marca actividad (para el TTL)
@@ -2210,7 +2216,10 @@ function _festivos(y){ const S=new Set(); const D=(mo,da)=>new Date(Date.UTC(y,m
 function _esHabil(d){ if(d.getUTCDay()===0) return false; return !_festivos(d.getUTCFullYear()).has(_ymd(d)); }   // hábil = NO domingo y NO festivo (sábado sí)
 function _diasHabiles(fromE, toE){ const d0=_colDate(fromE), d1=_colDate(toE); const start=Date.UTC(d0.getUTCFullYear(),d0.getUTCMonth(),d0.getUTCDate()), end=Date.UTC(d1.getUTCFullYear(),d1.getUTCMonth(),d1.getUTCDate()); let n=0; for(let t=start+86400000;t<=end;t+=86400000){ if(_esHabil(new Date(t))) n++; } return n; }   // hábiles transcurridos (sin contar el día de inicio)
 const MID=['','marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','detalle','confirmGrupo','consent'];
-const REMIND=7*60*1000, CLOSE=8*60*1000, WINDOW=24*3600*1000, MAXREM=40*60*1000;   // más paciente: recordatorio a los 7 min, cierre 8 min después (~15 min total) para no botar clientes que apenas están eligiendo
+const REMIND=12*60*1000, CLOSE=18*60*1000, WINDOW=24*3600*1000, MAXREM=60*60*1000;   // 2026-07-29: recordatorio a los 12 min, cierre 18 min después (~30 min total).
+// Antes eran 7+8 = 15 min y eso costaba clientes: Stephanie Naffah (27-jul) se demoró 7 min eligiendo su perfil, el bot la cerró,
+// al saludar la reinició desde cero y su lead terminó con el asesor equivocado. Quien está midiendo un espacio o consultando un
+// precio con su jefe se demora más de 15 min. MAXREM sube a 60 min para que siga por encima del cierre.
 function emit(wa,st,body,etapa){ return {json:{msg:{messaging_product:'whatsapp', to:wa, type:'text', text:{body:body}}, chat:{creado_en:FECHA, wa_id:wa, nombre:(st.nombre||''), entrada:'(inactividad)', salida:body, etapa:etapa}}}; }
 const out=[];
 // poda de pendCierre VARADOS (2026-07-22, caso Yohana 16-jul): una entrada que sobreviva (p.ej. reinicio de n8n entre
@@ -2257,9 +2266,9 @@ for(const wa in S){
   const _nom = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
   if(!st.recordado && inact>=REMIND && inact<=MAXREM){
     st.recordado=NOW;
-    out.push(emit(wa,st,'¡Hola'+_nom+'! 👋 ¿Sigues en línea? Continúa con tu solicitud, o en unos minutos cerraremos el chat por inactividad. 🤝','recordatorio'));
+    out.push(emit(wa,st,'Hola'+_nom+'. 👋 ¿Sigues por ahí? Cuando quieras continuamos con tu solicitud. 🤝','recordatorio'));
   } else if(st.recordado && (NOW-st.recordado)>=CLOSE){
-    out.push(emit(wa,st,'Gracias por comunicarte con *Grupo Ardisa*. 🙏\n\nPor el momento no hemos recibido respuesta, así que cerraremos este chat por ahora. Cuando lo necesites, vuelve a escribirnos y con gusto retomaremos tu solicitud para asesorarte.\n\n¡Te deseamos un excelente día! 🌟','cierre_inactividad'));
+    out.push(emit(wa,st,'Gracias por comunicarte con *Grupo Ardisa*. 🙏\n\nCerramos esta conversación por ahora. Cuando lo necesites, escríbenos y con gusto retomamos tu solicitud.\n\nQue tengas un excelente día. 🌟','cierre_inactividad'));
     st.dormido=NOW; delete st.recordado;   // NO borramos la sesión: la dejamos "dormida" -> si el cliente responde o toca el botón pendiente, RETOMA donde iba (no reinicia el menú de marca)
   } else if(!st.recordado && inact>MAXREM){
     delete S[wa];   // abandonó hace rato (>30 min): limpiamos en silencio, sin molestar
