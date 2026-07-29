@@ -1881,16 +1881,22 @@ nodes.append(node("Fin (no es mensaje)", "n8n-nodes-base.noOp", 1, {}, 860, 520)
 _PEND_COND = "modo_prueba=0 AND (estado IS NULL OR estado='') AND creado_en > NOW() - INTERVAL 30 DAY"
 # Para el PANEL de Deicy se cuentan TODOS los sin reportar, sin tope de fecha.
 _REP_COND  = "modo_prueba=0 AND (estado IS NULL OR estado='')"
+# RENDIMIENTO (2026-07-29): esta consulta corre en CADA mensaje, así que no puede degradarse cuando la tabla crezca.
+#  - `creado_en >= CURDATE()` en vez de `DATE(creado_en)=CURDATE()`: la función sobre la columna impedía usar el índice
+#    (escaneo completo). Mismo resultado, pero ahora entra por idx_creado.
+#  - Índice `idx_pend (modo_prueba, estado, creado_en)` creado en la BD el 29-jul: deja la cuenta de 'sin reportar'
+#    como ref_or_null CUBIERTA por el índice. Si se restaura la BD desde cero, hay que volver a crearlo:
+#    CREATE INDEX idx_pend ON leads (modo_prueba, estado, creado_en);
 _PEND_SQL = ("SELECT "
     "(SELECT id FROM leads WHERE telefono=$1 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_id, "
     "(SELECT asesor FROM leads WHERE telefono=$2 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_asesor, "
     "(SELECT asesor_tel FROM leads WHERE telefono=$3 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_tel, "
     # ya formateada en SQL: si devolvemos el datetime crudo, n8n lo pasa a ISO/UTC y la fecha se ve corrida
     "(SELECT DATE_FORMAT(creado_en,'%d/%m a las %H:%i') FROM leads WHERE telefono=$4 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_fecha, "
-    "(SELECT COUNT(*) FROM leads WHERE modo_prueba=0 AND DATE(creado_en)=CURDATE()) AS rep_hoy, "
+    "(SELECT COUNT(*) FROM leads WHERE modo_prueba=0 AND creado_en >= CURDATE()) AS rep_hoy, "
     "(SELECT COUNT(*) FROM leads WHERE "+_REP_COND+") AS rep_pend, "
     "(SELECT GROUP_CONCAT(CONCAT(a.asesor,' ',a.n) ORDER BY a.n DESC SEPARATOR ' · ') FROM "
-      "(SELECT asesor, COUNT(*) n FROM leads WHERE modo_prueba=0 AND DATE(creado_en)=CURDATE() GROUP BY asesor) a) AS rep_hoy_det, "
+      "(SELECT asesor, COUNT(*) n FROM leads WHERE modo_prueba=0 AND creado_en >= CURDATE() GROUP BY asesor) a) AS rep_hoy_det, "
     "(SELECT GROUP_CONCAT(CONCAT(b.asesor,' ',b.n) ORDER BY b.n DESC SEPARATOR ' · ') FROM "
       "(SELECT asesor, COUNT(*) n FROM leads WHERE "+_REP_COND+" GROUP BY asesor) b) AS rep_pend_det")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
