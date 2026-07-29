@@ -887,6 +887,9 @@ function _puedeRetomar(st, low){
   if(/^\s*(menu|men[uú]|inicio|reiniciar|empezar|start)\s*$/i.test(low||'')) return false;   // pidió empezar de cero: se respeta
   if(_PASOS_MEDIO.indexOf(st.paso)<0) return false;
   if((NOW-(st.t||0)) >= 3*3600000) return false;
+  // Regla de Deicy (29-jul): retomar es SOLO dentro del MISMO DÍA. Si el cliente vuelve otro día, hace el flujo
+  // completo de nuevo (sus datos pueden haber cambiado y la consulta ya es otra).
+  if(new Date((st.t||0)-5*3600000).toISOString().slice(0,10) !== hoyCol) return false;
   return !!(st.nombre || st.marca || st.ciudad);
 }
 // RE-PREGUNTAR el paso pendiente (2026-07-29): cuando un saludo llega a mitad de la recolección, en vez de
@@ -1205,6 +1208,21 @@ if(!st && CLIENTES_PRUEBA.indexOf(wa)<0 && store.leads){
       break;   // solo el lead MÁS RECIENTE de este número decide (si es >48h, cliente nuevo normal)
     }
   }
+}
+// RESPALDO EN LA BD (2026-07-29, regla de Deicy): "si llega a escribir que no la han atendido, debe llegarle al
+// MISMO asesor que ya se le asignó". store.leads es staticData: se poda, se pierde en una carrera y solo cubre 48h.
+// Si aun así no hay sesión pero la BD dice que este cliente tiene un lead SIN REPORTAR, reconstruimos 'cerrado'
+// con ESE asesor -> su queja ("no me han contactado") le llega a quien de verdad lo tiene, no a la rotación.
+// OJO: SOLO para el reclamo. Si reconstruyéramos 'cerrado' ante cualquier mensaje, un cliente que vuelve otro día
+// con una consulta NUEVA quedaría atrapado en "tu solicitud ya está en gestión" en vez de hacer el flujo — y la
+// otra regla de Deicy es justamente "si llegan a escribir otro día, sí le toca hacer de nuevo". Con la queja no
+// hay ambigüedad: está reclamando por el lead que ya tiene, así que va a su asesor. Para una consulta nueva el
+// flujo corre normal y el amarre de cerrarLead igual se lo asigna al MISMO asesor.
+const _quejaSinSesion = /(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|me dejaron esperando|muy demorad|cu[aá]ndo me (atienden|contestan|llaman)|tampoco responden)/i.test(low) || !!(ia && ia.es_reclamo===true);
+if(!st && _quejaSinSesion && CLIENTES_PRUEBA.indexOf(wa)<0 && PEND_TEL && ASESORES[PEND_TEL]){
+  st = S[wa] = { paso:'cerrado', t:NOW, closedAt:NOW-60000, nombre:(d.profileName||''), ciudad:'', ciudadId:'',
+    asesorNom:PEND_ASE, asesorNum:PEND_TEL, asesorF:(ASESORES_F[PEND_TEL]?1:0), destino:PEND_TEL,
+    detalle:'', interes:'', marca:'', desdeBD:1 };
 }
 // === DESPERTAR sesión dormida (fix Michell 2026-07-17) ===
 // Si el chat se cerró por inactividad pero el cliente RESPONDE poco después (p.ej. toca el botón de perfil que ya tenía en pantalla),
@@ -1651,7 +1669,7 @@ if(preguntaHorario){
       wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud sigue *en gestión* con '+_asNom+' y le acabamos de *recordar* que te contacte hoy. Gracias por tu paciencia. 🤝');
     }
     // Solo si es una QUEJA/insistencia REAL (no un simple "Hola") le recordamos al asesor (máx 1 cada 10 min).
-    const _esQueja = !reinicia && /(no me (han|has|an)? ?(atend|contest|respond|llam)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|cu[aá]ndo me (atienden|contestan|llaman))/i.test(low);
+    const _esQueja = !reinicia && /(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|cu[aá]ndo me (atienden|contestan|llaman))/i.test(low);
     if(_esQueja && _dest && (NOW-(st.lastRemind||0) > 10*60*1000)){
       st.lastRemind=NOW;
       aviso_body=txt(_dest,
