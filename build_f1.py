@@ -162,6 +162,7 @@ for (const k in store.lastId) { if (store.lastId[k] && (NOW - store.lastId[k].t)
 if(store.lastOpc) for (const k in store.lastOpc) { if (store.lastOpc[k] && (NOW - store.lastOpc[k].t) > 600000) delete store.lastOpc[k]; }
 for (const k in store.medias) { if (store.medias[k] && store.medias[k][0] && (NOW - (store.medias[k][0].t||0)) > 3600000) delete store.medias[k]; }   // poda adjuntos de conversaciones viejas (1h)   // poda anti doble-toque (10 min)
 for (const k in store.consent) { if ((NOW - store.consent[k]) > 48*3600*1000) delete store.consent[k]; }   // consent operativo es POR DÍA: entradas de hace 2+ días ya no sirven (el registro LEGAL vive en MySQL)
+if(store.esCli) for (const k in store.esCli) { if ((NOW - store.esCli[k]) > 48*3600*1000) delete store.esCli[k]; }   // memoria "ya mostró intención de cliente" (anti falso-proveedor, 29-jul)
 for (const k in store.aiRate) { if (store.aiRate[k] && (NOW - store.aiRate[k].t0) > 10*60*1000) delete store.aiRate[k]; }   // poda el rate-limit de IA (ventana de 1 min; 10 min de gracia)
 for (const k in store.sent) { if (store.sent[k] && (NOW - store.sent[k]) > 60*60*1000) delete store.sent[k]; }   // poda el anti-ráfaga (1h)
 for (const k in store.fwd) { if (store.fwd[k] && (NOW - store.fwd[k]) > 6*3600*1000) delete store.fwd[k]; }   // poda media reenviada (6h)
@@ -487,6 +488,13 @@ function cerrarLead(st,opts){
       const _Rp = ruteoIA(ia, _txtP);
       if(_Rp && _Rp.grupo && _Rp.grupo!=='MOBILIARIO'){ st.grupo=_Rp.grupo; st.interes=_gInt(_Rp.grupo); }
       else if(_Rp && _Rp.marca==='Carpincentro'){ st.marca='Carpincentro'; delete st.grupo; st.interes=''; }
+      // 2026-07-29 (auditoría): ruteoIA deja grupo=null cuando NO reconoce el producto o cuando las palabras de
+      // Construcción y Acabados empatan. Antes eso caía a Alexander por descarte — justo lo contrario de la regla
+      // "Alexander solo proyectos". Si el cliente nombró un producto concreto, mandamos el PRODUCTO, no el botón.
+      else if(KW_ACAB.test(_txtP) || KW_CONS.test(_txtP)){
+        const _g2 = KW_CONS.test(_txtP) && !KW_ACAB.test(_txtP) ? 'CONSTRUCCION' : 'ACABADOS';
+        st.grupo=_g2; st.interes=_gInt(_g2);
+      }
     }
   }
   let asesor;
@@ -666,7 +674,9 @@ function _gInt(g){ return g==='CONSTRUCCION'?'Construcción':(g==='MOBILIARIO'?'
 const OCA=[['OCA_CARP','🔨 Carpintero','Fabricante de muebles'],['OCA_IND','🪑 Industrial del mueble','Industria / producción de muebles'],['OCA_MOBI','🛋️ Negocio mobiliario','Comercio o mueblería'],['OCA_FINAL','🏠 Cliente final','Proyecto para mi casa']];
 // Ruteo Ardisa por PRODUCTO (bajo el capó, SIN preguntar): detecta en la solicitud del cliente si es Construcción o Acabados.
 const KW_CONS=/\b(cemento|cementos|concreto|hormig[oó]n|mortero|arena|gravilla|grava|triturado|cascajo|recebo|ladrillo|bloque|bloqueta|adoqu[ií]n|hierro|varilla|acero|alambre|malla|teja|tejas|tejado|zinc|canaleta|pvc|tuber[ií]a|tubo|aluminio|drywall|dry ?wall|superboard|eterboard|fibrocemento|durock|yeso|lavadero|obra gris|obra negra|columna|viga|vigueta|losa|placa|cimiento|estribo|fleje|cal viva|puntilla|formaleta|andamio)/;
-const KW_ACAB=/\b(electrodom|nevera|refrigerador|congelador|estufa|horno|microondas|campana|extractor|lavadora|secadora|lavavajillas|lavaplatos|calentador|aire acondicionado|licuadora|freidora|air ?fryer|cer[aá]mic|porcelanato|porcel[aá]nic|porcel[aá]nato|enchape|azulejo|baldosa|baldos[ií]n|loseta|losetas|laminado|grifer[ií]|grifo|sanitario|inodoro|poceta|orinal|bid[eé]|lavamanos|ducha|regadera|ba[nñ]o|ba[nñ]era|combo|mueble|espejo|sif[oó]n|mes[oó]n|tina|jacuzzi|hidromasaje|pintura|esmalte|vinilo|viniltex|estuco|sika|sikaflex|impermeabiliz)/;
+// 2026-07-29 (auditoría, caso Esperanza Chaparro #126/#145): "campa[nñ]a" cubre el típico error de tipeo
+// "campaña Challenger de 60" por "campana extractora" — es un electrodoméstico, NO un proyecto a medida.
+const KW_ACAB=/\b(electrodom|nevera|refrigerador|congelador|estufa|horno|microondas|campana|campa[nñ]a|extractor|lavadora|secadora|lavavajillas|lavaplatos|calentador|aire acondicionado|licuadora|freidora|air ?fryer|cer[aá]mic|porcelanato|porcel[aá]nic|porcel[aá]nato|enchape|azulejo|baldosa|baldos[ií]n|loseta|losetas|laminado|grifer[ií]|grifo|sanitario|inodoro|poceta|orinal|bid[eé]|lavamanos|ducha|regadera|ba[nñ]o|ba[nñ]era|combo|mueble|espejo|sif[oó]n|mes[oó]n|tina|jacuzzi|hidromasaje|pintura|esmalte|vinilo|viniltex|estuco|sika|sikaflex|impermeabiliz)/;
 // === Fase 2: KW Carpincentro + ruteo IA (EL LLM ENTIENDE, EL CÓDIGO DECIDE) ===
 const KW_CARP=/\b(madera|maderas|tablero|tableros|aglomerado|mdf|mdp|melamin|f[oó]rmica|formica|triplex|contrachapado|riel|corredera|bisagra|herraje|canto|laca|lacad|carpinter)/;
 // RECLAMO/PQRS: esta es una línea COMERCIAL. Los reclamos van al canal de Servicio al Cliente (no a un asesor de ventas).
@@ -1018,7 +1028,19 @@ if(!reinicia){
   const _ofrece = !es_media && !!texto && KW_PROVEEDOR.test(low);
   // CLIENTE REAL (aunque su número no sea de Colombia): si pide asesoría/cotización/producto o la IA lo ve EN ALCANCE, NO es proveedor -> se atiende.
   const _pareceCliente = (ia && ia.en_alcance===true) || (ia && ia.es_reclamo===true) || (ia && ia.es_info===true) || (!es_media && !!texto && /(asesor[ií]a|asesor[ae]|cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|adquir|me interesa|tienen|venden|manejan|disponib|informaci[oó]n|producto|material|remodel|proyecto|obra|reclam|garant|pedido|factura)/i.test(low));
-  if(_ofrece || (_noCol && !_pareceCliente)){   // proveedor SOLO si ofrece, o número extranjero SIN señales de cliente
+  // === FIX 2026-07-29 (auditoría, caso Laura González +61): el filtro miraba SOLO el mensaje actual. ===
+  // Ella preguntó "Venden lavaderos en pasta" (señal de cliente clarísima) y fue atendida bien; pero al TOCAR
+  // el botón "✅ Sí, autorizo" el texto del botón no tiene señales de cliente -> con número extranjero cayó al
+  // mensaje de PROVEEDOR, perdió el consentimiento y nunca se registró. Dos memorias nuevas lo evitan:
+  //   (a) store.esCli[wa]: una vez que alguien mostró intención de cliente, lo sigue siendo (se poda a las 48h).
+  //   (b) tocar un BOTÓN o tener sesión/lead ya es prueba de que va por el flujo normal de clientes.
+  store.esCli = store.esCli || {};
+  if(_pareceCliente) store.esCli[wa]=NOW;
+  const _yaEsCli = (NOW-(store.esCli[wa]||0)) < 48*3600000
+                || !!id                                     // tocó un botón/lista NUESTRA
+                || !!(st && (st.consent || st.paso!=='consent'))
+                || !!(store.leads && store.leads.some(function(l){return l && l.wa===wa;}));
+  if(_ofrece || (_noCol && !_pareceCliente && !_yaEsCli)){   // proveedor SOLO si ofrece, o extranjero SIN ninguna señal de cliente
     store.prov = store.prov || {};
     if(S[wa]) S[wa].t=NOW;
     if(NOW-(store.prov[wa]||0) > 30*60*1000){   // le respondemos 1 vez cada 30 min
@@ -1220,7 +1242,20 @@ if(preguntaHorario){
     wpp_body=boton(wa,'¡Perfecto! Con gusto te conectamos con el asesor ideal para lo que necesitas.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
   } else {
   let cc=elige([['CONSENT_SI','Sí, autorizo'],['CONSENT_NO','No autorizo']]);
-  if(!cc && !es_media){ if(/^(s[ií]|acepto|autorizo|de acuerdo|ok|dale|claro)\b/i.test(low)) cc=['CONSENT_SI']; else if(/^(no|no autorizo|niego)\b/i.test(low)) cc=['CONSENT_NO']; }
+  // === FIX 2026-07-29 (auditoría): el "sí/no" debe ser TODO el mensaje, no solo su comienzo. ===
+  // ANTES era /^(no|...)\b/ y /^(s[ií]|...)\b/ -> bastaba con que el mensaje EMPEZARA por esa palabra:
+  //   "No me aparece nada de estufa empotradas" -> lo sacaba del chat (caso real 21-jul, cliente con intención de compra)
+  //   "No cambia la conversación"                -> lo sacaba del chat (caso real 27-jul, Laura González)
+  //   "Si tienen cemento?"                       -> registraba un consentimiento LEGAL que el cliente nunca dio
+  // Ahora se exige coincidencia COMPLETA (sin puntuación final). Si el cliente escribe cualquier otra cosa,
+  // no se decide nada: su texto se guarda en st.pendTexto y se le vuelve a mostrar el botón (abajo).
+  if(!cc && !es_media && texto){
+    // Normaliza: fuera emojis, signos y números -> solo letras y espacios. Así "✅ Sí, autorizo" y "Sí, autorizo."
+    // caen ambos en "sí autorizo" sin abrir la puerta a frases largas (la coincidencia sigue siendo del mensaje COMPLETO).
+    const _resp = low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim();
+    if(/^(s[ií]|s[ií] autorizo|s[ií] acepto|acepto|autorizo|de acuerdo|ok|okay|oki|dale|claro|listo|correcto|por supuesto|s[ií] se[nñ]or(a)?|s[ií] claro)$/i.test(_resp)) cc=['CONSENT_SI'];
+    else if(/^(no|no autorizo|no acepto|niego|no gracias|no se[nñ]or(a)?)$/i.test(_resp)) cc=['CONSENT_NO'];
+  }
   // Autoriza Y ESCRIBE su solicitud en el MISMO mensaje ("Sí, necesito loseta 40x40...") -> NO perder la solicitud: la guardamos para retomarla.
   if(cc && cc[0]==='CONSENT_SI' && !es_media && texto && [...texto].length>14 && !st.pendTexto && !/^(s[ií]|acepto|autorizo|de acuerdo|ok|dale|claro)[\s.,!]*$/i.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
   // foto/audio enviado MIENTRAS decidía la autorización: se guarda (antes se botaba) y se retoma al autorizar
@@ -1229,7 +1264,16 @@ if(preguntaHorario){
   // TEXTO tipo solicitud (p.ej. "tienes hierro de media de 6 mts") escrito MIENTRAS decidía la autorización:
   // lo guardamos para retomarlo al autorizar -> NO se pierde y el bot ya sabe qué necesita (no re-pregunta la marca).
   if(!cc && !es_media && texto && !reinicia && !st.pendTexto && !/^(hola|buen[oa]s?|buenas|saludos|s[ií]|no|ok|dale|gracias|listo)[\s!¡.,]*$/i.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
-  if(!cc){ etapa='consent'; wpp_body=boton(wa,'Para continuar necesitamos tu *autorización* para el tratamiento de tus datos. Por favor elige una opción 👇\n\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]); }
+  // === FIX 2026-07-29 (auditoría): ACUSAR RECIBO en vez de repetir el muro a secas. ===
+  // El texto del cliente YA se guardaba en st.pendTexto, pero él no lo sabía: mandaba su pedido (o una foto) y solo
+  // veía "Por favor elige una opción". En 14 días ~70 clientes vieron el muro 2+ veces y uno escribió "He autorizado
+  // 3 veces". Ahora, si acaba de contarnos algo, el bot se lo reconoce y le explica POR QUÉ necesita el permiso.
+  if(!cc){ etapa='consent';
+    const _yaPidio = !!(st.pendTexto || st.pendMediaId);
+    const _cab = _yaPidio
+      ? ('¡Claro que sí! 🙌 Ya *anoté tu solicitud* y no se pierde.\n\nSolo necesito un permiso para poder pasársela a un asesor: tu *autorización para el tratamiento de datos personales*. 👇')
+      : 'Para continuar necesitamos tu *autorización* para el tratamiento de tus datos. Por favor elige una opción 👇';
+    wpp_body=boton(wa, _cab+'\n\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]); }
   else if(cc[0]==='CONSENT_NO'){ etapa='noconsent';
     consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'NO', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id };   // registro legal: también guardamos la NEGATIVA
     wpp_body=txt(wa,'Entendido. Sin tu autorización para el tratamiento de datos no podemos gestionar tu solicitud por este medio. Si cambias de opinión, escríbenos cuando quieras y con gusto te atendemos.');
