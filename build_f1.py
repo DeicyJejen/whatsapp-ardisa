@@ -165,6 +165,9 @@ for (const k in store.consent) { if ((NOW - store.consent[k]) > 48*3600*1000) de
 for (const k in store.aiRate) { if (store.aiRate[k] && (NOW - store.aiRate[k].t0) > 10*60*1000) delete store.aiRate[k]; }   // poda el rate-limit de IA (ventana de 1 min; 10 min de gracia)
 for (const k in store.sent) { if (store.sent[k] && (NOW - store.sent[k]) > 60*60*1000) delete store.sent[k]; }   // poda el anti-ráfaga (1h)
 for (const k in store.fwd) { if (store.fwd[k] && (NOW - store.fwd[k]) > 6*3600*1000) delete store.fwd[k]; }   // poda media reenviada (6h)
+// 2026-07-29: Jhon Jairo salió de la rotación de Construcción -> la "deuda de turno" acumulada (24-jul) ya no
+// aplica. Se limpia una vez para que, si algún día vuelve a entrar a un pool, no arranque saltándose turnos.
+if(store.rotDeuda && store.rotDeuda['573164679556']) delete store.rotDeuda['573164679556'];
 // Anti-duplicado: Meta reintenta el webhook con el mismo id -> lo ignoramos
 if (wa && msg_id && store.lastId[wa] && store.lastId[wa].id === msg_id) { return [{json:{etapa:'dup',wa_id:wa,wpp_body:null,aviso_body:null,hay_aviso:false}}]; }
 // Anti DOBLE-TOQUE: WhatsApp deja los botones tappables por siempre (no se pueden deshabilitar tras elegir).
@@ -221,9 +224,17 @@ const ARD = {
       {asesor:'Natalia Amaris Martínez',num:'573107577394',f:1},
       {asesor:'Karina Nuñez Castrillón',num:'573124802093',f:1},
     ],
+    // 2026-07-29 (pedido María Lucía, grupo Teams): Jhon Jairo SALE de la rotación de Construcción.
+    // Estaba recibiendo TODA la ferretería por turno (12 de sus 13 leads de julio fueron cemento, varilla,
+    // geotextil, rejillas... y solo 1 fue aluminio real). Ahora SOLO recibe ALUMINIOS (ver pool ALUMINIOS).
     CONSTRUCCION:[
       {asesor:'Miguel Ángel Barajas Delgado',num:'573182988592'},
       {asesor:'Yormy Mayz Garza',num:'573173636561',f:1},
+    ],
+    // ALUMINIOS = perfilería/ventanería de aluminio. Especialista único: Jhon Jairo (no entra a ninguna rotación).
+    // Está en su propio pool para seguir registrado en ASESORES (si no, el bot lo trataría como CLIENTE
+    // y se le rompería el botón de "Reportar resultado" del seguimiento).
+    ALUMINIOS:[
       {asesor:'Jhon Jairo Vargas Herreño',num:'573164679556'},
     ],
     // Proyecto Arquitectónico a tu medida — Mobiliario (cocinas, closets, muebles de baño) - proyectos completos. Lo atiende SOLO Alexander (nacional, desde Bucaramanga).
@@ -507,9 +518,11 @@ function cerrarLead(st,opts){
     if(grupo==='MOBILIARIO'){   // PROYECTO ARQUITECTÓNICO / mobiliario a medida: SOLO Alexander Arias, sin rotación, atiende NACIONAL desde Bucaramanga
       asesor={nombre:'Alexander Arias Jacome',num:'573203525106',ciudad:'Bucaramanga',tienda:'Ardisa — Proyecto Arquitectónico (mobiliario a medida)'};
     } else if(_esAlum){   // ALUMINIOS: los atiende SOLO Jhon Jairo Vargas (especialista), sin rotación, atiende desde Bucaramanga
-      asesor={nombre:'Jhon Jairo Vargas Herreño',num:'573164679556',ciudad:'Bucaramanga',tienda:'Ardisa Construcción — Aluminios'};
-      // deuda de turno: este lead directo cuenta como su turno en la rotación de Construcción (compensación 24-jul)
-      store.rotDeuda = store.rotDeuda || {}; store.rotDeuda['573164679556'] = (store.rotDeuda['573164679556']||0) + 1;
+      const _alu=(ARD.BUCARAMANGA.ALUMINIOS||[])[0];
+      asesor={nombre:_alu.asesor,num:_alu.num,ciudad:'Bucaramanga',tienda:'Ardisa Construcción — Aluminios'};
+      // 2026-07-29: ya NO se acumula "deuda de turno". La compensación (24-jul) existía porque Jhon Jairo
+      // TAMBIÉN estaba en la rotación de Construcción y había que emparejarlo con Miguel/Yormy. Ahora que salió
+      // de la rotación (pedido María Lucía), no hay turno que descontar: los aluminios son 100% extra.
     } else if (arr && arr.length){ const a=rotaSticky('ARD_'+(sede?'BUCARAMANGA':st.ciudadId)+'_'+grupo,arr); asesor={nombre:a.asesor,num:a.num,f:a.f,ciudad:(sede?'Bucaramanga':(st.ciudad||'Bucaramanga')),tienda:'Ardisa '+interes+(sede?' — atiende desde Bucaramanga':' — '+(st.ciudad||'—'))}; }
     else asesor={nombre:'Asesor Ardisa '+interes,num:'',ciudad:(st.ciudadId==='FLORIDABLANCA'?'Floridablanca':'Bucaramanga'),tienda:'Ardisa '+interes+' (asesor pendiente)'};
     st.interes=interes;
@@ -1716,11 +1729,23 @@ LEAD_PATH="$('Cerebro conversacional').first().json.lead"
 _leadcols=["creado_en","telefono","nombre","marca","ciudad","tipo_cliente","solicitud","detalle","asesor","asesor_tel","fuera_horario","modo_prueba"]
 # ANTI-CARRERA A NIVEL BD (2026-07-23, caso Milena #101/#102): dos ejecuciones traslapadas (foto + texto en segundos)
 # leen staticData viejo y AMBAS cierran el lead. El candado del Cerebro no alcanza (se persiste al FINAL de cada
-# ejecución), así que la BD es la última línea: si YA hay un lead de este teléfono en los últimos 5 min, NO insertamos
-# otro. 5 min no bloquea una segunda consulta legítima (el flujo exige >=5 min para 'nueva consulta' tras cerrar).
+# ejecución), así que la BD es la última línea: si YA hay un lead de este teléfono, NO insertamos otro.
+#
+# 2026-07-29 (caso Cristian Villamizar #135/#136): la ventana de 5 MIN se quedó corta. Su lead #135 cerró a las
+# 09:21; una carrera de n8n pisó el staticData y BORRÓ las 3 señales del Cerebro a la vez (S[wa].paso='cerrado',
+# store.done y store.leads viven todas en el MISMO objeto, así que una escritura vieja se las lleva juntas).
+# Sin esas señales, el cron le mandó el recordatorio "¿Sigues en línea?" a las 09:30 — 9 min DESPUÉS de que su
+# solicitud ya estaba registrada. Él contestó, repitió el pedido y a las 09:32 se creó el lead #136 (11 min de
+# diferencia, misma asesora, mismas puertas). La BD es el ÚNICO almacén que una carrera de staticData no puede
+# pisar -> se amplía el candado a 45 MIN.
+# Por qué 45 min y no más: el propio Cerebro ya trata como ADICIÓN todo lo que llegue <3h después de cerrar, así
+# que este candado nunca se activa cuando staticData funciona; solo entra cuando se perdió. 45 min cubre el fallo
+# observado con margen sin arriesgar tragarse una consulta genuinamente nueva de la tarde.
+# Y desde hoy NO se traga nada en silencio: si el candado bloquea, el asesor recibe una nota de ADICIÓN
+# (ver "Avisar adición (Meta)") con lo que el cliente volvió a escribir.
 _LEAD_INSERT_SQL = ("INSERT INTO leads (creado_en,telefono,nombre,marca,ciudad,tipo_cliente,solicitud,detalle,asesor,asesor_tel,fuera_horario,modo_prueba) "
     "SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12 FROM DUAL "
-    "WHERE NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM leads WHERE telefono=$13 AND creado_en > NOW() - INTERVAL 5 MINUTE LIMIT 1) _dup)")
+    "WHERE NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM leads WHERE telefono=$13 AND creado_en > NOW() - INTERVAL 45 MINUTE LIMIT 1) _dup)")
 nodes.append(node("Guardar lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
      "query":_LEAD_INSERT_SQL,
@@ -1738,7 +1763,33 @@ nodes.append(node("¿Lead ya existía?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"dx1","leftValue":"={{ $json.affectedRows === 0 }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1980, 460))
-nodes.append(node("Aviso omitido (duplicado)", "n8n-nodes-base.noOp", 1, {}, 2200, 520))
+# === DUPLICADO BLOQUEADO -> NOTA DE ADICIÓN (2026-07-29, caso Cristian #135/#136) ===
+# Antes esta rama era un NoOp: el candado evitaba la fila duplicada pero lo que el cliente volvió a escribir se
+# perdía en silencio. Ahora buscamos en la BD el lead ORIGINAL (que puede ser de otra ejecución/otro asesor si la
+# carrera también movió la rotación) y le mandamos a ESE asesor una nota de adición. Nunca se traga información.
+nodes.append(node("Buscar lead original (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":("SELECT id, asesor, asesor_tel FROM leads WHERE telefono=$1 "
+              "AND creado_en > NOW() - INTERVAL 45 MINUTE AND asesor_tel IS NOT NULL AND asesor_tel<>'' "
+              "ORDER BY id DESC LIMIT 1"),
+     "options":{"queryReplacement":"={{ ["+LEAD_PATH+".telefono] }}"}},
+    2200, 520, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+nodes.append(node("¿Asesor del lead original?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"ad1","leftValue":"={{ $json.asesor_tel ? true : false }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 2420, 520))
+nodes.append(node("Aviso omitido (duplicado)", "n8n-nodes-base.noOp", 1, {}, 2640, 620))
+# La nota va como TEXTO libre: el asesor YA recibió la tarjeta del lead original hace <45 min, así que su ventana
+# de 24h está abierta con seguridad y no hace falta plantilla (costo 0). Si aun así fallara, onError deja seguir.
+_ADIC_BODY = ("{messaging_product:'whatsapp', to:String($json.asesor_tel||''), type:'text', text:{body:"
+    "'\\u2795 *Adición a una solicitud que YA tienes* (lead #' + $json.id + ')\\n\\n'"
+    "+ '👤 *Cliente:* ' + (" + LEAD_PATH + ".nombre || '—') + '\\n'"
+    "+ '📱 *WhatsApp:* +' + (" + LEAD_PATH + ".telefono || '') + '\\n\\n'"
+    "+ '💬 *Volvió a escribir:*\\n' + (" + LEAD_PATH + ".detalle || '—') + '\\n\\n'"
+    "+ '_No es un cliente nuevo ni una segunda solicitud: es el MISMO de hace un rato. No se creó otro registro._'"
+    "}}")
+nodes.append(node("Avisar adición (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send(_ADIC_BODY), 2640, 480,
+    {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("¿Hay aviso 1?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"av1","leftValue":"={{ $('Cerebro conversacional').first().json.hay_aviso }}","rightValue":True,
@@ -2202,7 +2253,9 @@ connections = {
  "¿Hay aviso al asesor?": {"main":[[{"node":"¿Hay lead?","type":"main","index":0}],[]]},
  "¿Hay lead?": {"main":[[{"node":"Guardar lead (MySQL)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
  "Guardar lead (MySQL)": {"main":[[{"node":"¿Lead ya existía?","type":"main","index":0}]]},
- "¿Lead ya existía?": {"main":[[{"node":"Aviso omitido (duplicado)","type":"main","index":0}],[{"node":"¿Hay aviso 1?","type":"main","index":0}]]},
+ "¿Lead ya existía?": {"main":[[{"node":"Buscar lead original (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 1?","type":"main","index":0}]]},
+ "Buscar lead original (MySQL)": {"main":[[{"node":"¿Asesor del lead original?","type":"main","index":0}]]},
+ "¿Asesor del lead original?": {"main":[[{"node":"Avisar adición (Meta)","type":"main","index":0}],[{"node":"Aviso omitido (duplicado)","type":"main","index":0}]]},
  "¿Hay aviso 1?": {"main":[[{"node":"Avisar al asesor (Meta)","type":"main","index":0}],[]]},
  "Avisar al asesor (Meta)": {"main":[[{"node":"¿Hay adjunto?","type":"main","index":0}]]},
  "¿Hay adjunto?": {"main":[[{"node":"Separar adjuntos","type":"main","index":0}],[]]},
@@ -2247,7 +2300,10 @@ _POS = {
   "Guardar lead (MySQL)": (3100, 560),
   "¿Lead ya existía?": (3320, 560),
   "¿Hay aviso 1?": (3320, 440),
-  "Aviso omitido (duplicado)": (3540, 620),
+  "Buscar lead original (MySQL)": (3540, 620),
+  "¿Asesor del lead original?": (3760, 620),
+  "Avisar adición (Meta)": (3980, 580),
+  "Aviso omitido (duplicado)": (3980, 760),
   "Avisar al asesor (Meta)": (3540, 420),
   "¿Hay adjunto?": (3760, 420),
   "Separar adjuntos": (3980, 420),
