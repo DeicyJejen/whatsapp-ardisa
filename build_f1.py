@@ -2506,10 +2506,67 @@ nodes.append(node("Guardar recordatorio (MySQL)", "n8n-nodes-base.mySql", 2.5,
      "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa) VALUES ($1,$2,$3,$4,$5,$6)",
      "options":{"queryReplacement":"={{ ["+", ".join("$json.chat."+c for c in _chatcols)+"] }}"}},
     1100, 1120, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+# === ALERTAS AL WHATSAPP DE DEICY (2026-08-03: "esto que me llegue mejor a mi WhatsApp al 3205662947") ===
+# Circuito INDEPENDIENTE a propósito: tiene su propio disparador y no toca la cadena del bot ni la del cron de
+# inactivos. Si falla, el bot sigue atendiendo clientes igual. vigilante.py llena la tabla `alertas`; esto solo
+# la lee y le manda lo que aún no le hemos avisado.
+# La consulta usa AGREGADOS SIN GROUP BY -> devuelve SIEMPRE exactamente 1 fila (con NULL si no hay nada).
+# Si devolviera 0 filas, el nodo siguiente no correría; ya nos pasó con la consulta del bot.
+nodes.append(node("Cada 10 min (alertas)", "n8n-nodes-base.scheduleTrigger", 1.2,
+    {"rule":{"interval":[{"field":"minutes","minutesInterval":10}]}}, 620, 1280))
+nodes.append(node("Leer alertas nuevas (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":("SELECT MAX(z.id) AS max_id, COUNT(*) AS n, "
+              "GROUP_CONCAT(CONCAT(z.severidad,'|',z.detalle) ORDER BY z.severidad, z.id SEPARATOR '~~') AS det "
+              "FROM (SELECT id, severidad, LEFT(detalle,200) detalle FROM alertas "
+                    "WHERE avisado_wa=0 ORDER BY severidad, id LIMIT 8) z"),
+     "options":{}},
+    860, 1280, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,
+                "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+nodes.append(node("Armar aviso a Deicy", "n8n-nodes-base.code", 2, {"jsCode": r"""
+// Si no hay alertas nuevas (o la BD falló), NO se devuelve nada -> los nodos de abajo ni corren. Silencio = todo bien.
+let r = {}; try{ r = $input.first().json || {}; }catch(e){ return []; }
+if(r.error) return [];
+const n = Number(r.n||0);
+if(!n || !r.det) return [];
+const MONITOR = '573205662947';
+const lineas = String(r.det).split('~~').filter(Boolean).map(function(x){
+  const p = x.split('|');
+  return (p[0]==='1' ? '🔴 ' : '🟡 ') + p.slice(1).join('|');
+});
+const cuerpo = '🚨 *ALERTAS DEL BOT* ('+n+')\n\n' + lineas.join('\n\n') +
+  '\n\n_Detectadas automáticamente. Escribe *informe* para ver el panel completo._';
+return [{ json: { max_id: Number(r.max_id||0),
+  msg: { messaging_product:'whatsapp', to: MONITOR, type:'text',
+         text: { preview_url:false, body: [...cuerpo].slice(0,3800).join('') } } } }];
+"""}, 1100, 1280))
+nodes.append(node("Avisar a Deicy (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$json.msg"),
+    1340, 1280, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":2000,
+                 "credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
+nodes.append(node("¿Llegó el aviso?", "n8n-nodes-base.code", 2, {"jsCode": r"""
+// Solo se marcan como avisadas si Meta CONFIRMÓ el envío. Si su ventana de 24h está cerrada, Meta rechaza:
+// no se marcan y se reintenta en 10 minutos. Así no se pierde ninguna alerta por un fallo de red.
+let r = {}; try{ r = $input.first().json || {}; }catch(e){ return []; }
+const ok = !!(r && r.messages && r.messages.length);
+if(!ok) return [];
+let id = 0; try{ id = Number($('Armar aviso a Deicy').first().json.max_id||0); }catch(e){}
+return id ? [{ json: { max_id: id } }] : [];
+"""}, 1580, 1280))
+nodes.append(node("Marcar avisadas (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery", "query":"UPDATE alertas SET avisado_wa=1 WHERE avisado_wa=0 AND id <= $1",
+     "options":{"queryReplacement":"={{ [$json.max_id] }}"}},
+    1820, 1280, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,
+                 "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Nota", "n8n-nodes-base.stickyNote", 1,
     {"content":"### Bot WhatsApp Ardisa — IA (Fase 2)\nLa IA ENTIENDE (texto **y fotos**), el código DECIDE, las plantillas responden.\nSaluda → consentimiento (habeas data) → MARCA → nombre → ciudad →\n· Ardisa: producto (Acabados/Construcción) → asesor del grupo\n· Carpincentro: ocupación → tienda de la ciudad\n→ RESUMEN al asesor (rotación justa) + reenvío del adjunto real.\n📷 VISIÓN: si llega una foto, Claude la VE y la clasifica igual que un texto.\nEscape a humano (ASESOR). Kill-switch USAR_IA.","height":210,"width":560}, 760, 20))
 
 connections = {
+ # Circuito de alertas a Deicy (independiente del bot).
+ "Cada 10 min (alertas)": {"main":[[{"node":"Leer alertas nuevas (MySQL)","type":"main","index":0}]]},
+ "Leer alertas nuevas (MySQL)": {"main":[[{"node":"Armar aviso a Deicy","type":"main","index":0}]]},
+ "Armar aviso a Deicy": {"main":[[{"node":"Avisar a Deicy (Meta)","type":"main","index":0}]]},
+ "Avisar a Deicy (Meta)": {"main":[[{"node":"¿Llegó el aviso?","type":"main","index":0}]]},
+ "¿Llegó el aviso?": {"main":[[{"node":"Marcar avisadas (MySQL)","type":"main","index":0}]]},
  "Verificación (GET)": {"main":[[{"node":"¿Token válido?","type":"main","index":0}]]},
  "¿Token válido?": {"main":[[{"node":"Responder challenge","type":"main","index":0}],[{"node":"Responder 403","type":"main","index":0}]]},
  "Mensajes (POST)": {"main":[[{"node":"Verificar firma","type":"main","index":0}]]},
