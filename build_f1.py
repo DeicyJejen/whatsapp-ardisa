@@ -1372,6 +1372,15 @@ const esInfo = !reinicia && !id && !es_media && !esReclamo && (ia ? (ia.es_info=
 // ¿YA autorizó? consintió hoy, O st.consent, O YA ESTÁ EN UN PASO POSTERIOR al consentimiento (no se puede llegar a marca/nombre/etc. sin haber autorizado).
 // Esto blinda contra la carrera de n8n: si mandó una foto justo tras autorizar, NO le volvemos a pedir la autorización.
 const yaConsintio = consintioHoy() || (st && st.consent) || (st && st.paso && st.paso!=='consent' && st.paso!=='');
+// === COMPRAS / PROVEEDORES (2026-08-03, caso Omar Rivera de Homega — lead #207) ===
+// "Si es para hablar con los de compras" NO es una venta nuestra: es alguien que quiere VENDERLE a Ardisa.
+// El bot lo registró como cliente y se lo pasó a una asesora de ventas. Regla de Deicy: "cuando dice hablar
+// con compras hay que PREGUNTARLE MÁS, porque si es para dudas ya sabe qué contacto se debe pasar".
+// Se pregunta UNA vez para saber a qué área va y NO se crea lead comercial.
+store.compras = store.compras || {};
+for(const _k in store.compras){ if((NOW-(store.compras[_k]||0)) > 2*3600000) delete store.compras[_k]; }
+const _pideCompras = !es_media && !!texto && /(([aá]rea|departamento|dpto|jefe|director|gerente|encargad\w*|persona|se[nñ]or(a)?|los|el|la) de compras|hablar con compras|contacto de compras|con el comprador|ser (su |sus |un )?proveedor|proveedor de ustedes|inscribir(me|nos) como proveedor|ofrecer(les|le)?\s+(nuestro|nuestros|mi|mis|productos|servicios)|present(ar|arles)\s+(nuestro|mi)\s+portafolio|portafolio de (productos|servicios))/i.test(low);
+const _esperaCompras = (NOW-(store.compras[wa]||0)) < 30*60*1000;
 // === FIX 2026-08-03b (caso real 15:12, detectado por Deicy): NO repetirle la pregunta que ya contestó. ===
 // La red anti-carrera resolvía el problema DENTRO de la rama 'consent' volviendo a mostrar el menú de marca.
 // Si el cliente ya había TOCADO "🟢 Ardisa", su botón se perdía y el bot le repetía el mismo menú.
@@ -1402,6 +1411,18 @@ if(preguntaHorario){
   if(store.cliMsgs) delete store.cliMsgs[wa];   // no deja rastro en el log de solicitudes comerciales
   if(st) st.infoAvisado=NOW;   // marca que ya se orientó a Servicio al Cliente (no se fuerza Construcción/Acabados)
   etapa='info'; wpp_body=null; pend_cierre=true; pend_token=_itk;
+} else if(_pideCompras || (_esperaCompras && !es_media && !!texto && !id)){
+  // NO se crea lead comercial: esto no es una venta nuestra.
+  if(!_esperaCompras){
+    store.compras[wa]=NOW; etapa='compras';
+    wpp_body=txt(wa,'¡Hola! 🙏 Gracias por escribirnos.\n\nEste canal es nuestra *línea comercial de atención a clientes*. Para dirigirte al área correcta, cuéntanos brevemente:\n\n🔹 ¿Deseas *ofrecernos productos o servicios* como proveedor?\n🔹 ¿O necesitas ayuda con *una compra o pedido* que hiciste con nosotros?\n\nCon esa información te indicamos de una vez con quién continuar. 🤝');
+  } else {
+    delete store.compras[wa];
+    // La respuesta decide el destino. Ante duda -> Servicio al Cliente, que es la puerta de todo lo NO comercial.
+    const _ofreceProv = /(ofrec|vender(les)?|venta a ustedes|proveedor|portafolio|cat[aá]logo|represent|distribu|fabric|import|mi empresa|nuestra empresa|somos)/i.test(low);
+    etapa = _ofreceProv ? 'proveedor' : 'info';
+    wpp_body = txt(wa, _ofreceProv ? MSG_PROVEEDOR : MSG_INFO);
+  }
 } else if(pideHumano && st && st.paso!=='consent'){
   st.escape=true; st.pidioHumano=true;
   // preserva el mensaje original si trae contenido (no solo la palabra gatillo)
@@ -1741,6 +1762,10 @@ if(preguntaHorario){
   //  (d) NUEVA consulta (ya pasó rato) -> la arrancamos conservando nombre y ciudad, saludándolo POR SU NOMBRE.
   const _nom = st.nombre ? (' '+st.nombre.split(' ')[0]) : '';
   const _dest = st.destino || (MODO_PRUEBA?PRUEBA_NUM:null);
+  // SOLO un saludo (sin información): no es una adición; lo maneja el 'else' (regla del cliente sin atender ayer).
+  // Se normaliza quitando signos/emojis para que "Muy buenas tardes!!" también cuente como saludo suelto.
+  const _soloSaludoTxt = !es_media && !!texto && /^((muy|buen|buen[oa]s?|d[ií]as?|tardes|noches|hola|holi|ola|q|que|hubo|saludos|hi|hello|hey|se[nñ]or(es|a|ita)?|cordial|feliz|dia|d[ií]a)\s*)+$/i
+      .test(low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim());
   const cortesia = !es_media && ( esDespedida || ( low.length<=60 && /(^|[^a-záéíóúñ])(gracias|thank|amable|bendicion|excelente|de nada|muy bien|buen servicio|vale|listo|ok|okay|perfecto|dale|chao|chau|adios|adiós|hasta luego)([^a-záéíóúñ]|$)/i.test(low) && !/(necesito|quiero|busco|cotiza|precio|venden|tienen|me interesa)/i.test(low) ) );
   // ¿Producto claramente NUEVO? Solo entonces reiniciamos. (La IA lo entiende, o lo dice explícito.)
   const nuevaConsulta = !es_media && ((ia && ia.en_alcance) || /(otra (consulta|cosa)|nueva consulta|ahora (necesito|quiero|busco|me interesa)|adem[aá]s (necesito|quiero)|tambi[eé]n (necesito|quiero))/i.test(low));
@@ -1764,11 +1789,18 @@ if(preguntaHorario){
     // NUEVA consulta (producto nuevo claro y ya pasó rato) -> arrancamos conservando nombre/ciudad.
     st.paso='marca'; etapa='marca'; delete st.escape; delete st.fuera; delete st.detalle; delete st.tiposol; delete st.ocupacion; delete st.grupo; delete st.interes; delete st.marca; delete st.cuando; delete st.pidioHumano; delete st.puntoIdx; delete st.iaPend; delete st.revalidos; delete st.addN; delete st.closedAt;
     wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
-  } else if((NOW-(st.closedAt||0) < 5*60*1000) && texto && low.length>=2 && !/^\d+$/.test(low)){
-    // ADICIÓN de texto justo tras cerrar (<5 min): se lo pasamos al asesor.
+  } else if(texto && low.length>=2 && !/^\d+$/.test(low) && !_soloSaludoTxt && (NOW-(st.closedAt||0) < 24*3600000)){
+    // === ADICIÓN de texto tras cerrar (2026-08-03: la ventana pasa de 5 MINUTOS a 24 HORAS) ===
+    // Caso real (Omar Rivera, lead #207): cerró con ciudad "Bucaramanga" y 11 minutos después escribió "Cali".
+    // Como iba fuera de los 5 minutos, el bot le respondió "ya está en gestión" y ESA CIUDAD NUNCA LLEGÓ AL
+    // ASESOR. Los adjuntos ya se reenviaban A CUALQUIER HORA; el texto no. Se iguala: lo que escriba el
+    // cliente después de cerrar SIEMPRE se le suma a su solicitud y se le confirma que ya se lo pasamos.
+    // Se excluye el saludo suelto para no pisar la regla de "cliente sin atender ayer" (que va en el else).
     etapa='adicion'; st.addN=(st.addN||0)+1;
-    if(_dest && st.addN<=2){ aviso_body=txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó:* '+[...texto].slice(0,300).join('')+'\n📱 +'+wa); }
-    wpp_body = (st.addN===1) ? txt(wa,'Gracias'+_nom+'. Agregamos esta información a tu solicitud para que tu asesor la tenga en cuenta. 🤝') : null;
+    if(_dest && st.addN<=5){ aviso_body=txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó:* '+[...texto].slice(0,300).join('')+'\n📱 +'+wa); }
+    wpp_body = (st.addN<=5)
+      ? txt(wa,'Recibido'+_nom+'. ✅ Ya se lo pasamos a '+(st.asesorNom?('*'+st.asesorNom+'*'):'tu asesor')+' para que lo tenga en cuenta en tu solicitud. 🤝')
+      : null;
   } else {
     // SALUDO / SEGUIMIENTO / QUEJA (no es producto nuevo): saludamos, confirmamos que su pedido YA está en gestión y ofrecemos ayuda. NUNCA reiniciamos.
     etapa='seguimiento'; st.t=NOW;
@@ -1854,7 +1886,7 @@ MARCAS: ARDISA -> CONSTRUCCION (cemento, concreto, arena, ladrillo, hierro, vari
 Razona por SIGNIFICADO aunque el producto no esté en la lista. Deduce la marca por los PRODUCTOS, no porque el cliente la nombre. Ante duda entre CONSTRUCCION y ACABADOS usa 'desconocido' (mejor que adivinar mal). Rellena SIEMPRE los campos; si falta un dato usa el centinela (ciudad "", nombre "", tipo_cliente 'desconocido', productos [], grupo_pista 'desconocido').
 DATOS EXTRA (para que el bot NO re-pregunte lo que el cliente ya dijo): nombre = nombre y apellido SOLO si el cliente lo dice explícitamente ("me llamo Pedro", "soy Ana Gómez"), si no "". ciudad = la ciudad que mencione (Bucaramanga, Floridablanca, Bogotá, Barranquilla...) o "". tipo_cliente = 'especialista' (constructor, maestro de obra, arquitecto, ingeniero, pintor, contratista), 'ferretero' (ferretería/punto de venta), 'empresa' (constructora/empresa), 'cliente_final' (para su casa/hogar/proyecto personal), 'carpintero', 'industrial_mueble'; si no se deduce, 'desconocido'.
 RECLAMO/PQRS: es_reclamo = true SOLO si el mensaje es un RECLAMO, QUEJA, sugerencia o solicitud sobre un pedido, COBRO, entrega, garantía, devolución o servicio YA EXISTENTE (algo que salió mal). Ejemplos true: "pagué y ahora me cobran domicilio", "el producto llegó dañado", "no me han entregado mi pedido", "quiero poner una queja", "me cobraron de más". Ejemplos false (es consulta comercial NUEVA, es_reclamo=false): "necesito cotizar cemento", "tienen porcelanato", "quiero comprar una nevera". Ante duda, false.
-INFORMACIÓN / SERVICIO AL CLIENTE / ADMINISTRATIVO: es_info = true si el cliente NO busca comprar ni cotizar un producto, sino un trámite o contacto NO comercial: validación de REFERENCIA COMERCIAL, servicio al cliente, recursos humanos / empleo / hoja de vida, facturación / cartera / contabilidad / tesorería, certificados (tributario, cámara de comercio, retención), o preguntas TRIBUTARIAS/CONTABLES/administrativas sobre la EMPRESA (retención en la fuente, autorretención, régimen tributario, si practican/aplican retención, IVA como trámite, declaración, resolución de facturación), o pide "un correo / con quién me comunico / datos de contacto" para un asunto administrativo. Ejemplos true: "necesito validar una referencia comercial de ustedes", "es de servicio al cliente", "¿con quién hablo del área de cartera?", "quiero dejar mi hoja de vida", "necesito un certificado de cámara de comercio", "¿en las compras a ustedes se les practica retención en la fuente?", "¿ustedes son autorretenedores?", "¿a qué régimen pertenecen?". Ejemplos false (SÍ es comercial): "quiero cotizar", "necesito cemento", "¿tienen porcelanato?", "un correo para enviarles el plano y que me coticen". Ante duda entre comercial e info, prefiere comercial (es_info=false). Si es_info=true, en_alcance=false.
+INFORMACIÓN / SERVICIO AL CLIENTE / ADMINISTRATIVO: es_info = true si el cliente NO busca comprar ni cotizar un producto, sino un trámite o contacto NO comercial: validación de REFERENCIA COMERCIAL, servicio al cliente, recursos humanos / empleo / hoja de vida, **COMPRAS / PROVEEDURÍA** (quiere hablar con el área de compras, ofrecernos productos, ser proveedor, presentar un portafolio: eso NO es una venta nuestra), facturación / cartera / contabilidad / tesorería, certificados (tributario, cámara de comercio, retención), o preguntas TRIBUTARIAS/CONTABLES/administrativas sobre la EMPRESA (retención en la fuente, autorretención, régimen tributario, si practican/aplican retención, IVA como trámite, declaración, resolución de facturación), o pide "un correo / con quién me comunico / datos de contacto" para un asunto administrativo. Ejemplos true: "necesito validar una referencia comercial de ustedes", "es de servicio al cliente", "¿con quién hablo del área de cartera?", "si es para hablar con los de compras", "soy ejecutivo comercial de X y quiero ofrecerles nuestros productos", "quiero dejar mi hoja de vida", "necesito un certificado de cámara de comercio", "¿en las compras a ustedes se les practica retención en la fuente?", "¿ustedes son autorretenedores?", "¿a qué régimen pertenecen?". Ejemplos false (SÍ es comercial): "quiero cotizar", "necesito cemento", "¿tienen porcelanato?", "un correo para enviarles el plano y que me coticen". Ante duda entre comercial e info, prefiere comercial (es_info=false). Si es_info=true, en_alcance=false.
 EN_ALCANCE: en_alcance = true SOLO cuando es una consulta COMERCIAL de VENTA (producto, cotización, compra, o disponibilidad de un producto de Ardisa/Carpincentro), aunque el producto no esté en la lista: razona por significado y sé GENEROSO reconociendo intención de compra. en_alcance = false si es saludo vacío/charla, off-topic, un reclamo (es_reclamo=true) o una solicitud no comercial (es_info=true).
 IMAGEN: si el mensaje incluye una IMAGEN, obsérvala con atención. En 'resumen' escribe una descripción CLARA y ÚTIL PARA EL ASESOR (máx 22 palabras) enfocada en QUÉ productos o materiales se ven y QUÉ necesitaría COTIZAR el cliente — NO describas la escena en abstracto ni empieces con "Foto de...". Ejemplos del estilo esperado: "Baño para remodelar: se ve porcelanato claro y grifería — cotizar cerámica de piso, sanitario y grifería"; "Placa de concreto en obra gris — cotizar cemento, arena y varilla"; "Cocina con muebles de melamina — cotizar tableros MDF y herrajes"; "Sauna/turco enchapado con mosaico — cotizar enchape/cerámica, mosaico y adhesivo". Además clasifícala igual que un texto (marca + grupo por los productos): baño/cocina para remodelar -> Ardisa ACABADOS; cemento/arena/varilla/ladrillo/obra gris -> Ardisa CONSTRUCCION; tableros/MDF/melamina/muebles/herrajes -> Carpincentro; captura o ficha de un producto -> clasifica por ese producto. Si la imagen no permite identificar nada útil, en_alcance=false y 'resumen' corto de lo que se ve.
 ACUSE (voz del bot): escribe en 'acuse' UNA frase BREVE (máx 14 palabras), natural, SOBRIA y PROFESIONAL, como un asesor real por WhatsApp: confirma con sencillez que entendiste qué necesita o qué muestra su foto. NADA de efusividad, exageración ni frases cliché ('qué chévere', 'buenísimo', 'espectacular', 'con toda', 'manos a la obra', 'da vida a la casa'). NO uses signos de apertura de admiración recargados; máximo 0–1 emoji y de preferencia NINGUNO. Varía la redacción sin sonar artificial. PROHIBIDO: mencionar o dar PRECIOS/valores/cotizaciones, prometer tiempos, nombrar asesores, pedir datos, o afirmar disponibilidad/stock. Ejemplos de TONO (no los copies): 'Perfecto, veo que necesitas cemento para tu placa.', 'Claro, con gusto te ayudamos con la remodelación de tu baño.', 'Entendido, buscas tableros MDF y bisagras.'. Si en_alcance=false, deja 'acuse' vacío."""

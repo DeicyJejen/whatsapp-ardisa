@@ -29,15 +29,17 @@ const IA_OK = { en_alcance:true, marca:'Ardisa', grupo_pista:'ACABADOS', product
 function sesionAMedias(extra) {
   // Momento REAL en que se pierden: acaba de elegir la LINEA, el bot le pide el nombre y ahi se va.
   // Su solicitud ya la habia escrito antes (vive en pendTexto). Asi murieron YenyR, overmoaquera y JEFFRSON.
-  return Object.assign({ paso:'nombre', t:LUNES_10AM, consent:true, marca:'Ardisa',
-                         // Como paso de verdad: escribio su solicitud ANTES de autorizar -> vive en pendTexto,
-                         // no en detalle. Por eso el bot le seguia preguntando y por eso se perdio.
+  // Su solicitud la escribio ANTES de autorizar -> vive en pendTexto, no en detalle. Por eso el bot le
+  // seguia preguntando y por eso se perdio. La sesion debe estar FRESCA (Date.now()): con una hora vieja
+  // el bot la descarta por caducidad y se prueba otra cosa.
+  return Object.assign({ paso:'nombre', t:Date.now(), consent:true, marca:'Ardisa', nombre:'Óscar Tovar',
+                         ciudad:'Bogotá', ciudadId:'OTRA',
                          detalle:'', pendTexto:'Tengo la cotización C-1-295 de una grasa para la enchapadora' }, extra||{});
 }
 const nuevoSD = (ses) => ({ rot:{}, consent:{}, leads:[], done:{}, sent:{}, lastKey:{}, fwd:{}, medias:{},
                             segPend:{}, pendCierre:{}, rescate:{}, ses: ses ? { [WA]: ses } : {} });
 const msg = (texto, ia) => ({ wa_id:WA, profileName:'Óscar Tovar', texto, mtype:'', media_id:'',
-                              btn_id:'', btn_title:'', es_media:false, ia: ia===undefined ? IA_OK : ia });
+                              opcion_id:'', opcion_txt:'', es_media:false, ia: ia===undefined ? IA_OK : ia });
 
 let ok = 0, total = 0;
 const chequear = (n, cond, detalle) => { total++; if (cond) ok++;
@@ -76,9 +78,9 @@ const chequear = (n, cond, detalle) => { total++; if (cond) ok++;
 {
   const sd = nuevoSD(sesionAMedias());
   cerebro({ datos: msg('Óscar Tovar', null), sd, pend:{} });      // arma
-  sd.ses[WA].recordado = LUNES_10AM - 40*60*1000;                   // ya se le recordo hace rato
-  sd.ses[WA].t         = LUNES_10AM - 60*60*1000;
-  const out = cron(sd, LUNES_10AM);
+  sd.ses[WA].recordado = Date.now() - 40*60*1000;                   // ya se le recordo hace rato
+  sd.ses[WA].t         = Date.now() - 60*60*1000;
+  const out = cron(sd, Date.now());
   const txt = JSON.stringify(out);
   chequear('El cron entrega el lead (no lo despide)', /cierre_rescate/.test(txt) && !/cierre_inactividad/.test(txt), txt.slice(0,300));
   chequear('Le dice al cliente quién lo va a contactar', /pasamos tu solicitud/.test(txt), txt.slice(0,300));
@@ -92,10 +94,10 @@ const chequear = (n, cond, detalle) => { total++; if (cond) ok++;
 {
   const sd = nuevoSD(sesionAMedias());
   cerebro({ datos: msg('Óscar Tovar', null), sd, pend:{} });
-  sd.done[WA] = { t: LUNES_10AM - 60000, asesorNom:'Otro' };        // ya cerro hace 1 min
-  sd.ses[WA].recordado = LUNES_10AM - 40*60*1000;
-  sd.ses[WA].t         = LUNES_10AM - 60*60*1000;
-  const out = cron(sd, LUNES_10AM);
+  sd.done[WA] = { t: Date.now() - 60000, asesorNom:'Otro' };        // ya cerro hace 1 min
+  sd.ses[WA].recordado = Date.now() - 40*60*1000;
+  sd.ses[WA].t         = Date.now() - 60*60*1000;
+  const out = cron(sd, Date.now());
   // Con lead reciente el cron ni siquiera le habla (regla previa: no molestar a quien ya fue atendido).
   chequear('Con lead reciente NO duplica ni molesta', sd.leads.length === 0 && !/cierre_/.test(JSON.stringify(out)),
            'leads=' + sd.leads.length + ' out=' + JSON.stringify(out).slice(0,200));
@@ -106,7 +108,7 @@ const chequear = (n, cond, detalle) => { total++; if (cond) ok++;
   const sd = nuevoSD(sesionAMedias());
   cerebro({ datos: msg('Óscar Tovar', null), sd, pend:{} });
   chequear('(previo) el rescate estaba armado', !!sd.rescate[WA]);
-  sd.ses[WA].paso = 'cerrado'; sd.ses[WA].closedAt = LUNES_10AM;
+  sd.ses[WA].paso = 'cerrado'; sd.ses[WA].closedAt = Date.now();
   cerebro({ datos: msg('gracias', null), sd, pend:{} });
   chequear('Al cerrar normal se descarta el rescate', !sd.rescate[WA], JSON.stringify(sd.rescate[WA]||{}));
 }
