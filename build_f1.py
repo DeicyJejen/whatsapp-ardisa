@@ -204,7 +204,13 @@ const MONITOR_ADMIN = '573205662947'; // Deicy: dueña del sistema. Escribe al b
 // === SEGUIMIENTO POR ASESOR (reporte del resultado con botones) — EN VIVO PARA TODOS LOS ASESORES (decisión Deicy 2026-07-21) ===
 const SEG_ACTIVO = true;               // true: el botón "Reportar resultado" y los recordatorios van al ASESOR REAL (asesor.num). false: apaga la función.
 const SEG_PRUEBA_NUM = '573205662947'; // Deicy: fallback si el lead no tiene asesor con número; también puede reportar (respaldo/monitoreo).
-const SEG_DIAS = 5;                    // recordatorios: 1 por día HÁBIL hasta que reporte o pasen SEG_DIAS días hábiles.
+// RECORDATORIOS AL ASESOR — regla Deicy 2026-08-03: "el recordatorio sea por los OCHO DÍAS, porque ya no los
+// reportaron, se jodieron, ellos verán cómo los reportan después; no se le recuerda, que tenga la lista".
+// Se amarra al ciclo del Excel: el reporte sale CADA LUNES, así que se insiste una semana y punto. Pasados los
+// 8 días el lead deja de aparecer en el recordatorio para siempre (sigue en la BD y en el Excel, eso no se pierde).
+// Se cuentan días CALENDARIO, no hábiles: "ocho días" en la conversación real significa una semana corrida.
+const SEG_DIAS = 8;                    // sin reportar: se le recuerda 8 días calendario y ya
+const SEG_DIAS_FOLLOW = 15;            // "en seguimiento": el asesor SÍ contestó y pidió tiempo -> se le da más margen
 // Estados (taxonomía EXACTA del Excel de seguimiento) que el asesor elige
 const SEG_ESTADOS = [['SEGE_GANADO','✅ Ganado (venta)'],['SEGE_COTIZ','📄 Cotización enviada'],['SEGE_PERDIDO','❌ Perdido'],['SEGE_GESTION','⏳ Aún en gestión'],['SEGE_PREGUNTA','ℹ️ Pregunta resuelta'],['SEGE_SINRTA','🚫 Sin respuesta']];
 const SEG_MOTIVOS = [['SEGM_PRECIO','Precio'],['SEGM_DISPON','Disponibilidad'],['SEGM_PORTAF','Portafolio'],['SEGM_ENTREGA','Tiempo de entrega'],['SEGM_DEMORA','Demora en la respuesta']];
@@ -677,8 +683,9 @@ function cerrarLead(st,opts){
   let _segPrompt=null;
   if(SEG_ACTIVO && _segTok){
     store.segPend = store.segPend || {};
-    // poda: sin reportar >9 días (cubre los 5 días hábiles de recordatorios + fin de semana/festivo); en seguimiento (interino) >12 días.
-    for(const k in store.segPend){ const _sp=store.segPend[k]; const _age=NOW-((_sp&&_sp.t)||0); if(!_sp || (_sp.follow ? _age>12*24*3600000 : _age>9*24*3600000)) delete store.segPend[k]; }
+    // poda: se borra un poco DESPUÉS de que se dejó de recordar (SEG_DIAS/SEG_DIAS_FOLLOW + 2 de colchón),
+    // para que el último recordatorio alcance a salir. El lead NO se pierde: sigue en la BD y en el Excel.
+    for(const k in store.segPend){ const _sp=store.segPend[k]; const _age=NOW-((_sp&&_sp.t)||0); if(!_sp || _age > ((_sp.follow?SEG_DIAS_FOLLOW:SEG_DIAS)+2)*24*3600000) delete store.segPend[k]; }
     const _segAsesorNum = destino;   // a quién se le pedirá el reporte (asesor real en vivo; Deicy si el lead no tiene asesor con número)
     store.segPend[_segTok] = { telefono:wa, creado_en:leadRow.creado_en, cliente:(st.nombre||''), asesor:(asesor.nombre||''), asesor_num:_segAsesorNum, t:NOW };
     // El botón APARTE solo cuando el aviso fue TEXTO (ventana abierta). Con plantilla, el botón YA va integrado en la tarjeta
@@ -2287,6 +2294,9 @@ function _festivos(y){ const S=new Set(); const D=(mo,da)=>new Date(Date.UTC(y,m
   const P=new Date(Date.UTC(y,mes-1,dia)); const rel=n=>new Date(P.getTime()+n*86400000); [-3,-2,43,64,71].forEach(n=>S.add(_ymd(rel(n)))); return S; }
 function _esHabil(d){ if(d.getUTCDay()===0) return false; return !_festivos(d.getUTCFullYear()).has(_ymd(d)); }   // hábil = NO domingo y NO festivo (sábado sí)
 function _diasHabiles(fromE, toE){ const d0=_colDate(fromE), d1=_colDate(toE); const start=Date.UTC(d0.getUTCFullYear(),d0.getUTCMonth(),d0.getUTCDate()), end=Date.UTC(d1.getUTCFullYear(),d1.getUTCMonth(),d1.getUTCDate()); let n=0; for(let t=start+86400000;t<=end;t+=86400000){ if(_esHabil(new Date(t))) n++; } return n; }   // hábiles transcurridos (sin contar el día de inicio)
+// OJO: este es OTRO nodo (el cron), no comparte variables con el Cerebro -> hay que repetir las constantes.
+// Si se cambia una, cambiar la otra. Regla Deicy 2026-08-03: se recuerda 8 días calendario y se acabó.
+const SEG_DIAS = 8, SEG_DIAS_FOLLOW = 15;
 const MID=['','marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','detalle','confirmGrupo','consent'];
 const REMIND=12*60*1000, CLOSE=18*60*1000, WINDOW=24*3600*1000, MAXREM=60*60*1000;   // 2026-07-29: recordatorio a los 12 min, cierre 18 min después (~30 min total).
 // Antes eran 7+8 = 15 min y eso costaba clientes: Stephanie Naffah (27-jul) se demoró 7 min eligiendo su perfil, el bot la cerró,
@@ -2480,9 +2490,13 @@ if(store.segPend){
     for(const tok in store.segPend){
       const sp=store.segPend[tok]; if(!sp) continue;
       const dest = sp.asesor_num || '573205662947';                 // asesor real; Deicy si el lead no tenía número
+      // REGLA DEICY 2026-08-03: se insiste UNA SEMANA (8 días calendario) y se acabó. El Excel sale cada lunes;
+      // si no lo reportaron en su semana, el lead deja de aparecer en el recordatorio PARA SIEMPRE. No se pierde:
+      // sigue en la BD y en el Excel, y el asesor puede reportarlo cuando quiera desde su propia lista.
+      // Antes se contaba en días HÁBILES (5 / 10), lo que estiraba la insistencia con fines de semana y festivos.
+      const _diasCal = Math.floor((NOW-(sp.t||NOW))/86400000);
+      if(_diasCal > (sp.follow ? SEG_DIAS_FOLLOW : SEG_DIAS)) continue;   // fuera de la ventana -> nunca más
       const _bd = _diasHabiles(sp.t||NOW, NOW);
-      const _limite = sp.follow ? 10 : 5;                            // sin reportar: 5 días hábiles; interino: hasta 10
-      if(_bd > _limite) continue;                                    // muy viejo -> fuera de la ventana de recordatorios
       if(_bd===0 && (NOW-(sp.t||0)) < 3*3600000) continue;           // mismo día: solo si el lead lleva >=3h asignado (Deicy 24-jul)
       (_porAses[dest]=_porAses[dest]||[]).push({tok, sp});
     }
