@@ -26,8 +26,11 @@ const base = {
 const staticPisado = () => ({ rot: {}, consent: {}, leads: [], done: {}, ses: { [WA]: { paso: 'consent', t: Date.now() } } });
 
 const casos = [
-  { n: '1. Carrera: autorizo hace 5s (la BD lo sabe, la memoria NO)', pend: { cons_si: 1 }, espera: 'marca' },
-  { n: '2. Carrera + memoria intacta (cinturon y tirantes)',          pend: { cons_si: 1 }, mem: true, espera: 'marca' },
+  // Espera 'nombre', no 'marca': desde el fix del 3-ago-b la sesion se corrige ANTES de repartir, y como la IA
+  // ya sabe que "120 bultos de cemento" es Ardisa, el bot se salta el menu de marca y le pide el nombre.
+  // Lo que NUNCA puede salir es 'consent' (volverle a pedir la autorizacion que acaba de dar).
+  { n: '1. Carrera: autorizo hace 5s (la BD lo sabe, la memoria NO)', pend: { cons_si: 1 }, espera: 'nombre' },
+  { n: '2. Carrera + memoria intacta (cinturon y tirantes)',          pend: { cons_si: 1 }, mem: true, espera: 'nombre' },
   { n: '3. NO autorizo nunca -> el muro DEBE seguir apareciendo',     pend: { cons_si: 0 }, espera: 'consent' },
   { n: '4. La BD se cayo (sin dato) -> no se regala consentimiento',  pend: {},             espera: 'consent' },
   { n: '5. La BD devolvio error -> tampoco se regala',                pend: { error: 'ECONNREFUSED' }, espera: 'consent' },

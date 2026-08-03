@@ -34,8 +34,10 @@ const casos = [
   { n:'Lead de hace 8 dias  -> SI (ultimo dia de la ventana)',dias:8,  espera:true  },
   { n:'Lead de hace 9 dias  -> NO, se acabo la insistencia',  dias:9,  espera:false },
   { n:'Lead de hace 18 dias -> NO (el caso de Karime/Jhon)',  dias:18, espera:false },
-  { n:'"En seguimiento" de 12 dias -> SI (margen mayor)',     dias:12, follow:true, espera:true  },
-  { n:'"En seguimiento" de 16 dias -> NO',                    dias:16, follow:true, espera:false },
+  // Deicy 3-ago: "dijimos 8 dias de lunes a lunes porque el Excel es de 8 dias". SIN excepciones:
+  // "en seguimiento" tiene la MISMA ventana que cualquier otro lead.
+  { n:'"En seguimiento" de 8 dias  -> SI (mismo limite)',      dias:8,  follow:true, espera:true  },
+  { n:'"En seguimiento" de 12 dias -> NO (ya no hay excepción)',dias:12, follow:true, espera:false },
 ];
 
 let ok = 0;

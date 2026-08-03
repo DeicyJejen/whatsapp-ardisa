@@ -210,7 +210,7 @@ const SEG_PRUEBA_NUM = '573205662947'; // Deicy: fallback si el lead no tiene as
 // 8 días el lead deja de aparecer en el recordatorio para siempre (sigue en la BD y en el Excel, eso no se pierde).
 // Se cuentan días CALENDARIO, no hábiles: "ocho días" en la conversación real significa una semana corrida.
 const SEG_DIAS = 8;                    // sin reportar: se le recuerda 8 días calendario y ya
-const SEG_DIAS_FOLLOW = 15;            // "en seguimiento": el asesor SÍ contestó y pidió tiempo -> se le da más margen
+const SEG_DIAS_FOLLOW = 8;             // IGUAL: Deicy 3-ago "dijimos 8 días de lunes a lunes, el Excel es de 8 días". Sin excepciones.
 // Estados (taxonomía EXACTA del Excel de seguimiento) que el asesor elige
 const SEG_ESTADOS = [['SEGE_GANADO','✅ Ganado (venta)'],['SEGE_COTIZ','📄 Cotización enviada'],['SEGE_PERDIDO','❌ Perdido'],['SEGE_GESTION','⏳ Aún en gestión'],['SEGE_PREGUNTA','ℹ️ Pregunta resuelta'],['SEGE_SINRTA','🚫 Sin respuesta']];
 const SEG_MOTIVOS = [['SEGM_PRECIO','Precio'],['SEGM_DISPON','Disponibilidad'],['SEGM_PORTAF','Portafolio'],['SEGM_ENTREGA','Tiempo de entrega'],['SEGM_DEMORA','Demora en la respuesta']];
@@ -1372,6 +1372,12 @@ const esInfo = !reinicia && !id && !es_media && !esReclamo && (ia ? (ia.es_info=
 // ¿YA autorizó? consintió hoy, O st.consent, O YA ESTÁ EN UN PASO POSTERIOR al consentimiento (no se puede llegar a marca/nombre/etc. sin haber autorizado).
 // Esto blinda contra la carrera de n8n: si mandó una foto justo tras autorizar, NO le volvemos a pedir la autorización.
 const yaConsintio = consintioHoy() || (st && st.consent) || (st && st.paso && st.paso!=='consent' && st.paso!=='');
+// === FIX 2026-08-03b (caso real 15:12, detectado por Deicy): NO repetirle la pregunta que ya contestó. ===
+// La red anti-carrera resolvía el problema DENTRO de la rama 'consent' volviendo a mostrar el menú de marca.
+// Si el cliente ya había TOCADO "🟢 Ardisa", su botón se perdía y el bot le repetía el mismo menú.
+// Ahora el paso se corrige ANTES de repartir el mensaje: la rama 'marca' recibe el botón y lo atiende normal.
+// Regla general: una red de seguridad debe DEVOLVER al cliente a su carril, nunca hacerle repetir lo hecho.
+if(st && st.paso==='consent' && (CONS_SI || st.consent)){ st.consent=true; st.paso='marca'; }
 // PREGUNTA DE HORARIO: si el cliente pregunta el horario, se lo respondemos (sin perder su lugar en el flujo).
 const preguntaHorario = !es_media && !id && !reinicia && /(qu[eé] horario|horario (de|manej|atenci|tienen|es\b|labor)|a qu[eé] hora(s)? (atien|aten|abren|cierran|trabaj)|hasta qu[eé] hora|desde qu[eé] hora|est[aá](n)? abiert|abren hoy|atienden hoy|est[aá](n)? atend|hora(s)? de atenci|cu[aá]ndo (atien|aten|abren|trabaj)|qu[eé] d[ií]as (atien|aten|abren|trabaj))/i.test(low);
 if(preguntaHorario){
@@ -2367,7 +2373,7 @@ function _esHabil(d){ if(d.getUTCDay()===0) return false; return !_festivos(d.ge
 function _diasHabiles(fromE, toE){ const d0=_colDate(fromE), d1=_colDate(toE); const start=Date.UTC(d0.getUTCFullYear(),d0.getUTCMonth(),d0.getUTCDate()), end=Date.UTC(d1.getUTCFullYear(),d1.getUTCMonth(),d1.getUTCDate()); let n=0; for(let t=start+86400000;t<=end;t+=86400000){ if(_esHabil(new Date(t))) n++; } return n; }   // hábiles transcurridos (sin contar el día de inicio)
 // OJO: este es OTRO nodo (el cron), no comparte variables con el Cerebro -> hay que repetir las constantes.
 // Si se cambia una, cambiar la otra. Regla Deicy 2026-08-03: se recuerda 8 días calendario y se acabó.
-const SEG_DIAS = 8, SEG_DIAS_FOLLOW = 15;
+const SEG_DIAS = 8, SEG_DIAS_FOLLOW = 8;
 const MID=['','marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','detalle','confirmGrupo','consent'];
 const REMIND=12*60*1000, CLOSE=18*60*1000, WINDOW=24*3600*1000, MAXREM=60*60*1000;   // 2026-07-29: recordatorio a los 12 min, cierre 18 min después (~30 min total).
 // Antes eran 7+8 = 15 min y eso costaba clientes: Stephanie Naffah (27-jul) se demoró 7 min eligiendo su perfil, el bot la cerró,
