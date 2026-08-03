@@ -11,8 +11,13 @@ os.makedirs(OUT, exist_ok=True); os.makedirs(TMP, exist_ok=True)
 NAVY='1E2A4A'; TEAL='0F9D8E'; AMBER='F5B301'; LIGHT='F4F6F8'; GREY='5A6472'
 EMOJI=re.compile('[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\U00002B00-\U00002BFF\U00002190-\U000021FF\U0000FE0F]')
 def clean(s): return re.sub(r'\s+',' ',EMOJI.sub('', str(s or ''))).strip()
+LOGO_DIRS=[BASE+'oficina/', BASE]   # fix 2026-08-03: los logos se movieron a oficina/ el 22-jul
+def ruta_logo(nombre):
+    for d in LOGO_DIRS:
+        if os.path.exists(d+nombre): return d+nombre
+    print('!! LOGO NO ENCONTRADO: '+nombre); return LOGO_DIRS[-1]+nombre
 def logo_png(marca):
-    src=BASE+('logofirmagrupoardisavertical_org.png' if marca=='Ardisa' else 'logofirmacarpincentrovertical2.png')
+    src=ruta_logo('logofirmagrupoardisavertical_org.png' if marca=='Ardisa' else 'logofirmacarpincentrovertical2.png')
     im=PILImage.open(src).convert('RGBA'); bb=im.getbbox()
     if bb: im=im.crop(bb)
     bg=PILImage.new('RGB', im.size, 'white'); bg.paste(im, mask=im.split()[3])

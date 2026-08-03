@@ -4,11 +4,44 @@
 # La clave NUNCA va aquí: se lee de /home/ubuntu/.config/ardisa/smtp_pass (chmod 600).
 # Uso:  python3 reporte_semanal.py           -> envía a los destinatarios reales
 #       python3 reporte_semanal.py --test    -> envía SOLO a la cuenta de prueba (para previsualizar)
-import subprocess, os, sys, ssl, smtplib, datetime
+import subprocess, os, sys, ssl, smtplib, datetime, time
 from email.message import EmailMessage
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+# === REINTENTOS SMTP (fix 2026-08-03) ===
+# El 3-ago 07:00 Office365 cortó la conexión ("read operation timed out") y el script murió: Nancy, Paola y
+# María NO recibieron el reporte de esa semana. Una red que falla una vez es normal; perder el correo, no.
+INTENTOS, ESPERA = 3, 20        # 3 intentos, esperando 20s, 40s entre ellos (espera creciente / backoff)
+
+def conectar():
+    """Abre la sesión SMTP. Si falla, reintenta con espera creciente en vez de tumbar todo el reporte."""
+    ultimo = None
+    for i in range(1, INTENTOS+1):
+        try:
+            s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60)
+            s.ehlo(); s.starttls(context=ssl.create_default_context()); s.ehlo()
+            s.login(SMTP_USER, SMTP_PASS)
+            return s
+        except Exception as e:
+            ultimo = e; print("SMTP conectar intento %d/%d falló: %s" % (i, INTENTOS, e))
+            if i < INTENTOS: time.sleep(ESPERA*i)
+    raise ultimo
+
+def enviar(s, msg, from_addr, to_addrs):
+    """Envía. Si la conexión se cayó a mitad, la reabre y vuelve a intentar. Devuelve la sesión vigente."""
+    for i in range(1, INTENTOS+1):
+        try:
+            s.send_message(msg, from_addr=from_addr, to_addrs=to_addrs); return s
+        except Exception as e:
+            print("SMTP enviar intento %d/%d falló: %s" % (i, INTENTOS, e))
+            if i >= INTENTOS: raise
+            time.sleep(ESPERA*i)
+            try: s.quit()
+            except Exception: pass          # la conexión ya estaba muerta; da igual
+            s = conectar()
+    return s
 
 # ---- Config ----
 SMTP_HOST, SMTP_PORT = "smtp.office365.com", 587
@@ -64,9 +97,7 @@ def build_xlsx(path, marca, titulo):
 def main():
     test = "--test" in sys.argv
     hoy = datetime.date.today().isoformat()
-    s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30)
-    s.ehlo(); s.starttls(context=ssl.create_default_context()); s.ehlo()
-    s.login(SMTP_USER, SMTP_PASS)
+    s = conectar()
     # Un reporte POR MARCA, a sus propios destinatarios (Carpincentro NO va a Nancy).
     for marca, titulo, dest_real in MARCAS:
         dest = DEST_PRUEBA if test else dest_real
@@ -84,7 +115,7 @@ def main():
                                subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                filename=os.path.basename(fn))
         bcc = [] if test else [b for b in BCC_COPIA if b not in dest]   # BCC de supervisión (no en --test, sin duplicar a quien ya está en To)
-        s.send_message(msg, from_addr=SMTP_USER, to_addrs=list(dest) + bcc)   # to_addrs explícito: el BCC recibe SIN aparecer en las cabeceras
+        s = enviar(s, msg, SMTP_USER, list(dest) + bcc)   # to_addrs explícito: el BCC recibe SIN aparecer en las cabeceras
         print("OK: [%s] %d leads -> %s%s" % (titulo, n, ", ".join(dest), (" (BCC: " + ", ".join(bcc) + ")") if bcc else ""))
     s.quit()
 

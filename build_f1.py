@@ -127,6 +127,9 @@ const d = $('Extraer datos').first().json;   // Fase 2: insumos SIEMPRE del extr
 // lead siga SIN REPORTAR, el cliente vuelve SIEMPRE al mismo asesor, sin importar cuánto tiempo pase.
 let PEND = {}; try{ PEND = $('Unir pendiente').first().json || {}; }catch(e){}
 const PEND_TEL = String(PEND.pend_tel||''), PEND_ASE = String(PEND.pend_asesor||''), PEND_ID = PEND.pend_id||0;
+// ¿Autorizó HOY? Lo dice la BD (tabla consentimientos), no la memoria: una carrera de n8n borra la memoria
+// pero no puede borrar la fila. Ver consintioHoy() más abajo. (fix 2026-08-03, caso Rusbel — 120 bultos de cemento)
+const CONS_SI = Number(PEND.cons_si||0) > 0;
 // FIX CRÍTICO de estado: los callbacks de estado de WhatsApp (sent/delivered/read) y no-mensajes
 // entran aquí SIN wa_id. Si cargáramos staticData, n8n la re-guardaría al terminar y PISARÍA la sesión
 // que otra ejecución acaba de actualizar (bug del ping-pong ciudad↔ocupación). Salimos ANTES de tocar la memoria.
@@ -162,7 +165,8 @@ const encolarMedia = (o, cliente) => { if(!o||!o.to) return; (store.mediaPend[o.
 const TTL = 6*3600*1000;           // 6h: sesión vieja se reinicia sola
 const hoyCol = new Date(NOW-5*3600000).toISOString().slice(0,10);   // fecha de HOY en Colombia (UTC-5)
 // Consentimiento por DÍA (decisión Deicy 2026-07-10): mismo día = no re-preguntar; otro día = pedir autorización + datos de nuevo.
-function consintioHoy(){ const c=store.consent[wa]; if(!c) return false; return new Date(c-5*3600000).toISOString().slice(0,10)===hoyCol; }
+function consintioHoy(){ if(CONS_SI) return true;   // la BD manda: sobrevive a las carreras de staticData
+  const c=store.consent[wa]; if(!c) return false; return new Date(c-5*3600000).toISOString().slice(0,10)===hoyCol; }
 // Limpia sesiones viejas (evita crecer sin límite)
 for (const k in S) { if (S[k] && S[k].t && (NOW - S[k].t) > TTL) delete S[k]; }
 for (const k in store.lastId) { if (store.lastId[k] && (NOW - store.lastId[k].t) > TTL) delete store.lastId[k]; }   // poda el anti-duplicado (antes crecía sin límite)
@@ -1051,10 +1055,19 @@ if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
     const _ultimo = (store.leads && store.leads.length) ? store.leads[store.leads.length-1] : null;
     const _hhmm = _ultimo ? new Date(_ultimo.ts-5*3600000).toISOString().slice(11,16) : '—';
     const _lst = s => String(s||'').split(' · ').filter(Boolean).map(x=>'   • '+x).join('\n') || '   • (ninguno)';
+    // ALERTAS (2026-08-03, pedido Deicy: "esos errores son los que necesito saber para pasártelos").
+    // Las detecta vigilante.py cada hora y quedan en la tabla `alertas`; aquí solo se muestran.
+    const _alrN = Number(PEND.alr_n||0);
+    const _alrTxt = _alrN
+      ? ('⚠️ *ERRORES DETECTADOS (7 días): '+_alrN+'*\n'+
+         String(PEND.alr_det||'').split('~~').filter(Boolean)
+           .map(function(x){ const p=x.split('|'); return '   '+(p[0]==='1'?'🔴 ':'🟡 ')+p.slice(1).join('|'); }).join('\n')+
+         (_alrN>6 ? ('\n   … y '+(_alrN-6)+' más (te llegaron por correo)') : '')+'\n\n')
+      : '✅ *Sin errores detectados en 7 días.*\n\n';
     const _inf =
       '📊 *PANEL DEL BOT — Grupo Ardisa*\n'+
       '🕒 '+fechaCol().slice(0,16)+'\n\n'+
-      '✅ *Bot operando normalmente.*\n'+
+      _alrTxt+
       '💬 Conversaciones activas ahora: *'+_enLinea+'*\n\n'+
       '📥 *Leads de hoy: '+(PEND.rep_hoy||0)+'*\n'+_lst(PEND.rep_hoy_det)+'\n'+
       '🔖 Último lead: '+_hhmm+(_ultimo?(' — '+(_ultimo.nombre||'—')+' → '+(_ultimo.asesor||'—')):'')+'\n\n'+
@@ -1898,10 +1911,27 @@ _PEND_SQL = ("SELECT "
     "(SELECT GROUP_CONCAT(CONCAT(a.asesor,' ',a.n) ORDER BY a.n DESC SEPARATOR ' · ') FROM "
       "(SELECT asesor, COUNT(*) n FROM leads WHERE modo_prueba=0 AND creado_en >= CURDATE() GROUP BY asesor) a) AS rep_hoy_det, "
     "(SELECT GROUP_CONCAT(CONCAT(b.asesor,' ',b.n) ORDER BY b.n DESC SEPARATOR ' · ') FROM "
-      "(SELECT asesor, COUNT(*) n FROM leads WHERE "+_REP_COND+" GROUP BY asesor) b) AS rep_pend_det")
+      "(SELECT asesor, COUNT(*) n FROM leads WHERE "+_REP_COND+" GROUP BY asesor) b) AS rep_pend_det, "
+    # === CONSENTIMIENTO DE HOY, desde la BD (fix 2026-08-03) ===
+    # La "red anti-carrera" del Cerebro consultaba store.consent, que vive en el MISMO staticData que la carrera pisa,
+    # así que no servía de nada. La BD sí es a prueba de carreras. Caso real: Rusbel (30-jul 17:13) autorizó y CINCO
+    # SEGUNDOS después escribió "Tienes 120 bultos de cemento" -> el bot le volvió a pedir la autorización y se perdió.
+    # 21 clientes en 18 días. CURDATE() = hoy en Colombia (el servidor MySQL corre en -05), y el consentimiento
+    # operativo es POR DÍA: si autorizó ayer, se le vuelve a pedir (regla legal que NO se toca).
+    "(SELECT COUNT(*) FROM consentimientos WHERE telefono=$5 AND decision='SI' AND creado_en >= CURDATE()) AS cons_si, "
+    # === ALERTAS PARA EL PANEL DE DEICY (2026-08-03) ===
+    # El análisis PESADO (leer conversaciones, cruzar tablas) lo hace vigilante.py en un cron y deja aquí el
+    # resumen ya digerido. Esta consulta corre en CADA mensaje de CADA cliente, así que solo puede leer una
+    # tabla chiquita por índice — nunca escanear. Por eso `alertas` existe: separa el trabajo lento del rápido.
+    "(SELECT COUNT(*) FROM alertas WHERE creado_en >= NOW() - INTERVAL 7 DAY) AS alr_n, "
+    # El emoji lo pone el JavaScript, NO el SQL: un emoji dentro de la consulta depende de la codificación de la
+    # conexión (utf8mb4) y si el driver no la fija se convierte en '????'. Aquí solo viaja el número de severidad.
+    "(SELECT GROUP_CONCAT(CONCAT(z.severidad,'|', z.detalle) ORDER BY z.severidad, z.id DESC SEPARATOR '~~') "
+      "FROM (SELECT severidad, id, LEFT(detalle,130) detalle FROM alertas WHERE creado_en >= NOW() - INTERVAL 7 DAY "
+            "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -1917,7 +1947,10 @@ return [{ json: Object.assign({}, d, {
   rep_hoy:      p.rep_hoy      || 0,
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',
-  rep_pend_det: p.rep_pend_det || ''
+  rep_pend_det: p.rep_pend_det || '',
+  cons_si:      Number(p.cons_si || 0),  // ¿ya autorizó HOY según la BD? (a prueba de carreras de staticData)
+  alr_n:        Number(p.alr_n   || 0),  // alertas de los últimos 7 días (las escribe vigilante.py)
+  alr_det:      p.alr_det ? String(p.alr_det) : ''
 }) }];
 """}, 1080, 360))
 # === Fase 2: capa de IA (entre "¿Es mensaje?" y el Cerebro), detrás del kill-switch USAR_IA ===

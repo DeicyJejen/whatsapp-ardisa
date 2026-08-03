@@ -4,7 +4,7 @@
 # (el bot llena lo que sabe; las columnas manuales de MKT quedan en blanco para completarlas en el mismo archivo).
 # La clave SMTP se lee de /home/ubuntu/.config/ardisa/smtp_pass (chmod 600).
 # MODO PRUEBA: por ahora solo le llega a Deicy. Al aprobar, cambiar DEST a los responsables reales.
-import subprocess, os, sys, ssl, smtplib, datetime
+import subprocess, os, sys, ssl, smtplib, datetime, time
 from email.message import EmailMessage
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -13,9 +13,20 @@ from openpyxl.drawing.image import Image as XLImage
 from collections import Counter
 from PIL import Image, ImageChops
 
+# === RUTA DE LOS LOGOS (fix 2026-08-03) ===
+# El 22-jul los archivos de marca se movieron a oficina/ y estos scripts seguían apuntando a la raíz -> desde
+# entonces el correo y el Excel salieron SIN logo (el try/except lo tapaba). Ahora se buscan en varias carpetas.
+LOGO_DIRS = ["/home/ubuntu/whatsapp-ardisa/oficina/", "/home/ubuntu/whatsapp-ardisa/"]
+def _ruta(nombre):
+    """Devuelve la PRIMERA carpeta donde el archivo exista de verdad. Si no está en ninguna, avisa fuerte."""
+    for d in LOGO_DIRS:
+        if os.path.exists(d + nombre): return d + nombre
+    print("!! LOGO NO ENCONTRADO: %s (buscado en: %s)" % (nombre, " | ".join(LOGO_DIRS)))
+    return LOGO_DIRS[-1] + nombre
+
 # Logo por marca para el Excel (vertical, como el primer reporte). Si falta el archivo, se omite sin romper.
-LOGO_MARCA = {"Ardisa": "/home/ubuntu/whatsapp-ardisa/logofirmagrupoardisavertical_org.png",
-              "Carpincentro": "/home/ubuntu/whatsapp-ardisa/logofirmacarpincentrovertical2.png"}
+LOGO_MARCA = {"Ardisa": _ruta("logofirmagrupoardisavertical_org.png"),
+              "Carpincentro": _ruta("logofirmacarpincentrovertical2.png")}
 def _logo_sheet(marca, outdir):
     src = LOGO_MARCA.get(marca, "")
     im = Image.open(src).convert("RGBA"); bb = im.getbbox()
@@ -23,8 +34,8 @@ def _logo_sheet(marca, outdir):
     bg = Image.new("RGB", im.size, "white"); bg.paste(im, mask=im.split()[3])
     o = outdir + "_logosheet_" + marca + ".png"; bg.save(o, "PNG"); return o, bg.size
 
-LOGO_SRC  = "/home/ubuntu/whatsapp-ardisa/IMAGOTIPOS-GRUPOARDISA-01-V1-(3).jpg"   # horizontal grupoardisa (encabezado)
-LOGO_VERT = "/home/ubuntu/whatsapp-ardisa/logofirmagrupoardisavertical_org.png"   # vertical (para recortar el ícono del pie)
+LOGO_SRC  = _ruta("IMAGOTIPOS-GRUPOARDISA-01-V1-(3).jpg")            # horizontal grupoardisa (encabezado)
+LOGO_VERT = _ruta("logofirmagrupoardisavertical_org.png")            # vertical (para recortar el ícono del pie)
 def _trim(im):
     bg = Image.new("RGB", im.size, (255,255,255))
     bb = ImageChops.difference(im.convert("RGB"), bg).getbbox()
@@ -53,11 +64,12 @@ def _logos(outdir):
 SMTP_HOST, SMTP_PORT = "smtp.office365.com", 587
 SMTP_USER = "noreply@ardisa.com"
 SMTP_PASS = open("/home/ubuntu/.config/ardisa/smtp_pass").read().strip()
-# MODO PRUEBA: por ahora las DOS líneas le llegan solo a Deicy. Al aprobar -> responsables reales
-# (Ardisa -> sus jefes; Carpincentro -> Paola + María Camila, igual que el semanal viejo).
-DEST_PRUEBA = ["deicy.jejen@ardisa.com"]
-DEST_ARDISA = DEST_PRUEBA
-DEST_CARP   = DEST_PRUEBA
+# EN VIVO desde 2026-08-03 (aprobado por Deicy). Mismos destinatarios y misma regla por marca que el
+# reporte semanal de leads (decisión Deicy 2026-07-15): Nancy es de Ardisa, NO recibe Carpincentro.
+DEST_ARDISA = ["nancy.zambrano@ardisa.com", "paola.calderon@ardisa.com", "maria.ardila@ardisa.com"]
+DEST_CARP   = ["paola.calderon@ardisa.com", "maria.ardila@ardisa.com"]
+DEST_PRUEBA = ["deicy.jejen@ardisa.com"]          # solo con --test
+BCC_COPIA   = ["deicy.jejen@ardisa.com"]          # copia OCULTA de supervisión para Deicy (ellas no la ven)
 MARCAS = [("Ardisa", DEST_ARDISA), ("Carpincentro", DEST_CARP)]   # un reporte POR línea, MISMA plantilla
 DIAS = 7
 OUT = "/home/ubuntu/whatsapp-ardisa/reportes/"
@@ -248,22 +260,49 @@ def enviar_marca(s, marca, dest, test, hoy):
     _hpart = msg.get_payload()[-1]   # imágenes en línea (CID): logo encabezado + ícono pie
     try:
         _ph, _pi = _logos(OUT)
-        with open(_ph,"rb") as _f: _hpart.add_related(_f.read(), "image", "png", cid="logohdr")
-        with open(_pi,"rb") as _f: _hpart.add_related(_f.read(), "image", "png", cid="logoicon")
+        # cid CON signos <>: el estándar (RFC 2045) exige "Content-ID: <logohdr>"; Python NO los pone solo
+        # y Outlook puede no emparejarlo con el src="cid:logohdr" del HTML -> imagen rota. (fix 2026-08-03)
+        with open(_ph,"rb") as _f: _hpart.add_related(_f.read(), "image", "png", cid="<logohdr>")
+        with open(_pi,"rb") as _f: _hpart.add_related(_f.read(), "image", "png", cid="<logoicon>")
     except Exception as _e:
         print("aviso logos:", _e)
     with open(fn,"rb") as f:
         msg.add_attachment(f.read(),maintype="application",
                            subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            filename=os.path.basename(fn))
-    s.send_message(msg)
-    print("OK: %s — %d solicitudes (%d reportadas, %d pend) -> %s"%(marca,tot,rep,pend,", ".join(dest)))
+    bcc = [] if test else [b for b in BCC_COPIA if b not in dest]   # copia oculta de supervisión (no en --test)
+    for i in range(1, INTENTOS+1):          # si la conexión se cayó a mitad, se reabre y se reintenta
+        try:
+            s.send_message(msg, from_addr=SMTP_USER, to_addrs=list(dest)+bcc); break
+        except Exception as e:
+            print("SMTP enviar intento %d/%d falló: %s" % (i, INTENTOS, e))
+            if i >= INTENTOS: raise
+            time.sleep(ESPERA*i)
+            try: s.quit()
+            except Exception: pass
+            s = conectar()
+    print("OK: %s — %d solicitudes (%d reportadas, %d pend) -> %s%s"%(marca,tot,rep,pend,", ".join(dest),
+          (" (BCC: "+", ".join(bcc)+")") if bcc else ""))
+
+INTENTOS, ESPERA = 3, 20        # fix 2026-08-03: Office365 corta la conexión de vez en cuando -> reintentar
+def conectar():
+    """Abre la sesión SMTP con reintentos y espera creciente (backoff) para no perder el reporte."""
+    ultimo = None
+    for i in range(1, INTENTOS+1):
+        try:
+            s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60)
+            s.ehlo(); s.starttls(context=ssl.create_default_context()); s.ehlo()
+            s.login(SMTP_USER, SMTP_PASS)
+            return s
+        except Exception as e:
+            ultimo = e; print("SMTP conectar intento %d/%d falló: %s" % (i, INTENTOS, e))
+            if i < INTENTOS: time.sleep(ESPERA*i)
+    raise ultimo
 
 def main():
     test="--test" in sys.argv
     hoy=datetime.date.today().isoformat()
-    s=smtplib.SMTP(SMTP_HOST,SMTP_PORT,timeout=30); s.ehlo(); s.starttls(context=ssl.create_default_context()); s.ehlo()
-    s.login(SMTP_USER,SMTP_PASS)
+    s=conectar()
     for marca, dest_real in MARCAS:            # un reporte POR línea, MISMA plantilla
         dest = DEST_PRUEBA if test else dest_real
         enviar_marca(s, marca, dest, test, hoy)
