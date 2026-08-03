@@ -194,7 +194,11 @@ const PRUEBA_NUM = '573205662947'; // número de PRUEBA del asesor (Deicy)
 // pero el aviso va SOLO a DEMO_DEST (a TI), NO a ningún asesor real, y el lead se marca como prueba (no ensucia reportes).
 const CLIENTES_PRUEBA = ['573205662947'];   // agrega aquí los números desde los que quieras hacer demos
 const DEMO_DEST = '573205662947';           // a dónde llega el aviso de la demo (Deicy)
-const COPIA_MONITOR = '573205662947'; // copia de monitoreo de CADA aviso a Deicy (poner '' para desactivar cuando ya no la necesite)
+// APAGADO 2026-08-03 (Deicy: "ya sé que funciona, ya quítalo; solo que me lleguen las alertas de problemas").
+// Durante el arranque le llegaba COPIA de cada aviso a asesor para verificar que el reparto funcionaba. Ya no.
+// Su chat queda SOLO para: alertas de problemas (automáticas) y el panel cuando ella pregunta.
+// Para volver a activarlo: poner de nuevo '573205662947'.
+const COPIA_MONITOR = '';
 const MONITOR_ADMIN = '573205662947'; // Deicy: dueña del sistema. Escribe al bot para pedir el PANEL, NO para ser atendida como clienta (2026-07-29)
 
 // === SEGUIMIENTO POR ASESOR (reporte del resultado con botones) — EN VIVO PARA TODOS LOS ASESORES (decisión Deicy 2026-07-21) ===
@@ -1055,6 +1059,14 @@ if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
     const _ultimo = (store.leads && store.leads.length) ? store.leads[store.leads.length-1] : null;
     const _hhmm = _ultimo ? new Date(_ultimo.ts-5*3600000).toISOString().slice(11,16) : '—';
     const _lst = s => String(s||'').split(' · ').filter(Boolean).map(x=>'   • '+x).join('\n') || '   • (ninguno)';
+    // === RESPUESTAS POR TEMA (2026-08-03, Deicy: "que el chat quede como chatear con la IA pero que sepa qué le pregunto") ===
+    // Se busca la palabra EN CUALQUIER PARTE del mensaje (no al comienzo) para que preguntas naturales funcionen:
+    // "y los errores?", "cuántos leads hay hoy", "quién no ha reportado". Sin coincidencia -> panel completo.
+    const _q = _cmd;
+    const _pregAlertas = /(alerta|error|problema|falla|fallo|que paso|qu[eé] pas[oó]|novedad)/i.test(_q);
+    const _pregLeads   = /(lead|solicitud|cliente|hoy|cu[aá]ntos|cuantos)/i.test(_q) && !_pregAlertas;
+    const _pregPend    = /(pendiente|sin reportar|no (ha|han) reportado|reporte de los asesores|asesor(es)? pendiente)/i.test(_q);
+    const _pieAyuda = '\n\n_Puedes preguntarme: *errores* · *leads de hoy* · *pendientes* · *informe* (todo) · *demo* (probar el bot)._';
     // ALERTAS (2026-08-03, pedido Deicy: "esos errores son los que necesito saber para pasártelos").
     // Las detecta vigilante.py cada hora y quedan en la tabla `alertas`; aquí solo se muestran.
     const _alrN = Number(PEND.alr_n||0);
@@ -1075,9 +1087,22 @@ if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
       '⚙️ *Cola interna* (0 = todo entregado)\n'+
       '   • Cierres por entregar: '+_porEntregar+'\n'+
       '   • Avisos retenidos (fuera de horario): '+_colaHold+'\n'+
-      '   • Adjuntos en espera de ventana: '+_colaMedia+'\n\n'+
-      '_Escribe *informe* cuando quieras este panel, o *demo* para probar el bot como clienta._';
-    return [{json:{etapa:'admin_informe', wa_id:wa, wpp_body:txt(wa,_inf), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:{creado_en:fechaCol(), wa_id:wa, nombre:'Deicy (monitoreo)', entrada:[...String(texto||'(botón)')].slice(0,200).join(''), salida:'panel del sistema', etapa:'admin_informe'}, consent_log:null, pend_cierre:false, pend_token:0}}];
+      '   • Adjuntos en espera de ventana: '+_colaMedia+
+      _pieAyuda;
+    // Respuesta CORTA al tema preguntado; si no reconoce el tema, va el panel completo.
+    let _resp = _inf;
+    if(_pregAlertas && !_pideInform){
+      _resp = '🕒 '+fechaCol().slice(0,16)+'\n\n'+_alrTxt.trim()+
+              '\n\n_Las detecto sola cada hora y te las mando apenas aparecen._'+_pieAyuda;
+    } else if(_pregPend && !_pideInform){
+      _resp = '⏳ *Sin reportar por los asesores: '+(PEND.rep_pend||0)+'*\n'+_lst(PEND.rep_pend_det)+
+              '\n\n_Mientras un lead siga sin reportar, el bot le repite el nombre al asesor cada día hábil._'+_pieAyuda;
+    } else if(_pregLeads && !_pideInform){
+      _resp = '📥 *Leads de hoy: '+(PEND.rep_hoy||0)+'*\n'+_lst(PEND.rep_hoy_det)+'\n'+
+              '🔖 Último: '+_hhmm+(_ultimo?(' — '+(_ultimo.nombre||'—')+' → '+(_ultimo.asesor||'—')):'')+
+              '\n💬 Conversaciones activas ahora: *'+_enLinea+'*'+_pieAyuda;
+    }
+    return [{json:{etapa:'admin_informe', wa_id:wa, wpp_body:txt(wa,_resp), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:{creado_en:fechaCol(), wa_id:wa, nombre:'Deicy (monitoreo)', entrada:[...String(texto||'(botón)')].slice(0,200).join(''), salida:'panel del sistema', etapa:'admin_informe'}, consent_log:null, pend_cierre:false, pend_token:0}}];
   }
 }
 // === ASESOR que escribe al bot (2026-07-21, decisión Deicy): NO es cliente -> confirmación personalizada de que está ACTIVO + sus pendientes por reportar. ===
