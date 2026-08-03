@@ -1267,10 +1267,18 @@ if((id==='MAR_ARD'||id==='MAR_CARP') && st && st.marca && st.paso!=='marca'){
 const pideHumano = !id && !es_media && !reinicia && (low==='0' || /(^|[^a-záéíóúñ])(asesor|asesora|humano|persona|funcionari[oa]|operador|operadora|vendedor|vendedora|representante|ejecutiv[oa]|encargad[oa]|agente)([^a-záéíóúñ]|$)/.test(low));
 // === RECLAMO / PQRS: esta es una línea COMERCIAL. Reclamos/quejas -> canal de Servicio al Cliente (NO a un asesor de ventas). Manda la IA; si no corrió, respaldo por palabras clave. ===
 store.reclamo = store.reclamo || {};
-const esReclamo = !reinicia && !id && (ia ? (ia.es_reclamo===true) : (!es_media && !!texto && KW_RECLAMO.test(low))) && (st ? st.paso!=='consent' : true);
+// === FIX 2026-08-03 (decisión Deicy: "este es un canal COMERCIAL") ===
+// El muro del consentimiento dejaba SORDO al bot: mientras el cliente estaba en 'consent', ni un reclamo ni una
+// consulta administrativa se reconocían, así que el bot le repetía el permiso hasta que la persona se iba.
+// Caso real: MaicolD (2-ago) escribió "quisiera trabajar con ustedes" 2 veces y solo recibió el muro.
+// Ahora, EN EL MURO, sí se orienta al canal correcto — pero SOLO si lo dice la IA (no las palabras clave sueltas,
+// que se equivocan más). No se registra nada ni se pide dato personal alguno: solo se le da la salida correcta.
+const _iaReclamo = !!(ia && ia.es_reclamo===true);
+const _iaInfo    = !!(ia && ia.es_info===true);
+const esReclamo = !reinicia && !id && (ia ? (ia.es_reclamo===true) : (!es_media && !!texto && KW_RECLAMO.test(low))) && (st ? (st.paso!=='consent' || _iaReclamo) : true);
 // SOLICITUD DE INFORMACIÓN NO COMERCIAL (referencia comercial, servicio al cliente, RRHH, facturación...): respaldo por palabras clave (la IA aún no la clasifica). No aplica en el paso de consentimiento.
 store.info = store.info || {};
-const esInfo = !reinicia && !id && !es_media && !esReclamo && (ia ? (ia.es_info===true) : (!!texto && KW_INFO.test(low))) && (texto ? true : false) && (st ? (st.paso!=='consent') : true) && !(ia && ia.en_alcance===true);
+const esInfo = !reinicia && !id && !es_media && !esReclamo && (ia ? (ia.es_info===true) : (!!texto && KW_INFO.test(low))) && (texto ? true : false) && (st ? (st.paso!=='consent' || _iaInfo) : true) && !(ia && ia.en_alcance===true);
 // ¿YA autorizó? consintió hoy, O st.consent, O YA ESTÁ EN UN PASO POSTERIOR al consentimiento (no se puede llegar a marca/nombre/etc. sin haber autorizado).
 // Esto blinda contra la carrera de n8n: si mandó una foto justo tras autorizar, NO le volvemos a pedir la autorización.
 const yaConsintio = consintioHoy() || (st && st.consent) || (st && st.paso && st.paso!=='consent' && st.paso!=='');
