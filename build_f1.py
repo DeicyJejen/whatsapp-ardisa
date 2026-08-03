@@ -708,6 +708,64 @@ function cerrarLead(st,opts){
   return {wpp_body:wpp, aviso_body:null, aviso_medias:null, pend_cierre:true, pend_token:_tk};
 }
 
+// === RESCATE DEL CLIENTE QUE YA DIJO QUÉ NECESITA (2026-08-03, decisión Deicy) ===
+// "Si ya dijo qué necesita, que no se pierda; pero que tenga clara la LÍNEA para saber a quién pasa."
+// Casos reales: Óscar Tovar (31-jul) dio el número de cotización C-1-295 en su 2º mensaje y se cansó en la 5ª
+// pregunta; Nancy Angarita (31-jul) llenó todo el perfil y se fue en la última. Los dos se perdieron enteros.
+//
+// CÓMO: no se duplica NADA de la lógica de cierre (asesor, rotación, tarjeta, plantilla, adjuntos). Se ejecuta
+// el cierre REAL en modo SIMULACRO: se deja que cerrarLead() haga su trabajo completo, se copia el paquete que
+// dejó en store.pendCierre y ACTO SEGUIDO se devuelve la memoria exactamente como estaba. El paquete queda
+// guardado en store.rescate[wa]. Si el cliente termina normal, se descarta. Si se va, el cron lo asciende a
+// store.pendCierre y la tubería de siempre entrega la tarjeta y guarda el lead.
+// El simulacro se corre sobre una COPIA de la sesión: cerrarLead modifica st (nombre, detalle, interes...).
+function armarRescate(stReal){
+  try{
+    if(!stReal || !stReal.marca) return;                       // sin LÍNEA no se sabe a quién pasarlo -> no se arma
+    if(stReal.paso==='cerrado' || stReal.paso==='porCerrar') return;
+    if(store.done && store.done[wa] && (NOW-(store.done[wa].t||0))<3*3600000) return;   // ya tiene lead reciente
+    const stC = JSON.parse(JSON.stringify(stReal));
+    if(!stC.detalle) stC.detalle = stC.pendTexto || '';        // lo que escribió antes del consentimiento también cuenta
+    if(!stC.detalle && !stC.notas && !stC.mediaId) return;     // no dijo qué necesita -> nada que rescatar
+    // --- FOTO de las partes de la memoria que cerrarLead toca ---
+    const _snap = {
+      leadsLen: (store.leads ? store.leads.length : -1),
+      rot:       JSON.stringify(store.rot||{}),
+      sent:      JSON.stringify(store.sent||{}),
+      lastKey:   JSON.stringify(store.lastKey||{}),
+      done:      JSON.stringify(store.done||{}),
+      fwd:       JSON.stringify(store.fwd||{}),
+      segPend:   JSON.stringify(store.segPend||{}),
+      pendCierre:JSON.stringify(store.pendCierre||{}),
+      ses:       JSON.stringify(S[wa]||null)
+    };
+    // OJO: cerrarLead asigna `leadRow` SIN declararla -> escribe en la variable del Cerebro y el lead se colaría
+    // en la respuesta real (el simulacro crearía el lead de verdad). Lo detectó la prueba. Se guarda y se devuelve.
+    const _leadRowPrev = leadRow;
+    let paquete = null;
+    try{
+      cerrarLead(stC, {});                                     // cierre REAL, sobre la copia
+      if(store.pendCierre && store.pendCierre[wa]) paquete = JSON.parse(JSON.stringify(store.pendCierre[wa]));
+      // el "pendiente de seguimiento" que armó se guarda junto al paquete y se aplica solo si el rescate se usa
+      if(paquete && store.segPend){
+        const _prev = JSON.parse(_snap.segPend);
+        for(const k in store.segPend){ if(!(k in _prev)) { paquete.segTok=k; paquete.segData=store.segPend[k]; break; } }
+      }
+    }catch(_e){ paquete = null; }
+    // --- REVERSA: la memoria vuelve a como estaba (el simulacro no deja rastro) ---
+    leadRow = _leadRowPrev;                                    // ver nota arriba: cerrarLead la pisa
+    if(_snap.leadsLen>=0 && store.leads) store.leads.length = _snap.leadsLen;
+    store.rot=JSON.parse(_snap.rot); store.sent=JSON.parse(_snap.sent); store.lastKey=JSON.parse(_snap.lastKey);
+    store.done=JSON.parse(_snap.done); store.fwd=JSON.parse(_snap.fwd); store.segPend=JSON.parse(_snap.segPend);
+    store.pendCierre=JSON.parse(_snap.pendCierre);
+    const _sesPrev=JSON.parse(_snap.ses); if(_sesPrev) S[wa]=_sesPrev; else delete S[wa];
+    // --- se guarda el paquete listo para usar ---
+    store.rescate = store.rescate || {};
+    if(paquete && paquete.lead) store.rescate[wa] = Object.assign(paquete, {t:NOW});
+    else delete store.rescate[wa];
+  }catch(_e){ /* el rescate NUNCA puede tumbar la atención del cliente */ }
+}
+
 const BANNER_URL='https://bot.ardisa.com/assets/banner-grupo.png';   // banner con los DOS logos (Ardisa + Carpincentro), servido por nginx
 const MARCA=[['MAR_ARD','🟢 Ardisa'],['MAR_CARP','🟡 Carpincentro']];
 const MARCA_DESC=[['MAR_ARD','🟢 Ardisa','remodelación / materiales de construcción / muebles a tu medida'],['MAR_CARP','🟡 Carpincentro','industriales del mueble / carpintería / herraje']];   // descripción (gris) para la LISTA de bienvenida — WhatsApp máx 72 car ("a tu medida" es obligatorio; se cede "arquitectónicos")
@@ -1765,6 +1823,19 @@ try{
       wa_id:wa, nombre:((S[wa]&&S[wa].nombre)||d.profileName||''), entrada:[..._ent].slice(0,600).join(''), salida:[..._salida].slice(0,2000).join(''), etapa:etapa };
   }
 }catch(e){ _chat=null; }
+// === RESCATE (2026-08-03) — última cosa antes de responder, para que use los datos ya actualizados. ===
+// Si el lead YA se cerró en este mensaje, se descarta el rescate (no hay nada que rescatar).
+// Si la conversación sigue a medias pero ya sabemos LÍNEA + qué necesita, se deja el paquete listo:
+// si el cliente se va sin terminar, el cron lo entrega igual en vez de perderlo.
+try{
+  const _stNow = S[wa];
+  if(leadRow || pend_cierre || (_stNow && (_stNow.paso==='cerrado'||_stNow.paso==='porCerrar'))){
+    if(store.rescate) delete store.rescate[wa];
+  } else if(_stNow){
+    armarRescate(_stNow);
+  }
+  if(store.rescate) for(const _k in store.rescate){ if((NOW-(store.rescate[_k].t||0)) > 6*3600000) delete store.rescate[_k]; }   // poda
+}catch(e){}
 return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token}}];
 """
 
@@ -2350,6 +2421,30 @@ for(const wa in S){
     st.recordado=NOW;
     out.push(emit(wa,st,'Hola'+_nom+'. 👋 ¿Continuamos con tu solicitud? Si no recibimos respuesta en unos minutos, cerraremos la conversación y podrás retomarla cuando nos escribas de nuevo. 🤝','recordatorio'));
   } else if(st.recordado && (NOW-st.recordado)>=CLOSE){
+    // === RESCATE (2026-08-03, decisión Deicy: "si ya dijo qué necesita, que no se pierda") ===
+    // El Cerebro dejó listo el paquete de cierre en store.rescate[wa] (asesor ya elegido según la LÍNEA).
+    // Aquí solo se asciende a store.pendCierre y la tubería de siempre entrega la tarjeta y guarda el lead.
+    // No se duplica nada de la lógica de ruteo: el paquete se armó con el cierre real.
+    const _resc = store.rescate && store.rescate[wa];
+    const _yaTiene = (store.done && store.done[wa] && (NOW-(store.done[wa].t||0))<3*3600000)
+                  || (store.leads && store.leads.some(function(l){return l && l.wa===wa && (NOW-(l.ts||0))<3*3600000;}));
+    if(_resc && _resc.lead && !_yaTiene && !(store.pendCierre && store.pendCierre[wa])){
+      const _tk=NOW;
+      store.pendCierre = store.pendCierre || {};
+      store.pendCierre[wa] = Object.assign({}, _resc, {token:_tk, t:NOW});
+      if(_resc.segTok && _resc.segData){ store.segPend = store.segPend || {}; store.segPend[_resc.segTok] = Object.assign({}, _resc.segData, {t:NOW}); }
+      if(!store.leads) store.leads=[];
+      store.leads.push({ts:NOW, wa, nombre:(_resc.lead.nombre||''), ciudad:(_resc.lead.ciudad||''), marca:(_resc.lead.marca||''),
+                        detalle:(_resc.lead.detalle||''), asesor:(_resc.lead.asesor||''), destino:_resc.destino, rescatado:1});
+      store.done = store.done || {};
+      store.done[wa] = {t:NOW, asesorNom:(_resc.lead.asesor||''), asesorNum:(_resc.lead.asesor_tel||''), destino:_resc.destino,
+                        marca:(_resc.lead.marca||''), nombre:(_resc.lead.nombre||''), ciudad:(_resc.lead.ciudad||''), detalle:(_resc.lead.detalle||'')};
+      delete store.rescate[wa];
+      const _nm = _resc.lead.nombre ? (', '+String(_resc.lead.nombre).split(' ')[0]) : '';
+      out.push(emit(wa,st,'Gracias por escribirnos'+_nm+'. 🙏\n\nYa pasamos tu solicitud a *'+(_resc.lead.asesor||'un asesor')+'*, quien te contactará para continuar.\n\nSi quieres agregar algo, escríbenos y con gusto lo sumamos. 🤝','cierre_rescate'));
+      st.dormido=NOW; delete st.recordado; st.paso='cerrado'; st.closedAt=NOW;
+      continue;
+    }
     out.push(emit(wa,st,'Gracias por comunicarte con *Grupo Ardisa*. 🙏\n\nCerramos esta conversación por ahora. Cuando lo necesites, escríbenos y con gusto retomamos tu solicitud.\n\nQue tengas un excelente día. 🌟','cierre_inactividad'));
     st.dormido=NOW; delete st.recordado;   // NO borramos la sesión: la dejamos "dormida" -> si el cliente responde o toca el botón pendiente, RETOMA donde iba (no reinicia el menú de marca)
   } else if(!st.recordado && inact>MAXREM){
