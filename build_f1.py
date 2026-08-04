@@ -1392,6 +1392,19 @@ const _esperaCompras = (NOW-(store.compras[wa]||0)) < 30*60*1000;
 // busca empleo es absurdo y fue lo que lo dejó dando vueltas. Guarda: si la IA ve una compra real, manda la IA.
 store.empleo = store.empleo || {};
 for(const _k in store.empleo){ if((NOW-(store.empleo[_k]||0)) > 6*3600000) delete store.empleo[_k]; }
+// === CARRERA SIMULTÁNEA DEL MURO (2026-08-04, caso Mario Saavedra / Diseño Disaing SAS 573148794340) ===
+// Meta entregó DOS webhooks con 22 ms de diferencia: el botón "✅ Sí, autorizo" (ejecución 80717) y una FOTO
+// (80718). Las dos leyeron el MISMO estado: staticData sin autorizar Y `cons_si:0` en la BD, porque la fila del
+// consentimiento que estaba escribiendo la otra ejecución AÚN NO EXISTÍA. El arreglo del 3-ago (la BD manda)
+// cubre el mensaje que llega SEGUNDOS después (caso Rusbel), pero NADA que se lea puede cubrir el mismo instante:
+// las dos ven el pasado. Lo que sí sobrevive es lo escrito por una ejecución YA TERMINADA: el muro se mostró a
+// las 08:47:28 y esa ejecución cerró a las 08:47:29, seis segundos antes de que arrancara la foto.
+// Por eso el freno es TEMPORAL, no de estado: si el muro se mostró hace menos de 45 s sigue en pantalla del
+// cliente, y repetirlo solo lo confunde. A los 45 s vuelve completo (si el primero se perdió, igual lo ve).
+store.muro = store.muro || {};
+for(const _k in store.muro){ if((NOW-(store.muro[_k]||0)) > 6*3600000) delete store.muro[_k]; }
+function muroReciente(){ return (NOW - (store.muro[wa]||0)) < 45*1000; }
+function marcarMuro(){ store.muro[wa] = NOW; }
 const _pideEmpleo = !reinicia && !id && !es_media && !!texto && KW_EMPLEO.test(low) && !(ia && ia.en_alcance===true);
 // === FIX 2026-08-03b (caso real 15:12, detectado por Deicy): NO repetirle la pregunta que ya contestó. ===
 // La red anti-carrera resolvía el problema DENTRO de la rama 'consent' volviendo a mostrar el menú de marca.
@@ -1470,9 +1483,19 @@ if(preguntaHorario){
     st.mediaId = d.media_id||''; st.mediaType = d.mtype||''; st.imgDesc=_res;   // descripción de la IA -> línea aparte en la tarjeta
     arrancarIA(st, ia, '');   // detalle del cliente vacío (solo mandó foto); el ruteo usa ia.productos/grupo_pista
   } else {   // primero el consentimiento; guardamos la foto (y lo que entendió) para retomarla al autorizar
-    st = S[wa] = { paso:'consent', t:NOW, pendImgDesc:_res, pendIA:ia, pendMediaId:(d.media_id||''), pendMediaType:(d.mtype||'') };
+    // NO se pisa la sesión entera: si otra ejecución simultánea ya la había hecho avanzar, conservamos su paso.
+    // Antes, esta línea era `st = S[wa] = {paso:'consent', ...}` y la foto DEVOLVÍA al cliente al muro.
+    const _prev = S[wa] || {};
+    st = S[wa] = Object.assign({}, _prev, { paso:(_prev.paso && _prev.paso!=='consent') ? _prev.paso : 'consent',
+      t:NOW, pendImgDesc:_res, pendIA:ia, pendMediaId:(d.media_id||''), pendMediaType:(d.mtype||'') });
     etapa='consent';
-    wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\nPara revisarla y atenderte necesitamos tu *autorización para el tratamiento de tus datos personales* 🔒. Revisa y acepta nuestra política:\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
+    if(muroReciente()){
+      // El muro ya está en su pantalla: acusamos recibo de la foto y le señalamos el botón, sin repetir todo.
+      wpp_body=txt(wa,'¡Recibimos tu foto, gracias! 📷\n\nSolo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos. 🙌');
+    } else {
+      marcarMuro();
+      wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\nPara revisarla y atenderte necesitamos tu *autorización para el tratamiento de tus datos personales* 🔒. Revisa y acepta nuestra política:\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
+    }
   }
 } else if( ia && ia.en_alcance && !id && !es_media && texto && !reinicia && !esDespedida && yaConsintio && (!st || (st.paso==='cerrado' && (NOW-(st.closedAt||0) >= 5*60*1000)) || st.paso==='marca') ){
   // Cliente que YA autorizó y escribe libre algo que la IA entiende -> flujo inteligente (pide solo lo que falta)
@@ -1534,7 +1557,12 @@ if(preguntaHorario){
     // Guarda LO QUE SEA que escribió antes de autorizar (aunque NO sea un producto: "con Yolanda", "de Bogotá"...) -> llega al asesor, no se pierde.
     if(texto && !reinicia && !/^(hola|buen[oa]s?|buenas|q'?hubo|saludos|hi|hello|hey)[\s!¡.,]*$/i.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
     if(es_media && d.media_id){ st.pendMediaId=d.media_id; st.pendMediaType=d.mtype||''; if(!st.pendTexto){ const _r=resumenIA(ia); st.pendTexto='📎 '+(MTYPE_ES[d.mtype]||'un archivo')+(_r?(' — '+_r):''); st.pendIA=(ia&&ia.en_alcance)?ia:null; } }
-    wpp_body=boton(wa,avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\nBienvenido a *Grupo Ardisa*.\n\nTu privacidad nos importa 🔒. Para atenderte necesitamos tu *autorización para el tratamiento de tus datos personales*. Revisa y acepta nuestra política:\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
+    if(muroReciente()){   // dos "Hola" seguidos no merecen dos veces el mismo muro
+      wpp_body=txt(wa,'¡Te leemos! 🙌 Solo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
+    } else {
+      marcarMuro();
+      wpp_body=boton(wa,avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\nBienvenido a *Grupo Ardisa*.\n\nTu privacidad nos importa 🔒. Para atenderte necesitamos tu *autorización para el tratamiento de tus datos personales*. Revisa y acepta nuestra política:\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
+    }
   }
 } else if(st.paso==='consent'){   // Habeas Data: el cliente autoriza (o no) antes de pedir cualquier dato
   // Red de seguridad anti-carrera: si YA autorizó hoy (persistido), NO se lo volvemos a pedir -> pasamos al menú de marca.
@@ -1575,7 +1603,14 @@ if(preguntaHorario){
     const _cab = _yaPidio
       ? ('Con gusto te ayudamos. Ya tenemos tu consulta.\n\nPara asignarte un asesor y darle trámite necesitamos tu *autorización para el tratamiento de datos personales*. 👇')
       : 'Para continuar necesitamos tu *autorización* para el tratamiento de tus datos. Por favor elige una opción. 👇';
-    wpp_body=boton(wa, _cab+'\n\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]); }
+    if(muroReciente()){   // el muro sigue en su pantalla: acusamos recibo sin repetírselo
+      const _ack = es_media ? '¡Recibimos tu foto, gracias! 📷\n\n'
+                 : (_yaPidio ? 'Con gusto te ayudamos, ya tenemos tu consulta. 🙌\n\n' : '');
+      wpp_body=txt(wa, _ack + 'Solo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
+    } else {
+      marcarMuro();
+      wpp_body=boton(wa, _cab+'\n\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
+    } }
   else if(cc[0]==='CONSENT_NO'){ etapa='noconsent';
     consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'NO', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id };   // registro legal: también guardamos la NEGATIVA
     wpp_body=txt(wa,'Entendido. Sin tu autorización para el tratamiento de datos no podemos gestionar tu solicitud por este medio. Si cambias de opinión, escríbenos cuando quieras y con gusto te atendemos.');
