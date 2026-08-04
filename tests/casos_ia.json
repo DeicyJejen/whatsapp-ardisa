@@ -1,0 +1,367 @@
+{
+ "_nota": "Banco de casos REALES de clientes de Ardisa. 'esperado' se dedujo del producto mencionado, no de lo que decidio el bot. Los de 'por_confirmar' necesitan que Deicy/Karina digan a que linea van.",
+ "casos": [
+  {
+   "lead": 223,
+   "texto": "? Imagen: Orden con tablero Pelikan RH Bardoli 2.15x2.44x0.036 (6 unid) — cotizar tablero melamínico/MDF",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 222,
+   "texto": "Hola buenas tardes.  ·  Tienen piso corona referencia \\nLucano gris claro de 30 x 90",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 220,
+   "texto": "Para saber que melamina de 36 milímetros tiene disponible?",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 218,
+   "texto": "Buen día  ·  Tiene lámina duratex yutex y graffo de 18 mm?",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 217,
+   "texto": "Hola buenos días  ·  Pintura",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 216,
+   "texto": "Buen dia  ·  Un prodyvto para aplicar sibre cemento",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 214,
+   "texto": "Hola! Estoy buscando asesoría Buenos días  ·  FORMICA LAMITECH FRENCH GREY 2233 PW cantidad 1 y FORMICA LAMITECH ETELECTRIC YELLOW 2230 IT cantidad 3 | ? Imagen",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 213,
+   "texto": "Tableros MDP",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 212,
+   "texto": "Gravilla N°02 - 4 bultos\\nGravilla N°04 - 6 bultos\\nRodillo pintura agua 9\" = 4 unds\\nbrocha 2\" = 4 unds\\nEspatula 4\" metalica = 1 und",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 211,
+   "texto": "Buenas tienen varilla 5/8 de 12 metros ?",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 209,
+   "texto": "Buena tarde  ·  Buena tarde \\nPara cotizar  por favor \\n775 ladrillos H10\\n135 \\nPuesto en casa \\nY recogiendo en su punto",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 208,
+   "texto": "BUenas tardes, necesito una cotizacion de aglomerado color blanco, me pueden colaborar",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 206,
+   "texto": "Buena tarde | ? Imagen: Ficha de tubo ovalado cromado 15x30mm x 3m, acero — cotizar tubería/herraje para closet o mueble",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 205,
+   "texto": "Ando buscando un codo  ·  Lo manejan ? | ? Imagen: Codo/racor de bronce roscado con cinta teflón, marcado PN15 — cotizar accesorio de tubería similar",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 203,
+   "texto": "Ceramica",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 201,
+   "texto": "Buena S tardes que precio tienen los sanitarios ?",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 200,
+   "texto": "Buen día  ·  Un favor \\nPara averiguar qué precio tiene un cuñete vniltex de pintuco tipo uno blanco arena",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 198,
+   "texto": "Hola buenos días para una cotización porfabor  ·  Es de parte de acimpermeabilisaciones s.a.s | ? Imagen: Cotización con pinturas, sikafill, estuco, rodillos, b",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 197,
+   "texto": "Hace más de 1 as lo les compré unas cerámicas y requiero por un daño referencia para comprar 2piezas 60*30 anexo foto",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 195,
+   "texto": "Hola! Estoy buscando acero",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 193,
+   "texto": "tableros de melamina despiece y chapado de canto",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 192,
+   "texto": "AGLO FORMALETA TABLEMAC 1,83 x 2,44 x 0,015 – 5 UNIDADES",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 190,
+   "texto": "Buenas tardes, manejan tapacanto ámbar de 70 cm de ancho",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 189,
+   "texto": "2900210 TUBO PVC PRESION 3/4 RDE-11 T/PX6MT 3 UNIDADES",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 188,
+   "texto": "? Imagen: Rollo de frescasa/aislante térmico foil — cotizar material de 1 a 2 pulgadas de grosor",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 186,
+   "texto": "Estufa, campana y horno",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 182,
+   "texto": "Necsito cotizar una lamina de MPF para poner u pared para crear un exibihidor de zapatos.",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 180,
+   "texto": "queiro comrpar estas compras ero no me esta dejando :Melaminico Unicor Mdf Wengue Tex Madera 183X244X5.5 1C/ Sin Backer",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 177,
+   "texto": "Aglomerado en formidable blanca por los dos lados",
+   "esperado": "Carpincentro",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 176,
+   "texto": "tienen tejas de barro?",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 175,
+   "texto": "Desagüe de ducha oculto de 60 cm en acero inoxidable",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 173,
+   "texto": "Saludos  ·  Geotextil Nt 1600S 3.50X160m (560M2)",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 168,
+   "texto": "Hola buenas tardes  ·  La verdad ocupó de un servicio a domicilio  ·  De unos muebles para mí finca  ·  Cerámica y pintura",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 165,
+   "texto": "Buenis días  ·  Ustedes venden estufa decempitrar",
+   "esperado": "Ardisa/ACABADOS",
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 162,
+   "texto": "Buen día me puede por favor cotizar el precio de alumol sika galón y cuñete",
+   "esperado": "Ardisa/CONSTRUCCION",
+   "bot_dijo": "Ardisa"
+  }
+ ],
+ "por_confirmar": [
+  {
+   "lead": 221,
+   "texto": "Hola buena tarde",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 219,
+   "texto": "Una península",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 210,
+   "texto": "? El cliente envió un adjunto (foto/documento) — revísalo en el chat",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 207,
+   "texto": "Si es para hablar con los de compras",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 204,
+   "texto": "Buena tarde",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 202,
+   "texto": "? El cliente envió un adjunto (foto/documento) — revísalo en el chat",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 199,
+   "texto": "Ustedes manejan riel de 20cm",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 196,
+   "texto": "hola buenas tardes  ·  si me puede hacer el favor de cotizar unos materiales | ? El cliente envió un adjunto (foto/documento) — revísalo en el chat",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 194,
+   "texto": "Muy bnas tardes  ·  Necesito una puerta",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 191,
+   "texto": "Hola buena tarde",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 187,
+   "texto": "Hola buenos dias  ·  Ustedes venden puertas plegables en pvc",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 184,
+   "texto": "hola buenas tardes  ·  Rh para closet",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 183,
+   "texto": "Le escribe Zandra Correa profesional de la Contraloría General de la República, solicito su colaboración para atender esta cotización. Quedó atenta — ? Nota del",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 181,
+   "texto": "Membrana para tanque de 100 litros marca barnes",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 179,
+   "texto": "Buen día quisiera consultar sobre  los precios de lamina de 18mm de 1.83 x 2.44 colores y precios dispobibles",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 178,
+   "texto": "Buenosssss días",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 174,
+   "texto": "Muy buenos días ??",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 171,
+   "texto": "y rendimiento por fa",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 170,
+   "texto": "buenas  que precios tienen  los tableros rh  . dimensiones colores y precios?",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 169,
+   "texto": "Hola, Buenas tardes  ·  Si maneja está lámina",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 167,
+   "texto": "Disculpa manejan tabla ranurada",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 166,
+   "texto": "Por favor vendes tablero tipo cedar?",
+   "esperado": null,
+   "bot_dijo": "Carpincentro"
+  },
+  {
+   "lead": 164,
+   "texto": "Buenos días me podría hacer el favor de regalarme el precio del cuarzo endurecedor por 50 kg neutro",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 163,
+   "texto": "malla electrosoldada",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  },
+  {
+   "lead": 161,
+   "texto": "Buen día  ·  rejilla metalica con sosco 6*6*4 cuadrada",
+   "esperado": null,
+   "bot_dijo": "Ardisa"
+  }
+ ]
+}
