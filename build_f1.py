@@ -130,6 +130,10 @@ const PEND_TEL = String(PEND.pend_tel||''), PEND_ASE = String(PEND.pend_asesor||
 // ¿Autorizó HOY? Lo dice la BD (tabla consentimientos), no la memoria: una carrera de n8n borra la memoria
 // pero no puede borrar la fila. Ver consintioHoy() más abajo. (fix 2026-08-03, caso Rusbel — 120 bultos de cemento)
 const CONS_SI = Number(PEND.cons_si||0) > 0;
+// Adjuntos de los últimos 45 min según la BD: "mediaid:tipo,mediaid:tipo" -> [{id,tipo}]. A prueba de carreras.
+const ADJ_BD = String(PEND.adj||'').split(',').filter(Boolean).map(s=>{
+  const i=s.lastIndexOf(':'); return i<0 ? null : {id:s.slice(0,i), tipo:s.slice(i+1)};
+}).filter(a=>a && a.id);
 // FIX CRÍTICO de estado: los callbacks de estado de WhatsApp (sent/delivered/read) y no-mensajes
 // entran aquí SIN wa_id. Si cargáramos staticData, n8n la re-guardaría al terminar y PISARÍA la sesión
 // que otra ejecución acaba de actualizar (bug del ping-pong ciudad↔ocupación). Salimos ANTES de tocar la memoria.
@@ -443,7 +447,7 @@ function cerrarLead(st,opts){
   // No pasamos un lead a medias al asesor: le pedimos el producto UNA sola vez. Si trae foto/documento o pidió humano, NO preguntamos (ya hay contexto). ===
   {
     const _dv = (String(st.detalle||'')+' '+String(st.notas||'')).toLowerCase().trim();   // detalle Y notas: el producto puede estar en cualquiera (2026-07-23, caso Andrés #104)
-    const _tieneMedia = !!st.mediaId || !!(store.medias && store.medias[wa] && store.medias[wa].length);
+    const _tieneMedia = !!st.mediaId || !!(store.medias && store.medias[wa] && store.medias[wa].length) || ADJ_BD.length>0;
     const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tablero|mdf|mdp|melamin|f[oó]rmica|triplex|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraje|canto|laca)/i.test(_dv);
     const _pareceVago = /(cotiz|cotizar|cotizaci|precio|presupuesto|asesor[ií]a|asesoren|me asesor|ayuda|ay[uú]den|orientaci[oó]n|informaci[oó]n|informes?|colabor|comprar|adquirir|interesad)/i.test(_dv) && !_tieneProd;
     // GENÉRICO SIN PRODUCTO (2026-07-17, caso Arley "Un producto"): el cliente no dio un producto concreto -> NO cerramos a medias.
@@ -462,7 +466,7 @@ function cerrarLead(st,opts){
   }
   let mediaNota=opts.mediaNota||'';
   // si el cliente adjuntó una foto/audio y no se pasó nota explícita, avisamos al asesor que se lo reenviamos
-  if(!mediaNota && st.mediaId && st.mediaType){ const _nm=MTYPE_ES[st.mediaType]||'un archivo'; const _c=st.mediaCount||1; mediaNota = (_c>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+_c+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: https://wa.me/'+wa) : ('\n📎 *Adjunto:* el cliente envió '+_nm+' — te lo reenvío enseguida. 👇'); }
+  if(!mediaNota && (st.mediaId||ADJ_BD.length) && (st.mediaType||(ADJ_BD[0]&&ADJ_BD[0].tipo))){ const _tp=st.mediaType||(ADJ_BD[0]&&ADJ_BD[0].tipo)||''; const _nm=MTYPE_ES[_tp]||'un archivo'; const _c=Math.max(st.mediaCount||0, ADJ_BD.length, 1); mediaNota = (_c>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+_c+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: https://wa.me/'+wa) : ('\n📎 *Adjunto:* el cliente envió '+_nm+' — te lo reenvío enseguida. 👇'); }
   const humanoNota = st.pidioHumano ? '\n🗣️ *El cliente pidió hablar con un asesor*' : '';
   // Texto de respaldo del Detalle cuando el cliente NO escribió (solo mandó adjunto): que el asesor sepa QUÉ hacer con él.
   const _detFallback = st.mediaType==='document' ? 'el cliente adjuntó un *documento* con su solicitud — *ábrelo para verla* 👇'
@@ -674,9 +678,17 @@ function cerrarLead(st,opts){
       _seenM[m.id]=1; const o={messaging_product:'whatsapp', to:destino, type:m.type}; o[m.type]={id:m.id}; aviso_medias.push(o); store.fwd[m.id]=NOW;
     }
   });
-  if(!aviso_medias.length && st.mediaId && ['image','audio','video','document','sticker'].includes(st.mediaType)){
-    const o={messaging_product:'whatsapp', to:destino, type:st.mediaType}; o[st.mediaType]={id:st.mediaId}; aviso_medias.push(o);
+  if(st.mediaId && ['image','audio','video','document','sticker'].includes(st.mediaType) && !_seenM[st.mediaId]){
+    _seenM[st.mediaId]=1; const o={messaging_product:'whatsapp', to:destino, type:st.mediaType}; o[st.mediaType]={id:st.mediaId}; aviso_medias.push(o);
   }
+  // === RED DE LA BD (2026-08-04): lo anterior vive en staticData y una carrera se lo lleva. La BD no se pisa.
+  // `adj` trae "mediaid:tipo,..." de los últimos 45 min leídos de la tabla `mensajes`. Caso Mario Saavedra:
+  // la foto se perdió de la memoria en los 12 min que tardó en llenar el formulario y nunca llegó a Karime.
+  ADJ_BD.forEach(a=>{
+    if(a.id && ['image','audio','video','document','sticker'].includes(a.tipo) && !_seenM[a.id]){
+      _seenM[a.id]=1; const o={messaging_product:'whatsapp', to:destino, type:a.tipo}; o[a.tipo]={id:a.id}; aviso_medias.push(o);
+    }
+  });
   // === DEBOUNCE: NO avisamos al asesor de una. Guardamos el aviso PENDIENTE y esperamos ~45s. Si en ese rato llegan
   // más fotos/textos, se suman y se reinicia la espera. Solo cuando pasan 45s sin nada, se manda UNA tarjeta + TODAS las fotos.
   // SEGUIMIENTO (MODO PRUEBA): botón para que el asesor reporte el resultado. Guardamos el "pendiente" (con teléfono + creado_en para ubicar el lead) y el botón se envía junto al aviso.
@@ -694,7 +706,7 @@ function cerrarLead(st,opts){
   }
   const _tk = NOW;
   store.pendCierre = store.pendCierre || {};
-  store.pendCierre[wa] = { token:_tk, t:NOW, destino:destino, aviso:aviso, avisoTpl:_avisoTplHold, avisoCopia:avisoCopia, copiaTo:((COPIA_MONITOR && COPIA_MONITOR!==destino)?COPIA_MONITOR:null), avisoExtra:'', lead:leadRow, segPrompt:_segPrompt,
+  store.pendCierre[wa] = { token:_tk, t:NOW, destino:destino, aviso:aviso, medias:aviso_medias.slice(0,10), avisoTpl:_avisoTplHold, avisoCopia:avisoCopia, copiaTo:((COPIA_MONITOR && COPIA_MONITOR!==destino)?COPIA_MONITOR:null), avisoExtra:'', lead:leadRow, segPrompt:_segPrompt,
                            fuera:!!st.fuera, sendAfter:(st.fuera?proximaApertura(st.marca):0), marca:(st.marca||'') };   // fuera de horario: el aviso al asesor se RETIENE y se envía a la apertura
   // NO borramos store.medias[wa] todavía: el finalizador reenviará TODAS (incluidas las que lleguen durante la espera).
   // En vez de borrar la sesión, la dejamos en estado 'cerrado' conservando nombre/ciudad:
@@ -1785,6 +1797,17 @@ if(preguntaHorario){
     // Ardisa y la rotación se lo dio a Yormy en vez de a Karime (Carpincentro). El principio del sistema es
     // "la IA manda, las palabras clave son respaldo" -> también debe mandar en la MARCA.
     // Conservador: solo corrige con evidencia fuerte (producto identificado + confianza ALTA + en alcance).
+    // === SOLICITUD SOLO EN NOTA DE VOZ (2026-08-04, caso Luis Niño — lead #210, decisión Deicy "opción C") ===
+    // El bot NO transcribe audios: la lectura de la IA está condicionada a `d.mtype==='image'` en TODOS los puntos.
+    // Luis explicó lo que necesitaba hablando, el bot se quedó sin UNA SOLA PALABRA para rutear y cayó al grupo por
+    // defecto (Acabados → Karina) cuando era ferretería. Karina tuvo que escuchar el audio y descubrirlo sola.
+    // Regla: no adivinar. Se le pide UNA línea escrita (una vez), y el audio igual se le reenvía al asesor.
+    // Si nunca escribe, el cron de inactivos lo cierra igual con lo que hay (no se pierde el cliente).
+    if(es_media && ['audio','video'].includes(d.mtype) && !(d.media_caption||'').trim() && !st.pidioTexto
+       && !st.detalle && !(ia && ia.en_alcance===true && ia.productos && ia.productos.length)){
+      st.pidioTexto=1; cerrarDet=false; etapa='pide_texto';
+      wpp_body=txt(wa,'¡Recibimos tu nota de voz! 🎧 Se la pasamos completa a tu asesor.\n\nPara asignarte al experto correcto, ¿nos escribes *en una línea* qué necesitas? Por ejemplo: *"cemento gris"* o *"fórmica blanca"*. 🙏');
+    }
     if(ia && ia.en_alcance===true && ia.confianza==='alta' && ia.productos && ia.productos.length &&
        (ia.marca==='Ardisa'||ia.marca==='Carpincentro') && ia.marca!==st.marca && !es_media){
       st.marca = ia.marca; st.marcaCorregida = 1;
@@ -1915,7 +1938,13 @@ try{
   if(_ent || _salida){
     const _pz=n=>String(n).padStart(2,'0'); const _cd=new Date(NOW-5*3600000);   // hora Colombia UTC-5
     _chat={ creado_en:_cd.getUTCFullYear()+'-'+_pz(_cd.getUTCMonth()+1)+'-'+_pz(_cd.getUTCDate())+' '+_pz(_cd.getUTCHours())+':'+_pz(_cd.getUTCMinutes())+':'+_pz(_cd.getUTCSeconds()),
-      wa_id:wa, nombre:((S[wa]&&S[wa].nombre)||d.profileName||''), entrada:[..._ent].slice(0,600).join(''), salida:[..._salida].slice(0,2000).join(''), etapa:etapa };
+      wa_id:wa, nombre:((S[wa]&&S[wa].nombre)||d.profileName||''), entrada:[..._ent].slice(0,600).join(''), salida:[..._salida].slice(0,2000).join(''), etapa:etapa,
+      // === ADJUNTO EN COLUMNA PROPIA (2026-08-04, caso Mario Saavedra lead #214) ===
+      // La foto vivía SOLO en store.medias (staticData). En los 12 minutos que él tardó en llenar el formulario,
+      // ~50 ejecuciones de otros clientes pisaron esa memoria y la foto NUNCA le llegó a Karime — solo la lectura
+      // de la IA. La BD no se pisa: aquí queda el media id, y al cerrar se relee de la BD (ver `adj` en la consulta).
+      media_id:(es_media && d.media_id) ? String(d.media_id) : null,
+      media_tipo:(es_media && d.media_id) ? String(d.mtype||'') : null };
   }
 }catch(e){ _chat=null; }
 // === RESCATE (2026-08-03) — última cosa antes de responder, para que use los datos ya actualizados. ===
@@ -2125,6 +2154,13 @@ _PEND_SQL = ("SELECT "
     # 21 clientes en 18 días. CURDATE() = hoy en Colombia (el servidor MySQL corre en -05), y el consentimiento
     # operativo es POR DÍA: si autorizó ayer, se le vuelve a pedir (regla legal que NO se toca).
     "(SELECT COUNT(*) FROM consentimientos WHERE telefono=$5 AND decision='SI' AND creado_en >= CURDATE()) AS cons_si, "
+    # === ADJUNTOS DE LA CONVERSACIÓN, desde la BD (fix 2026-08-04, caso Mario Saavedra lead #214) ===
+    # Los media id vivían SOLO en store.medias (staticData). Mario mandó una foto a las 08:47 y cerró a las 08:59:
+    # en esos 12 minutos ~50 ejecuciones de otros clientes pisaron esa memoria y la foto NUNCA le llegó a Karime,
+    # solo la lectura de la IA. La BD no se pisa. 45 min = la misma ventana que ya usaba store.medias.
+    "(SELECT GROUP_CONCAT(CONCAT(x.media_id,':',COALESCE(x.media_tipo,'')) ORDER BY x.creado_en SEPARATOR ',') "
+      "FROM (SELECT DISTINCT media_id, media_tipo, creado_en FROM mensajes WHERE wa_id=$6 AND media_id IS NOT NULL "
+            "AND creado_en >= NOW() - INTERVAL 45 MINUTE ORDER BY creado_en LIMIT 10) x) AS adj, "
     # === ALERTAS PARA EL PANEL DE DEICY (2026-08-03) ===
     # El análisis PESADO (leer conversaciones, cruzar tablas) lo hace vigilante.py en un cron y deja aquí el
     # resumen ya digerido. Esta consulta corre en CADA mensaje de CADA cliente, así que solo puede leer una
@@ -2137,7 +2173,7 @@ _PEND_SQL = ("SELECT "
             "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -2155,6 +2191,7 @@ return [{ json: Object.assign({}, d, {
   rep_hoy_det:  p.rep_hoy_det  || '',
   rep_pend_det: p.rep_pend_det || '',
   cons_si:      Number(p.cons_si || 0),  // ¿ya autorizó HOY según la BD? (a prueba de carreras de staticData)
+  adj:          String(p.adj || ''),     // "mediaid:tipo,mediaid:tipo" de los últimos 45 min (a prueba de carreras)
   alr_n:        Number(p.alr_n   || 0),  // alertas de los últimos 7 días (las escribe vigilante.py)
   alr_det:      p.alr_det ? String(p.alr_det) : ''
 }) }];
@@ -2288,10 +2325,10 @@ nodes.append(node("¿Registrar chat?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"c1","leftValue":"={{ $('Cerebro conversacional').item.json.chat ? true : false }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1780, 700))
-_chatcols=["creado_en","wa_id","nombre","entrada","salida","etapa"]
+_chatcols=["creado_en","wa_id","nombre","entrada","salida","etapa","media_id","media_tipo"]
 nodes.append(node("Guardar chat (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa) VALUES ($1,$2,$3,$4,$5,$6)",
+     "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa,media_id,media_tipo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
      "options":{"queryReplacement":"={{ ["+", ".join("$('Cerebro conversacional').item.json.chat."+c for c in _chatcols)+"] }}"}},
     2000, 700, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # Habeas Data: registro LEGAL auditable de cada consentimiento (SÍ/NO) en la tabla 'consentimientos'
@@ -2326,6 +2363,12 @@ const wa=$json.wa_id; const myTok=$json.pend_token;
 const p = (wa && store.pendCierre) ? store.pendCierre[wa] : null;
 if(!p || p.token!==myTok){ return [{json:{fin:'super', hay_aviso:false, hay_media:false, hay_lead:false, aviso_body:null, aviso_medias:null, lead:null}}]; }
 const _seen={}; let medias=[];
+// La lista del paquete la armo el cierre CON los adjuntos releidos de la BD (fix 2026-08-04, caso Mario
+// Saavedra): store.medias vive en staticData y una carrera se lo lleva. Se arranca de ahi y se suma lo que
+// haya en memoria, deduplicando por id -> el adjunto llega aunque una de las dos fuentes se haya perdido.
+(p.medias||[]).forEach(m=>{ const _t=m&&m.type; const _i=_t&&m[_t]&&m[_t].id;
+  if(_i && !_seen[_i]){ _seen[_i]=1; medias.push(m);
+    if(p.copiaTo && p.copiaTo!==p.destino){ const o2={messaging_product:'whatsapp',to:p.copiaTo,type:_t}; o2[_t]={id:_i}; medias.push(o2); } } });
 (store.medias&&store.medias[wa]?store.medias[wa]:[]).forEach(m=>{ if(m&&m.id&&['image','audio','video','document','sticker'].indexOf(m.type)>=0&&!_seen[m.id]){ _seen[m.id]=1; const o={messaging_product:'whatsapp',to:p.destino,type:m.type}; o[m.type]={id:m.id}; medias.push(o); if(p.copiaTo && p.copiaTo!==p.destino){ const o2={messaging_product:'whatsapp',to:p.copiaTo,type:m.type}; o2[m.type]={id:m.id}; medias.push(o2); } } });
 let aviso=p.aviso;
 if(p.tipo==='reclamo'){ medias=[]; }   // reclamo: solo el mensaje al cliente, sin reenviar adjuntos ni "también escribió"
@@ -2732,7 +2775,7 @@ nodes.append(node("Revisar inactivos", "n8n-nodes-base.code", 2, {"jsCode":CODE_
 nodes.append(node("Enviar recordatorio (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$json.msg"), 1100, 980, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("Guardar recordatorio (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa) VALUES ($1,$2,$3,$4,$5,$6)",
+     "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa,media_id,media_tipo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
      "options":{"queryReplacement":"={{ ["+", ".join("$json.chat."+c for c in _chatcols)+"] }}"}},
     1100, 1120, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # === ALERTAS AL WHATSAPP DE DEICY (2026-08-03: "esto que me llegue mejor a mi WhatsApp al 3205662947") ===
