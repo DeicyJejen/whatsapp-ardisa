@@ -975,7 +975,21 @@ function arrancarIA(st, ia, detalle){
     const oid=TIPO_OAR[ia.tipo_cliente]; const o=OAR.find(x=>x[0]===oid);
     if(o){ st.ocupacion=o[1]; if(!st.grupo){ st.grupo=OAR_GRUPO[oid]||'ACABADOS'; st.interes=_gInt(st.grupo); } }
   }
-  if(!st.marca){   // raro: en_alcance pero sin marca -> menú de marca
+  if(!st.marca){
+    // === "ESTOY BUSCANDO ASESORÍA" (2026-08-04, decisión Deicy: "cuando escriben asesoría hay que
+    // preguntarle QUÉ asesoría") ===
+    // El botón de WhatsApp de ardisa.com manda SIEMPRE el mismo texto —"Hola! Estoy buscando asesoría"—
+    // sin importar la sección que esté mirando el cliente: 51 clientes desde el 16-jul, el primer mensaje
+    // más frecuente de todos. Como no dice QUÉ necesita, el bot no podía identificar la línea y le
+    // preguntaba "¿Ardisa o Carpincentro?", que son nombres internos que un cliente final no conoce.
+    // Ahora, si no sabemos ni la línea NI el producto, le preguntamos por el PRODUCTO (que él sí sabe).
+    // Se queda en el paso 'marca': si responde algo identificable, la rama inteligente lo atrapa y sigue
+    // sin más preguntas. El menú de marcas queda de ÚLTIMO recurso, si tampoco así se entiende.
+    if(!(ia && ia.productos && ia.productos.length) && !st.pidioProd){
+      st.pidioProd=1; st.paso='marca'; etapa='pide_producto'; st.acuse=''; delete st.iaPend;
+      wpp_body=txt(wa,'¡Con gusto te ayudamos! 🤝\n\nPara pasarte con el asesor experto, cuéntanos *¿qué necesitas?*\n\nPor ejemplo: cemento, cerámica, grifería, pintura, tableros, fórmica, herrajes, perfilería de aluminio…');
+      return;
+    }
     st.paso='marca'; etapa='marca'; st.acuse='';   // el acuse no se muestra aquí -> se descarta (antes quedaba huérfano y reaparecía pegado después)
     wpp_body=boton(wa,'¡Con gusto te ayudamos! Para conectarte con el asesor ideal, ¿tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
     return;
@@ -1527,7 +1541,7 @@ if(preguntaHorario){
   const _res = [...(resumenIA(ia) || 'lo que se ve en la imagen')].slice(0,600).join('');
   if(yaConsintio){   // ya autorizó HOY -> arrancamos el flujo inteligente con la foto
     const prev = st || {};
-    st = S[wa] = { paso:'', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion };
+    st = S[wa] = { paso:'', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, pidioProd:prev.pidioProd, iaBest:prev.iaBest };
     st.mediaId = d.media_id||''; st.mediaType = d.mtype||''; st.imgDesc=_res;   // descripción de la IA -> línea aparte en la tarjeta
     arrancarIA(st, ia, '');   // detalle del cliente vacío (solo mandó foto); el ruteo usa ia.productos/grupo_pista
   } else {   // primero el consentimiento; guardamos la foto (y lo que entendió) para retomarla al autorizar
@@ -1548,14 +1562,16 @@ if(preguntaHorario){
 } else if( ia && ia.en_alcance && !id && !es_media && texto && !reinicia && !esDespedida && yaConsintio && (!st || (st.paso==='cerrado' && (NOW-(st.closedAt||0) >= 5*60*1000)) || st.paso==='marca') ){
   // Cliente que YA autorizó y escribe libre algo que la IA entiende -> flujo inteligente (pide solo lo que falta)
   const prev = st || {};
-  st = S[wa] = { paso:'', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, notas:prev.notas };   // reusa nombre, ciudad Y perfil (misma sesión: no re-preguntar en la 2ª/3ª consulta) + conserva notas del cliente
+  // pidioProd e iaBest DEBEN sobrevivir a la reconstrucción: sin ellos el bot repetía la misma
+  // pregunta en bucle y perdía el veredicto de la IA a mitad de la conversación (2026-08-04).
+  st = S[wa] = { paso:'', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, notas:prev.notas, pidioProd:prev.pidioProd, iaBest:prev.iaBest };   // reusa nombre, ciudad Y perfil (misma sesión: no re-preguntar en la 2ª/3ª consulta) + conserva notas del cliente
   if(prev.paso && prev.paso!=='cerrado' && prev.mediaId){ st.mediaId=prev.mediaId; st.mediaType=prev.mediaType; }   // foto/audio mandado a mitad del flujo: se conserva para el asesor (de un lead YA cerrado no se hereda)
   arrancarIA(st, ia, texto);
 } else if( ia && ia.en_alcance===false && !id && !es_media && texto && !reinicia && !esDespedida && yaConsintio && (!st || st.paso==='marca') && /(asesor[ií]a|asesoren|ases[oó]r|ayuda|ayúden|informaci[oó]n|informes?|orient|cotiz|proyecto|remodel|necesito|quiero|busco|interesa|comprar|averiguar|pregunt)/i.test(low) ){
   // NOTA: si el cliente YA cerró (paso 'cerrado'), NO entra aquí -> cae al handler de 'cerrado' (seguimiento: "tu solicitud ya está en gestión con X"), en vez de reiniciarle el menú de marca.
   // Cliente que ya autorizó pide "asesoría/ayuda/info" SIN decir el producto -> bienvenida cálida + las dos líneas para que elija
   const prev = st || {};
-  st = S[wa] = { paso:'marca', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, notas:prev.notas }; etapa='marca';
+  st = S[wa] = { paso:'marca', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, notas:prev.notas, pidioProd:prev.pidioProd, iaBest:prev.iaBest }; etapa='marca';
   // NO perder lo que la persona escribió (aunque sea general, p.ej. "¿es posible obtener una cotización?") -> va al detalle del asesor
   if(texto && !reinicia){ st.notas=(st.notas?(st.notas+' | '):'')+[...texto].slice(0,300).join(''); }
   const _nom = prev.nombre ? (' '+prev.nombre.split(' ')[0]) : '';
