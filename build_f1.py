@@ -796,6 +796,12 @@ const MSG_RECLAMO_CORTO='Con gusto te ayudamos. Recuerda que tu caso lo atiende 
 // Esta línea es COMERCIAL; estas solicitudes NO son un lead de ventas -> se orientan al canal de Servicio al Cliente.
 const KW_INFO=/(referencia(s)? comercial|validaci[oó]n de (una |la )?referencia|validar (una |la )?referencia|servicio al cliente|recursos humanos|talento humano|hoja(s)? de vida|(trabajar (con|en|para)|busco empleo|oferta de empleo|vacante|convocatoria)|[aá]rea de (cartera|contabilidad|tesorer[ií]a|facturaci[oó]n|administraci[oó]n|compras)|certificado (tributario|de c[aá]mara|de retenci[oó]n|de existencia|de ingresos)|c[aá]mara de comercio|paz y salvo|retenci[oó]n en la fuente|retefuente|rete\s?fuente|reteica|reteiva|autorretenci[oó]n|autorretenedor|gran contribuyente|r[eé]gimen (com[uú]n|simple|simplificad[oa]|tributari[oa]|de iva)|declaraci[oó]n de renta|facturaci[oó]n electr[oó]nica|resoluci[oó]n de facturaci[oó]n|se les? practica retenci[oó]n|practican retenci[oó]n)/i;
 const MSG_INFO='¡Hola! 🙏 Con gusto te orientamos.\n\nEste canal es nuestra *línea comercial* (cotizaciones y ventas). Para *información general, servicio al cliente o temas administrativos* —como validación de referencias comerciales, facturación o contacto con otras áreas— te atiende directamente nuestro equipo de *Servicio al Cliente*:\n\n💬 *WhatsApp:* 3176643045\n📧 *Correo:* ayuda@ardisa.com\n\nAllí te ayudarán con tu solicitud. Gracias por escribir a *Grupo Ardisa*. 🤝';
+// EMPLEO (2026-08-04, decisión Deicy: "el que busca trabajo, dile que esto es canal comercial y pásale el correo de ayuda").
+// Caso real: MaicolD (2-ago) escribió "quisiera trabajar con ustedes" 3 veces y el bot solo le repitió el permiso de datos.
+// CONSERVADOR a propósito: "necesito un trabajo de carpintería" es un CLIENTE, no un aspirante. Por eso
+// "busco trabajo" se descarta si le sigue "de/en/para" (un oficio), y "quiero trabajar" exige "con/en/para ustedes".
+const KW_EMPLEO=/(hoja(s)? de vida|curr[ií]culum|curriculum|\bcv\b|vacante|convocatoria|proceso de selecci[oó]n|est[aá]n contratando|contratan (personal|gente)|requieren personal|solicitan personal|oferta(s)? de (empleo|trabajo)|busc(o|ando) (empleo|trabajo)(?!\s+(de|en|para)\s)|necesito (un )?empleo|(quiero|quisiera|me gustar[ií]a|deseo) trabajar (con|en|para) (ustedes|usted|la empresa|su empresa|grupo ardisa|ardisa|carpincentro)|aplicar a (una |la )?vacante)/i;
+const MSG_EMPLEO='¡Hola! 🙏 Gracias por tu interés en *Grupo Ardisa*.\n\nEste canal es nuestra *línea comercial* (cotizaciones y ventas), por eso aquí no gestionamos hojas de vida ni procesos de selección.\n\nEnvía tu hoja de vida a nuestro equipo de *Servicio al Cliente* y ellos la hacen llegar al área encargada:\n📧 *Correo:* ayuda@ardisa.com\n\n¡Mucha suerte! 🤝';
 // PROVEEDORES / SPAM: esta es la línea COMERCIAL de atención a CLIENTES; no se pasan a los asesores (les haría perder tiempo).
 const MSG_PROVEEDOR='¡Hola! 🙏 Gracias por escribirnos.\n\nEste canal es la *línea comercial de atención a clientes* de *Grupo Ardisa* (cotizaciones y compras). Si deseas *ofrecernos productos o servicios como proveedor*, agradecemos tu interés, pero por este medio solo atendemos a nuestros clientes. 🤝';
 // Frases típicas de proveedor OFRECIENDO (para números de Colombia que igual son proveedores).
@@ -1381,6 +1387,12 @@ store.compras = store.compras || {};
 for(const _k in store.compras){ if((NOW-(store.compras[_k]||0)) > 2*3600000) delete store.compras[_k]; }
 const _pideCompras = !es_media && !!texto && /(([aá]rea|departamento|dpto|jefe|director|gerente|encargad\w*|persona|se[nñ]or(a)?|los|el|la) de compras|hablar con compras|contacto de compras|con el comprador|ser (su |sus |un )?proveedor|proveedor de ustedes|inscribir(me|nos) como proveedor|ofrecer(les|le)?\s+(nuestro|nuestros|mi|mis|productos|servicios)|present(ar|arles)\s+(nuestro|mi)\s+portafolio|portafolio de (productos|servicios))/i.test(low);
 const _esperaCompras = (NOW-(store.compras[wa]||0)) < 30*60*1000;
+// === EMPLEO (2026-08-04, caso MaicolD): no es cliente ni proveedor, es alguien buscando trabajo. ===
+// Se le responde en el MURO del consentimiento (por eso NO se mira st.paso): pedirle permiso de datos a quien
+// busca empleo es absurdo y fue lo que lo dejó dando vueltas. Guarda: si la IA ve una compra real, manda la IA.
+store.empleo = store.empleo || {};
+for(const _k in store.empleo){ if((NOW-(store.empleo[_k]||0)) > 6*3600000) delete store.empleo[_k]; }
+const _pideEmpleo = !reinicia && !id && !es_media && !!texto && KW_EMPLEO.test(low) && !(ia && ia.en_alcance===true);
 // === FIX 2026-08-03b (caso real 15:12, detectado por Deicy): NO repetirle la pregunta que ya contestó. ===
 // La red anti-carrera resolvía el problema DENTRO de la rama 'consent' volviendo a mostrar el menú de marca.
 // Si el cliente ya había TOCADO "🟢 Ardisa", su botón se perdía y el bot le repetía el mismo menú.
@@ -1391,6 +1403,16 @@ if(st && st.paso==='consent' && (CONS_SI || st.consent)){ st.consent=true; st.pa
 const preguntaHorario = !es_media && !id && !reinicia && /(qu[eé] horario|horario (de|manej|atenci|tienen|es\b|labor)|a qu[eé] hora(s)? (atien|aten|abren|cierran|trabaj)|hasta qu[eé] hora|desde qu[eé] hora|est[aá](n)? abiert|abren hoy|atienden hoy|est[aá](n)? atend|hora(s)? de atenci|cu[aá]ndo (atien|aten|abren|trabaj)|qu[eé] d[ií]as (atien|aten|abren|trabaj))/i.test(low);
 if(preguntaHorario){
   etapa='horario'; wpp_body=txt(wa, respHorario(st&&st.marca));   // solo responde el horario; NO cambia el paso (el cliente sigue donde iba)
+} else if(_pideEmpleo){
+  // NO se crea lead, NO se pide autorización de datos, NO se pasa a un asesor de ventas: solo la salida correcta.
+  // Debounce de 30 min: si insiste (como MaicolD, 3 veces), no le repetimos el mismo texto largo.
+  const _eLast=store.empleo[wa]||0;
+  store.empleo[wa]=NOW;
+  etapa='empleo';
+  wpp_body = (_eLast===0 || (NOW-_eLast)>30*60*1000)
+    ? txt(wa, MSG_EMPLEO)
+    : txt(wa, 'Recuerda que las hojas de vida se reciben en 📧 *ayuda@ardisa.com*. Este canal es solo comercial. 🤝');
+  if(store.cliMsgs) delete store.cliMsgs[wa];   // no deja rastro en el log de solicitudes comerciales
 } else if(esReclamo){
   const _last=store.reclamo[wa]||0;
   const _msg=(_last===0 || (NOW-_last)>30*60*1000) ? MSG_RECLAMO : MSG_RECLAMO_CORTO;

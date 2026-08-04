@@ -23,13 +23,22 @@ const IA_QUEJA   = { en_alcance:false, es_info:false, es_reclamo:true,  marca:''
 const IA_COMPRA  = { en_alcance:true,  es_info:false, es_reclamo:false, marca:'Ardisa', grupo_pista:'CONSTRUCCION', productos:['cemento'], confianza:'alta' };
 const SIN_IA     = null;
 
+// CAMBIO 2026-08-04 (decision Deicy: "el que busca trabajo, dile que esto es canal comercial y pasale el
+// correo de ayuda"). Los casos 1, 2 y 6 esperaban la conducta VIEJA:
+//   - 1 y 2 caian en 'info' (mensaje generico de Servicio al Cliente). Ahora tienen su propia etapa 'empleo'
+//     con un texto hecho para un aspirante: no le hablamos de "cotizaciones" ni de "facturacion".
+//   - 6 esperaba que SIN IA el muro siguiera, porque KW_INFO era ancha y se equivocaba. KW_EMPLEO es estrecha
+//     a proposito (ver build_f1.py) y se probo contra 8 frases de clientes reales sin un solo falso positivo,
+//     asi que ya NO necesita que la IA la respalde: si Anthropic se cae, el aspirante igual sale bien atendido.
+// La expectativa vieja quedo obsoleta por decision de producto, no porque el codigo empeorara.
 const casos = [
-  { n:'1. EMPLEO en el muro -> canal de Servicio al Cliente',      d:msg('Me llamo Maicol y quisiera trabajar con ustedes', IA_EMPLEO), espera:'info' },
-  { n:'2. HOJA DE VIDA en el muro -> Servicio al Cliente',         d:msg('Para enviar una hoja de vida, donde se puede', IA_EMPLEO),   espera:'info' },
+  { n:'1. EMPLEO en el muro -> respuesta propia de empleo',        d:msg('Me llamo Maicol y quisiera trabajar con ustedes', IA_EMPLEO), espera:'empleo' },
+  { n:'2. HOJA DE VIDA en el muro -> respuesta propia de empleo',  d:msg('Para enviar una hoja de vida, donde se puede', IA_EMPLEO),   espera:'empleo' },
   { n:'3. QUEJA en el muro -> Servicio al Cliente',                d:msg('No me han contactado, llevo 3 dias esperando', IA_QUEJA),    espera:'reclamo' },
   { n:'4. CLIENTE REAL en el muro -> el muro SIGUE (no se cuela)', d:msg('Tienen cemento gris de 50 kilos?', IA_COMPRA),               espera:'consent' },
   { n:'5. Saludo suelto en el muro -> el muro SIGUE',              d:msg('Buenas tardes', SIN_IA),                                     espera:'consent' },
-  { n:'6. SIN IA + palabras de empleo -> el muro SIGUE (prudente)',d:msg('quiero dejar mi hoja de vida', SIN_IA),                      espera:'consent' },
+  { n:'6. SIN IA + hoja de vida -> igual lo atiende (regex estrecha)', d:msg('quiero dejar mi hoja de vida', SIN_IA),                  espera:'empleo' },
+  { n:'7. SIN IA + "trabajo de carpinteria" -> es CLIENTE, muro',  d:msg('Necesito un trabajo de carpinteria', SIN_IA),                espera:'consent' },
 ];
 
 let ok = 0;
