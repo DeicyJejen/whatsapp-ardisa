@@ -537,8 +537,15 @@ function cerrarLead(st,opts){
   // El cliente no tiene por qué saber que un tablero duratex es Carpincentro y no Ardisa Acabados.
   // Si la IA identificó productos con confianza alta, su línea y su grupo pesan más que el botón.
   // Conservador: solo con `en_alcance` + `confianza alta` + productos concretos. Sin eso no toca nada.
-  const _iaB = st.iaBest;
-  if(_iaB && _iaB.en_alcance===true && _iaB.confianza==='alta' && _iaB.productos && _iaB.productos.length){
+  // Dos varas distintas a propósito (2026-08-04, "dale más permisos a la IA"):
+  //  · CONTRADECIR lo que el cliente eligió a mano  -> exige confianza ALTA (es una decisión humana).
+  //  · LLENAR lo que nadie eligió                    -> basta con que identifique el producto.
+  // Llenar un hueco no le quita nada a nadie; cambiar una elección sí. La vara sube con lo que está en juego.
+  const _iaB = st.iaBest || ((ia && ia.en_alcance===true && ia.productos && ia.productos.length) ? ia : null);
+  const _hayHueco = !st.marca || (st.marca==='Ardisa' && !st.grupo);
+  const _varaOk = _iaB && _iaB.en_alcance===true && _iaB.productos && _iaB.productos.length
+                  && (_iaB.confianza==='alta' || _hayHueco);
+  if(_varaOk){
     const _prod = _iaB.productos.join(' ');
     if((_iaB.marca==='Ardisa' || _iaB.marca==='Carpincentro') && _iaB.marca!==st.marca){
       st.marcaCorregida = (st.marca||'(sin elegir)');   // queda registrado para poder medirlo
@@ -835,6 +842,24 @@ const MSG_INFO='¡Hola! 🙏 Con gusto te orientamos.\n\nEste canal es nuestra *
 // saludo compuesto entero ("hola buenas tardes") y sigue exigiendo coincidencia COMPLETA:
 // "buenas, necesito cemento" NO es saludo, porque "necesito" no está en la lista.
 const RE_SALUDO=/^((muy|buen|buen[oa]s?|d[ií]as?|tardes?|noches?|hola|holis?|ola|q|qu[eé]|hubo|saludos?|hi|hello|hey|se[nñ]or(es|a|ita)?|cordial|feliz|dia|d[ií]a)[\s,.!¡:;]*)+$/i;
+// === QUIÉN DECIDE SI UN MENSAJE TRAE UNA SOLICITUD (2026-08-04, decisión Deicy) ===
+// "Dale más permisos a la IA, las reglas que tiene la están dejando sin trabajar."
+// Tenía razón: en un solo día, CUATRO veces una regex decidió antes que la IA y se equivocó
+// ("buenos días", "buena tarde", "cordial saludo", "holis"). Perseguir variantes de saludo una por
+// una no termina nunca: el español tiene infinitas y siempre falta la de mañana.
+// Ahora manda la IA, con la regex de RESPALDO para cuando Anthropic no responde:
+//   1. Si la IA identificó PRODUCTOS -> es una solicitud, aunque la regex crea que es un saludo.
+//   2. Si no, y la regex ve un saludo puro -> es un saludo. (Freno: evita que una IA demasiado
+//      entusiasta convierta un "buenas tardes" pelado en la solicitud del cliente.)
+//   3. Si la IA dice que hay compra, consulta o reclamo -> es una solicitud.
+//   4. Sin IA y sin saludo reconocido -> se guarda (mejor de más que perder lo que escribió).
+function traeSolicitud(txt, low2, ia2){
+  if(!txt) return false;
+  if(ia2 && ia2.productos && ia2.productos.length) return true;          // 1
+  if(RE_SALUDO.test(low2)) return false;                                 // 2
+  if(ia2 && (ia2.en_alcance===true || ia2.es_info===true || ia2.es_reclamo===true)) return true;   // 3
+  return true;                                                           // 4
+}
 // EMPLEO (2026-08-04, decisión Deicy: "el que busca trabajo, dile que esto es canal comercial y pásale el correo de ayuda").
 // Caso real: MaicolD (2-ago) escribió "quisiera trabajar con ustedes" 3 veces y el bot solo le repitió el permiso de datos.
 // CONSERVADOR a propósito: "necesito un trabajo de carpintería" es un CLIENTE, no un aspirante. Por eso
@@ -1619,7 +1644,7 @@ if(preguntaHorario){
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
     // si ya escribió su solicitud y la IA la entendió, la guardamos para retomarla tras autorizar (no re-preguntar)
     // Guarda LO QUE SEA que escribió antes de autorizar (aunque NO sea un producto: "con Yolanda", "de Bogotá"...) -> llega al asesor, no se pierde.
-    if(texto && !reinicia && !RE_SALUDO.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
+    if(texto && !reinicia && traeSolicitud(texto, low, ia)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
     if(es_media && d.media_id){ st.pendMediaId=d.media_id; st.pendMediaType=d.mtype||''; if(!st.pendTexto){ const _r=resumenIA(ia); st.pendTexto='📎 '+(MTYPE_ES[d.mtype]||'un archivo')+(_r?(' — '+_r):''); st.pendIA=(ia&&ia.en_alcance)?ia:null; } }
     if(muroReciente()){   // dos "Hola" seguidos no merecen dos veces el mismo muro
       wpp_body=txt(wa,'¡Te leemos! 🙌 Solo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
@@ -1663,7 +1688,7 @@ if(preguntaHorario){
   // yutex y graffo de 18 mm?": la IA clasificó eso como *Carpincentro, confianza alta, 3 productos*, y el
   // bot lo descartó, le preguntó la marca y ella eligió Ardisa — Acabados. El lead salió a la línea que no era.
   // Ahora el texto se ACUMULA y el veredicto se MEJORA: gana el que trae productos identificados.
-  if(!cc && !es_media && texto && !reinicia && !(RE_SALUDO.test(low) || /^(s[ií]|no|ok|dale|gracias|listo)[\s!¡.,]*$/i.test(low))){
+  if(!cc && !es_media && texto && !reinicia && traeSolicitud(texto, low, ia) && !/^(s[ií]|no|ok|dale|gracias|listo)[\s!¡.,]*$/i.test(low)){
     const _nv=[...texto].slice(0,300).join('');
     if(!st.pendTexto) st.pendTexto=_nv;
     else if(st.pendTexto.indexOf(_nv)<0 && st.pendTexto.length<260) st.pendTexto=[...(st.pendTexto+' · '+_nv)].slice(0,300).join('');
