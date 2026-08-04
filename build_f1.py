@@ -834,7 +834,7 @@ const MSG_INFO='¡Hola! 🙏 Con gusto te orientamos.\n\nEste canal es nuestra *
 // 49 de 162 leads (30%) llegaron así. Esta versión, ya probada en `_soloSaludoTxt`, admite el
 // saludo compuesto entero ("hola buenas tardes") y sigue exigiendo coincidencia COMPLETA:
 // "buenas, necesito cemento" NO es saludo, porque "necesito" no está en la lista.
-const RE_SALUDO=/^((muy|buen|buen[oa]s?|d[ií]as?|tardes|noches|hola|holi|ola|q|que|hubo|saludos?|hi|hello|hey|se[nñ]or(es|a|ita)?|cordial|feliz|dia|d[ií]a)[\s,.!¡:;]*)+$/i;
+const RE_SALUDO=/^((muy|buen|buen[oa]s?|d[ií]as?|tardes?|noches?|hola|holis?|ola|q|qu[eé]|hubo|saludos?|hi|hello|hey|se[nñ]or(es|a|ita)?|cordial|feliz|dia|d[ií]a)[\s,.!¡:;]*)+$/i;
 // EMPLEO (2026-08-04, decisión Deicy: "el que busca trabajo, dile que esto es canal comercial y pásale el correo de ayuda").
 // Caso real: MaicolD (2-ago) escribió "quisiera trabajar con ustedes" 3 veces y el bot solo le repitió el permiso de datos.
 // CONSERVADOR a propósito: "necesito un trabajo de carpintería" es un CLIENTE, no un aspirante. Por eso
