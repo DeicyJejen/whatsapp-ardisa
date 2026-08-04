@@ -533,6 +533,24 @@ function cerrarLead(st,opts){
       else if(_txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=12){ st.grupo='ACABADOS'; st.interes=_gInt('ACABADOS'); }
     }
   }
+  // === LA IA MANDA SOBRE EL BOTÓN (2026-08-04, decisión Deicy) ===
+  // El cliente no tiene por qué saber que un tablero duratex es Carpincentro y no Ardisa Acabados.
+  // Si la IA identificó productos con confianza alta, su línea y su grupo pesan más que el botón.
+  // Conservador: solo con `en_alcance` + `confianza alta` + productos concretos. Sin eso no toca nada.
+  const _iaB = st.iaBest;
+  if(_iaB && _iaB.en_alcance===true && _iaB.confianza==='alta' && _iaB.productos && _iaB.productos.length){
+    const _prod = _iaB.productos.join(' ');
+    if((_iaB.marca==='Ardisa' || _iaB.marca==='Carpincentro') && _iaB.marca!==st.marca){
+      st.marcaCorregida = (st.marca||'(sin elegir)');   // queda registrado para poder medirlo
+      st.marca = _iaB.marca;
+      if(_iaB.marca==='Carpincentro'){ delete st.grupo; st.interes=''; }
+      else { const _R2=ruteoIA(_iaB,_prod); if(_R2.grupo){ st.grupo=_R2.grupo; st.interes=_gInt(_R2.grupo); } }
+    } else if(st.marca==='Ardisa'){
+      // Misma línea, pero el grupo que eligió no cuadra con lo que pidió (Acabados vs Construcción).
+      const _R2=ruteoIA(_iaB,_prod);
+      if(_R2.grupo && _R2.grupo!==st.grupo){ st.grupoCorregido=(st.grupo||'(sin elegir)'); st.grupo=_R2.grupo; st.interes=_gInt(_R2.grupo); }
+    }
+  }
   let asesor;
   if (st.marca==='Carpincentro'){
     if(CARP_NACIONAL.activo){   // por ahora: TODA Carpincentro la recibe Karime a nivel NACIONAL -> al cliente NO se le menciona tienda/ciudad (solo "de Carpincentro"). El punto elegido va aparte en la tarjeta del asesor.
@@ -1261,6 +1279,15 @@ if(!es_media && !id && texto && st && !reinicia && ['nombre','ciudad','ciudadOtr
 }
 // Guarda TODOS los adjuntos de la conversación (a nivel store, sobrevive reinicios de sesión) para REENVIARLOS COMPLETOS al asesor.
 if(es_media && d.media_id){ store.medias[wa]=store.medias[wa]||[]; if(!store.medias[wa].some(x=>x.id===d.media_id)) store.medias[wa].push({id:d.media_id, type:d.mtype||'image', t:NOW}); if(store.medias[wa].length>25) store.medias[wa]=store.medias[wa].slice(-25); }
+// === EL MEJOR VEREDICTO DE LA IA, DE TODA LA CONVERSACIÓN (2026-08-04, decisión Deicy) ===
+// "Así la persona coloque línea Acabados, si la descripción dice productos de carpintería,
+//  debe recepcionarlo bien."
+// Hasta hoy el veredicto solo se miraba dentro de la rama 'detalle'. Si el cliente contaba qué
+// necesitaba ANTES de autorizar —lo más común— nunca se aplicaba: caso Claudia Ardila (lead #218),
+// donde la IA dijo Carpincentro con confianza alta y el lead salió a Ardisa — Acabados.
+// Ahora se guarda venga en el mensaje que venga, y manda al cerrar. Gana el MÁS RECIENTE con
+// producto identificado: la conversación avanza y lo último que pidió es lo que quiere.
+if(st && ia && ia.en_alcance===true && ia.confianza==='alta' && ia.productos && ia.productos.length) st.iaBest=ia;
 if(es_media && d.media_id && st){ st.mediaCount=(st.mediaCount||0)+1; st.mediaId=d.media_id; st.mediaType=d.mtype||''; if(d.mtype==='image' && ia){ const _r=resumenIA(ia); if(_r) st.imgDesc=(st.imgDesc?(st.imgDesc+' · '):'')+[...(_r)].slice(0,600).join(''); } }
 // Adjuntos en RÁFAGA durante un paso de botón (marca/perfil/ciudad): el 1º pide el dato; los siguientes se guardan EN SILENCIO (no repetir el menú)
 if(es_media && st && ['marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','consent','confirmGrupo'].includes(st.paso)){
