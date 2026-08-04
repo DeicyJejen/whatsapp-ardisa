@@ -808,6 +808,15 @@ const MSG_RECLAMO_CORTO='Con gusto te ayudamos. Recuerda que tu caso lo atiende 
 // Esta línea es COMERCIAL; estas solicitudes NO son un lead de ventas -> se orientan al canal de Servicio al Cliente.
 const KW_INFO=/(referencia(s)? comercial|validaci[oó]n de (una |la )?referencia|validar (una |la )?referencia|servicio al cliente|recursos humanos|talento humano|hoja(s)? de vida|(trabajar (con|en|para)|busco empleo|oferta de empleo|vacante|convocatoria)|[aá]rea de (cartera|contabilidad|tesorer[ií]a|facturaci[oó]n|administraci[oó]n|compras)|certificado (tributario|de c[aá]mara|de retenci[oó]n|de existencia|de ingresos)|c[aá]mara de comercio|paz y salvo|retenci[oó]n en la fuente|retefuente|rete\s?fuente|reteica|reteiva|autorretenci[oó]n|autorretenedor|gran contribuyente|r[eé]gimen (com[uú]n|simple|simplificad[oa]|tributari[oa]|de iva)|declaraci[oó]n de renta|facturaci[oó]n electr[oó]nica|resoluci[oó]n de facturaci[oó]n|se les? practica retenci[oó]n|practican retenci[oó]n)/i;
 const MSG_INFO='¡Hola! 🙏 Con gusto te orientamos.\n\nEste canal es nuestra *línea comercial* (cotizaciones y ventas). Para *información general, servicio al cliente o temas administrativos* —como validación de referencias comerciales, facturación o contacto con otras áreas— te atiende directamente nuestro equipo de *Servicio al Cliente*:\n\n💬 *WhatsApp:* 3176643045\n📧 *Correo:* ayuda@ardisa.com\n\nAllí te ayudarán con tu solicitud. Gracias por escribir a *Grupo Ardisa*. 🤝';
+// === SALUDO DE UNA SOLA PIEZA (2026-08-04, caso Claudia Ardila — lead #218) ===
+// La regla vieja `/^(hola|buen[oa]s?|buenas|...)$/` NO reconocía "buen día", "buenos días" ni
+// "buenas tardes": exigía que tras la palabra solo hubiera espacios o signos. Como el saludo NO se
+// veía como saludo, se guardaba en `st.pendTexto` (la ranura de la solicitud) y el `!st.pendTexto`
+// de más abajo DESCARTABA el mensaje siguiente — el de verdad — junto con el veredicto de la IA.
+// 49 de 162 leads (30%) llegaron así. Esta versión, ya probada en `_soloSaludoTxt`, admite el
+// saludo compuesto entero ("hola buenas tardes") y sigue exigiendo coincidencia COMPLETA:
+// "buenas, necesito cemento" NO es saludo, porque "necesito" no está en la lista.
+const RE_SALUDO=/^((muy|buen|buen[oa]s?|d[ií]as?|tardes|noches|hola|holi|ola|q|que|hubo|saludos?|hi|hello|hey|se[nñ]or(es|a|ita)?|cordial|feliz|dia|d[ií]a)[\s,.!¡:;]*)+$/i;
 // EMPLEO (2026-08-04, decisión Deicy: "el que busca trabajo, dile que esto es canal comercial y pásale el correo de ayuda").
 // Caso real: MaicolD (2-ago) escribió "quisiera trabajar con ustedes" 3 veces y el bot solo le repitió el permiso de datos.
 // CONSERVADOR a propósito: "necesito un trabajo de carpintería" es un CLIENTE, no un aspirante. Por eso
@@ -1567,7 +1576,7 @@ if(preguntaHorario){
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
     // si ya escribió su solicitud y la IA la entendió, la guardamos para retomarla tras autorizar (no re-preguntar)
     // Guarda LO QUE SEA que escribió antes de autorizar (aunque NO sea un producto: "con Yolanda", "de Bogotá"...) -> llega al asesor, no se pierde.
-    if(texto && !reinicia && !/^(hola|buen[oa]s?|buenas|q'?hubo|saludos|hi|hello|hey)[\s!¡.,]*$/i.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
+    if(texto && !reinicia && !RE_SALUDO.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
     if(es_media && d.media_id){ st.pendMediaId=d.media_id; st.pendMediaType=d.mtype||''; if(!st.pendTexto){ const _r=resumenIA(ia); st.pendTexto='📎 '+(MTYPE_ES[d.mtype]||'un archivo')+(_r?(' — '+_r):''); st.pendIA=(ia&&ia.en_alcance)?ia:null; } }
     if(muroReciente()){   // dos "Hola" seguidos no merecen dos veces el mismo muro
       wpp_body=txt(wa,'¡Te leemos! 🙌 Solo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
@@ -1605,7 +1614,25 @@ if(preguntaHorario){
     if(d.mtype==='image' && ia && ia.en_alcance){ st.pendIA=ia; st.pendImgDesc=[...(resumenIA(ia)||'foto del cliente')].slice(0,600).join(''); } }   // la lectura de la foto va a "En la imagen (IA)", NO al Detalle (evita duplicado)
   // TEXTO tipo solicitud (p.ej. "tienes hierro de media de 6 mts") escrito MIENTRAS decidía la autorización:
   // lo guardamos para retomarlo al autorizar -> NO se pierde y el bot ya sabe qué necesita (no re-pregunta la marca).
-  if(!cc && !es_media && texto && !reinicia && !st.pendTexto && !/^(hola|buen[oa]s?|buenas|saludos|s[ií]|no|ok|dale|gracias|listo)[\s!¡.,]*$/i.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
+  // === EL PRIMER MENSAJE YA NO BLOQUEA LA RANURA (2026-08-04, caso Claudia Ardila lead #218) ===
+  // Antes: `!st.pendTexto` -> el PRIMER texto se quedaba con el sitio y todo lo que viniera después se
+  // tiraba, veredicto de la IA incluido. Claudia escribió "Buen día" y enseguida "Tiene lámina duratex
+  // yutex y graffo de 18 mm?": la IA clasificó eso como *Carpincentro, confianza alta, 3 productos*, y el
+  // bot lo descartó, le preguntó la marca y ella eligió Ardisa — Acabados. El lead salió a la línea que no era.
+  // Ahora el texto se ACUMULA y el veredicto se MEJORA: gana el que trae productos identificados.
+  if(!cc && !es_media && texto && !reinicia && !(RE_SALUDO.test(low) || /^(s[ií]|no|ok|dale|gracias|listo)[\s!¡.,]*$/i.test(low))){
+    const _nv=[...texto].slice(0,300).join('');
+    if(!st.pendTexto) st.pendTexto=_nv;
+    else if(st.pendTexto.indexOf(_nv)<0 && st.pendTexto.length<260) st.pendTexto=[...(st.pendTexto+' · '+_nv)].slice(0,300).join('');
+    if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)){
+      const _v=st.pendIA;
+      const _mejor = !_v                                                        // no había ninguno
+        || (!_v.en_alcance && ia.en_alcance)                                    // el nuevo sí es una compra
+        || (ia.en_alcance===true && ia.productos && ia.productos.length          // el nuevo identifica producto
+            && !(_v.productos && _v.productos.length));                          // y el viejo no
+      if(_mejor) st.pendIA=ia;
+    }
+  }
   // === FIX 2026-07-29 (auditoría): ACUSAR RECIBO en vez de repetir el muro a secas. ===
   // El texto del cliente YA se guardaba en st.pendTexto, pero él no lo sabía: mandaba su pedido (o una foto) y solo
   // veía "Por favor elige una opción". En 14 días ~70 clientes vieron el muro 2+ veces y uno escribió "He autorizado
@@ -1844,7 +1871,7 @@ if(preguntaHorario){
   const _dest = st.destino || (MODO_PRUEBA?PRUEBA_NUM:null);
   // SOLO un saludo (sin información): no es una adición; lo maneja el 'else' (regla del cliente sin atender ayer).
   // Se normaliza quitando signos/emojis para que "Muy buenas tardes!!" también cuente como saludo suelto.
-  const _soloSaludoTxt = !es_media && !!texto && /^((muy|buen|buen[oa]s?|d[ií]as?|tardes|noches|hola|holi|ola|q|que|hubo|saludos|hi|hello|hey|se[nñ]or(es|a|ita)?|cordial|feliz|dia|d[ií]a)\s*)+$/i
+  const _soloSaludoTxt = !es_media && !!texto && RE_SALUDO
       .test(low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim());
   const cortesia = !es_media && ( esDespedida || ( low.length<=60 && /(^|[^a-záéíóúñ])(gracias|thank|amable|bendicion|excelente|de nada|muy bien|buen servicio|vale|listo|ok|okay|perfecto|dale|chao|chau|adios|adiós|hasta luego)([^a-záéíóúñ]|$)/i.test(low) && !/(necesito|quiero|busco|cotiza|precio|venden|tienen|me interesa)/i.test(low) ) );
   // ¿Producto claramente NUEVO? Solo entonces reiniciamos. (La IA lo entiende, o lo dice explícito.)
