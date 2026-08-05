@@ -312,7 +312,12 @@ function grupoMenu(pre){ return lista(wa, (pre||'')+'Para pasarte con el asesor 
 ]); }
 function elige(opts){
   if(id){const o=opts.find(x=>x[0]===id);if(o)return o;}   // tocó una opción (id exacto)
-  if(texto){const t=texto.toLowerCase();const o=opts.find(x=>{const l=x[1].toLowerCase().replace(/[^a-záéíóúñ0-9 \/]/g,'').trim();const k=l.split(' /')[0].split(' (')[0].trim();return t===l||t===k||(k.length>2&&t.includes(k));});if(o)return o;}
+  // 2026-08-05: se comparan los DOS lados SIN TILDES (_norm). El cliente colombiano escribe "bogota",
+  // "ibague", "construccion" — y antes su respuesta escrita NO coincidía con la etiqueta del menú
+  // ("Bogotá", "Construcción"), así que el bot le repetía el mismo menú indefinidamente hasta que
+  // tocara el botón o se cansara. matchCiudad() ya normalizaba; elige() no, y es la que atiende los
+  // pasos de ciudad, grupo, marca y perfil.
+  if(texto){const t=_norm(texto);const o=opts.find(x=>{const l=_norm(x[1]).replace(/[^a-z0-9 \/]/g,'').trim();const k=l.split(' /')[0].split(' (')[0].trim();return t===l||t===k||(k.length>2&&t.includes(k));});if(o)return o;}
   return null;
 }
 // round-robin: devuelve el siguiente de la lista y avanza el contador persistente.
@@ -1079,7 +1084,7 @@ const reinicia = /^\s*(h?o+l+a*|buen[oa]s?(\s+(d[ií]as|tardes|noches))?|hi+|hey
 // DESPEDIDA/cortesía: "gracias por la ayuda", "gracias, quedo atento a lo del cemento", "muy amable"...
 // (auditoría 2026-07-10) NO debe reiniciar el menú ni crear un lead duplicado — salvo que traiga una consulta NUEVA explícita.
 const esDespedida = /(^|[^a-záéíóúñ])(gracias|muy amable|quedo (atent[oa]|pendiente)|bendicion(es)?|chao|chau|adios|adiós|hasta luego|feliz (d[ií]a|tarde|noche))([^a-záéíóúñ]|$)/i.test(low)
-  && !/(tambi[eé]n|ahora|adem[aá]s|otra (cosa|consulta)|nueva consulta|necesito|quiero|busco|cotiza|precio|venden|tienen|me interesa)/i.test(low);
+  && !/(tambi[eé]n|ahora|adem[aá]s|otra (cosa|consulta)|nueva consulta|necesito|quiero|busco|cotiza|precio|venden|tienen|manejan|hay |tendr|me regala|requier|distribu|me interesa)/i.test(low);
 // LEAD DE FORMULARIO/ANUNCIO DE META: el mensaje auto-generado del Instant Form trae campos estructurados ("Full name:",
 // "Líneas de interés:", "WhatsApp number:"...). Se detecta por >=2 marcadores fuertes (evita falsos positivos).
 const _formHits = (!es_media && texto) ? (String(texto).match(/(complet[eé]\s+el\s+formulario|full\s*name\s*:|l[ií]neas?\s+de\s+inter[eé]s\s*:|whatsapp\s*number\s*:|tienda\s+m[aá]s\s+cercana\s*:|email\s*:)/gi)||[]).length : 0;
@@ -1472,8 +1477,16 @@ const yaConsintio = consintioHoy() || (st && st.consent) || (st && st.paso && st
 // Se pregunta UNA vez para saber a qué área va y NO se crea lead comercial.
 store.compras = store.compras || {};
 for(const _k in store.compras){ if((NOW-(store.compras[_k]||0)) > 2*3600000) delete store.compras[_k]; }
-const _pideCompras = !es_media && !!texto && /(([aá]rea|departamento|dpto|jefe|director|gerente|encargad\w*|persona|se[nñ]or(a)?|los|el|la) de compras|hablar con compras|contacto de compras|con el comprador|ser (su |sus |un )?proveedor|proveedor de ustedes|inscribir(me|nos) como proveedor|ofrecer(les|le)?\s+(nuestro|nuestros|mi|mis|productos|servicios)|present(ar|arles)\s+(nuestro|mi)\s+portafolio|portafolio de (productos|servicios))/i.test(low);
+// GUARDA DE LA IA (2026-08-05): el COMPRADOR B2B es lo contrario de un proveedor — nos está comprando.
+// "Le escribo del área de compras de la constructora Andina, necesito cotización de 500 bultos de cemento"
+// caía aquí y terminaba recibiendo "por este medio solo atendemos a nuestros clientes". Si el cliente usa
+// un verbo de COMPRA y además la IA le vio un producto concreto, manda la IA y esta rama no se toca.
+const _quiereComprar = !!texto && /(cotiza|cotizar|coticen|cotización|cotizacion|precio|necesit|requier|quiero comprar|comprarles|comprar a ustedes|nos venden|me venden|disponibilidad|tienen)/i.test(low)
+                       && !!(ia && ia.en_alcance===true && ia.productos && ia.productos.length);
+const _pideCompras = !es_media && !!texto && !_quiereComprar && /(([aá]rea|departamento|dpto|jefe|director|gerente|encargad\w*|persona|se[nñ]or(a)?|los|el|la) de compras|hablar con compras|contacto de compras|con el comprador|ser (su |sus |un )?proveedor|proveedor de ustedes|inscribir(me|nos) como proveedor|ofrecer(les|le)?\s+(nuestro|nuestros|mi|mis|productos|servicios)|present(ar|arles)\s+(nuestro|mi)\s+portafolio|portafolio de (productos|servicios))/i.test(low);
 const _esperaCompras = (NOW-(store.compras[wa]||0)) < 30*60*1000;
+// Si ya le habíamos preguntado y responde dejando claro que COMPRA, se le suelta la espera y sigue como cliente.
+if(_esperaCompras && _quiereComprar) delete store.compras[wa];
 // === EMPLEO (2026-08-04, caso MaicolD): no es cliente ni proveedor, es alguien buscando trabajo. ===
 // Se le responde en el MURO del consentimiento (por eso NO se mira st.paso): pedirle permiso de datos a quien
 // busca empleo es absurdo y fue lo que lo dejó dando vueltas. Guarda: si la IA ve una compra real, manda la IA.
@@ -1533,7 +1546,7 @@ if(preguntaHorario){
   if(store.cliMsgs) delete store.cliMsgs[wa];   // no deja rastro en el log de solicitudes comerciales
   if(st) st.infoAvisado=NOW;   // marca que ya se orientó a Servicio al Cliente (no se fuerza Construcción/Acabados)
   etapa='info'; wpp_body=null; pend_cierre=true; pend_token=_itk;
-} else if(_pideCompras || (_esperaCompras && !es_media && !!texto && !id)){
+} else if(_pideCompras || (_esperaCompras && !_quiereComprar && !es_media && !!texto && !id)){
   // NO se crea lead comercial: esto no es una venta nuestra.
   if(!_esperaCompras){
     store.compras[wa]=NOW; etapa='compras';
@@ -1541,7 +1554,11 @@ if(preguntaHorario){
   } else {
     delete store.compras[wa];
     // La respuesta decide el destino. Ante duda -> Servicio al Cliente, que es la puerta de todo lo NO comercial.
-    const _ofreceProv = /(ofrec|vender(les)?|venta a ustedes|proveedor|portafolio|cat[aá]logo|represent|distribu|fabric|import|mi empresa|nuestra empresa|somos)/i.test(low);
+    // Los comodines "somos|mi empresa|nuestra empresa|fabric" atrapaban al cliente: "SOMOS una constructora
+    // y queremos COMPRARLES cemento" se leía como proveedor. Si en la misma frase hay un verbo de compra
+    // dirigido a nosotros, NO es un proveedor (2026-08-05).
+    const _ofreceProv = /(ofrec|vender(les)?|venta a ustedes|proveedor|portafolio|cat[aá]logo|represent|distribu|fabric|import|mi empresa|nuestra empresa|somos)/i.test(low)
+                        && !/(comprar(les|nos)?|comprar a ustedes|cotiza|coticen|cotizaci[oó]n|necesito|necesitamos|requiero|requerimos|quiero (comprar|cotizar)|nos venden|me venden|precio de|pedido)/i.test(low);
     etapa = _ofreceProv ? 'proveedor' : 'info';
     wpp_body = txt(wa, _ofreceProv ? MSG_PROVEEDOR : MSG_INFO);
   }
@@ -1566,7 +1583,11 @@ if(preguntaHorario){
   const _res = [...(resumenIA(ia) || 'lo que se ve en la imagen')].slice(0,600).join('');
   if(yaConsintio){   // ya autorizó HOY -> arrancamos el flujo inteligente con la foto
     const prev = st || {};
-    st = S[wa] = { paso:'', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, pidioProd:prev.pidioProd, iaBest:prev.iaBest };
+    // `notas` DEBE sobrevivir igual que pidioProd/iaBest: es lo que el cliente escribió CON SUS PALABRAS
+    // ("necesito cotización para remodelar mi baño"). Antes, si después mandaba una foto —la reacción más
+    // natural del mundo— esta reconstrucción borraba el texto y al asesor le llegaba solo la lectura de la
+    // imagen. Las dos ramas de texto ya lo copiaban; esta, la de foto, no (2026-08-05).
+    st = S[wa] = { paso:'', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, notas:prev.notas, pidioProd:prev.pidioProd, iaBest:prev.iaBest };
     st.mediaId = d.media_id||''; st.mediaType = d.mtype||''; st.imgDesc=_res;   // descripción de la IA -> línea aparte en la tarjeta
     arrancarIA(st, ia, '');   // detalle del cliente vacío (solo mandó foto); el ruteo usa ia.productos/grupo_pista
   } else {   // primero el consentimiento; guardamos la foto (y lo que entendió) para retomarla al autorizar
@@ -1941,7 +1962,12 @@ if(preguntaHorario){
   // Se normaliza quitando signos/emojis para que "Muy buenas tardes!!" también cuente como saludo suelto.
   const _soloSaludoTxt = !es_media && !!texto && RE_SALUDO
       .test(low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim());
-  const cortesia = !es_media && ( esDespedida || ( low.length<=60 && /(^|[^a-záéíóúñ])(gracias|thank|amable|bendicion|excelente|de nada|muy bien|buen servicio|vale|listo|ok|okay|perfecto|dale|chao|chau|adios|adiós|hasta luego)([^a-záéíóúñ]|$)/i.test(low) && !/(necesito|quiero|busco|cotiza|precio|venden|tienen|me interesa)/i.test(low) ) );
+  // LA IA MANDA TAMBIÉN AQUÍ (2026-08-05). "Gracias, ¿me confirmas si MANEJAN tejas de zinc?" se leía como
+  // despedida y el asesor nunca veía las tejas: a la lista de exclusión le faltaban "manejan", "hay",
+  // "tendrán", "me regala", "requiero"... Perseguir verbos uno por uno no termina nunca (mismo aprendizaje
+  // que los saludos). Si la IA ve un PRODUCTO concreto, esto NO es una despedida — pase lo que pase la regex.
+  const _iaVeProducto = !!(ia && ia.en_alcance===true && ia.productos && ia.productos.length);
+  const cortesia = !es_media && !_iaVeProducto && ( esDespedida || ( low.length<=60 && /(^|[^a-záéíóúñ])(gracias|thank|amable|bendicion|excelente|de nada|muy bien|buen servicio|vale|listo|ok|okay|perfecto|dale|chao|chau|adios|adiós|hasta luego)([^a-záéíóúñ]|$)/i.test(low) && !/(necesito|quiero|busco|cotiza|precio|venden|tienen|manejan|hay |tendr|me regala|requier|distribu|me interesa)/i.test(low) ) );
   // ¿Producto claramente NUEVO? Solo entonces reiniciamos. (La IA lo entiende, o lo dice explícito.)
   const nuevaConsulta = !es_media && ((ia && ia.en_alcance) || /(otra (consulta|cosa)|nueva consulta|ahora (necesito|quiero|busco|me interesa)|adem[aá]s (necesito|quiero)|tambi[eé]n (necesito|quiero))/i.test(low));
   if(cortesia){
@@ -1962,15 +1988,27 @@ if(preguntaHorario){
     wpp_body = (st.addN<=1) ? txt(wa,'Gracias'+_nom+'. Agregamos esta información a tu solicitud para que tu asesor la tenga en cuenta. 🤝') : null;
   } else if(nuevaConsulta && (NOW-(st.closedAt||0) >= 5*60*1000)){
     // NUEVA consulta (producto nuevo claro y ya pasó rato) -> arrancamos conservando nombre/ciudad.
-    st.paso='marca'; etapa='marca'; delete st.escape; delete st.fuera; delete st.detalle; delete st.tiposol; delete st.ocupacion; delete st.grupo; delete st.interes; delete st.marca; delete st.cuando; delete st.pidioHumano; delete st.puntoIdx; delete st.iaPend; delete st.revalidos; delete st.addN; delete st.closedAt;
-    wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
-  } else if(texto && low.length>=2 && !/^\d+$/.test(low) && !_soloSaludoTxt && (NOW-(st.closedAt||0) < 24*3600000)){
+    st.paso=''; etapa='marca'; delete st.escape; delete st.fuera; delete st.detalle; delete st.tiposol; delete st.ocupacion; delete st.grupo; delete st.interes; delete st.marca; delete st.cuando; delete st.pidioHumano; delete st.puntoIdx; delete st.iaPend; delete st.revalidos; delete st.addN; delete st.closedAt;
+    if(_iaVeProducto){
+      // Regla de Deicy (2026-08-04): "si ya identificó qué necesita, NO hay que volver a preguntar si es
+      // Ardisa o Carpincentro". Antes esta rama mostraba el menú de marcas SIEMPRE, incluso cuando la IA
+      // acababa de identificar el producto y la línea. arrancarIA rutea, hereda nombre/ciudad y sigue solo;
+      // si NO logra identificar la línea, ella misma cae al menú (último recurso).
+      arrancarIA(st, ia, texto);
+    } else {
+      st.paso='marca';
+      wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
+    }
+  } else if(texto && low.length>=2 && !/^\d$/.test(low) && !_soloSaludoTxt && (NOW-(st.closedAt||0) < 24*3600000)){
     // === ADICIÓN de texto tras cerrar (2026-08-03: la ventana pasa de 5 MINUTOS a 24 HORAS) ===
     // Caso real (Omar Rivera, lead #207): cerró con ciudad "Bucaramanga" y 11 minutos después escribió "Cali".
     // Como iba fuera de los 5 minutos, el bot le respondió "ya está en gestión" y ESA CIUDAD NUNCA LLEGÓ AL
     // ASESOR. Los adjuntos ya se reenviaban A CUALQUIER HORA; el texto no. Se iguala: lo que escriba el
     // cliente después de cerrar SIEMPRE se le suma a su solicitud y se le confirma que ya se lo pasamos.
     // Se excluye el saludo suelto para no pisar la regla de "cliente sin atender ayer" (que va en el else).
+    // 2026-08-05: el guard era !/^\d+$/ y descartaba EN SILENCIO los mensajes de solo números — justo la
+    // cantidad ("50"), la medida ("120") o un teléfono alterno, que el cliente manda en mensaje aparte.
+    // Ahora solo se ignora UN dígito suelto (!/^\d$/), que sí suele ser un toque de menú perdido.
     etapa='adicion'; st.addN=(st.addN||0)+1;
     if(_dest && st.addN<=5){ aviso_body=txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó:* '+[...texto].slice(0,300).join('')+'\n📱 +'+wa); }
     wpp_body = (st.addN<=5)
