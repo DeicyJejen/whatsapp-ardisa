@@ -2537,10 +2537,55 @@ CODE_FINALIZAR = r"""
 // retenía el staticData ~15s y un 2º mensaje en ese lapso veía estado viejo -> re-cierre, tarjeta pisada y
 // despedida repetida). Ahora lo alimenta el cron de inactivos (item {fin_cierre, wa_id, pend_token}) con
 // staticData FRESCO, cuando el hold lleva >=25s quieto.
+// 2026-08-05: el item ya no llega directo — pasa por "Leer lead BD (MySQL)", que le suma bd_detalle /
+// bd_asesor / bd_asesor_tel (el lead REAL en MySQL, con passthrough de wa_id y pend_token en el SELECT).
+// Si la BD está caída, el SELECT falla y este nodo devuelve 'super' SIN borrar pendCierre -> el cron
+// reintenta cada minuto y, si pasa de 10 min, la poda de varados entrega la tarjeta igual. Nada se pierde.
 const store=$getWorkflowStaticData('global');
-const wa=$json.wa_id; const myTok=$json.pend_token;
+const wa=$json.wa_id!=null?String($json.wa_id):''; const myTok=$json.pend_token;
 const p = (wa && store.pendCierre) ? store.pendCierre[wa] : null;
-if(!p || p.token!==myTok){ return [{json:{fin:'super', hay_aviso:false, hay_media:false, hay_lead:false, aviso_body:null, aviso_medias:null, lead:null}}]; }
+// El token viaja por MySQL (passthrough) y puede volver como número o como texto -> se compara como TEXTO.
+if(!p || String(p.token)!==String(myTok)){ return [{json:{fin:'super', hay_aviso:false, hay_media:false, hay_lead:false, aviso_body:null, aviso_medias:null, lead:null}}]; }
+// === LA BD MANDA AL ENTREGAR (2026-08-05, caso Claudia Parra #224) ===
+// El paquete de pendCierre se armó AL CERRAR: si hubo cierres solapados, el último flush pisó la casilla y
+// la tarjeta puede traer solo el último mensaje ("2 galones de tiner") aunque la fila de MySQL — que el
+// candado + "Sumar detalle" mantienen SIEMPRE completa — tenga el pedido entero. Aquí, justo antes de
+// entregar, la BD corrige la tarjeta. Solo aplica a paquetes de LEAD (reclamo/info tienen lead:null).
+const _dig=x=>String(x==null?'':x).replace(/[^0-9]/g,'');
+// mini _tpv (las plantillas de Meta NO aceptan saltos de línea): aplana y recorta
+const _plano=(x,n)=>[...String(x==null?'':x).replace(/[\r\n\t]+/g,' · ').replace(/ {2,}/g,' ').trim()].slice(0,n).join('');
+if(p.lead && $json.bd_id){
+  const bdDet=(($json.bd_detalle!=null)?String($json.bd_detalle):'').trim();
+  const bdTel=_dig($json.bd_asesor_tel);
+  // 1) DETALLE: si la BD sabe más que el paquete, la tarjeta lleva el pedido completo.
+  if(bdDet && bdDet!==String(p.lead.detalle||'')){
+    const _full='\n\n🧾 *Pedido completo (todos sus mensajes):*\n'+[...bdDet].slice(0,600).join('');
+    try{ if(p.aviso && p.aviso.text){ p.aviso=JSON.parse(JSON.stringify(p.aviso)); p.aviso.text.body+=_full; } }catch(e){}
+    try{ if(p.avisoCopia && p.avisoCopia.text){ p.avisoCopia=JSON.parse(JSON.stringify(p.avisoCopia)); p.avisoCopia.text.body+=_full; } }catch(e){}
+    try{ // plantilla: el pedido completo va en el último parámetro del body, aplanado y con tope (límites de Meta)
+      const _tt=p.avisoTpl||((p.aviso&&p.aviso.type==='template')?p.aviso:null);
+      if(_tt){ const _c=JSON.parse(JSON.stringify(_tt)); const _ps=(_c.template.components[0]||{}).parameters||[];
+        const _ult=_ps[_ps.length-1];
+        if(_ult && _ult.type==='text'){ _ult.text=_plano(_ult.text+' · 🧾 Pedido completo: '+_plano(bdDet,300),700)||'—';
+          if(p.avisoTpl) p.avisoTpl=_c; else p.aviso=_c; } }
+    }catch(e){}
+    p.lead=JSON.parse(JSON.stringify(p.lead)); p.lead.detalle=bdDet;   // el Guardar 2 / Redirigir también ven el pedido completo (Sumar no duplica: LOCATE)
+  }
+  // 2) DESTINO: si el candado dejó el lead con OTRO asesor (carrera entre grupos), la tarjeta va a ESE asesor
+  //    (regla de Deicy: el cliente no rebota entre asesores; la BD serializó y su fila manda).
+  if(bdTel && p.destino && _dig(p.destino)!==bdTel){
+    const _nvo=bdTel;
+    try{ if(p.aviso && p.aviso.to){ p.aviso=JSON.parse(JSON.stringify(p.aviso)); p.aviso.to=_nvo;
+      if(p.aviso.text) p.aviso.text.body='📌 *Esta solicitud quedó asignada a ti en el sistema.*\n\n'+p.aviso.text.body; } }catch(e){}
+    try{ if(p.avisoTpl){ p.avisoTpl=JSON.parse(JSON.stringify(p.avisoTpl)); p.avisoTpl.to=_nvo; } }catch(e){}
+    try{ if(p.segPrompt && p.segPrompt.to){ p.segPrompt=JSON.parse(JSON.stringify(p.segPrompt)); p.segPrompt.to=_nvo; } }catch(e){}
+    try{ if(store.segPend){ for(const _k in store.segPend){ const _sp=store.segPend[_k]; if(_sp && _sp.telefono===wa) _sp.asesor_num=_nvo; } } }catch(e){}
+    // los adjuntos que el cierre dejó armados en el paquete traen el `to` viejo -> se reescriben
+    try{ const _vieja=_dig(p.destino); p.medias=JSON.parse(JSON.stringify(p.medias||[]));
+         p.medias.forEach(m=>{ if(m && _dig(m.to)===_vieja) m.to=_nvo; }); }catch(e){}
+    p.destino=_nvo;   // y los de store.medias (abajo) se arman ya con el asesor correcto
+  }
+}
 const _seen={}; let medias=[];
 // La lista del paquete la armo el cierre CON los adjuntos releidos de la BD (fix 2026-08-04, caso Mario
 // Saavedra): store.medias vive en staticData y una carrera se lo lleva. Se arranca de ahi y se suma lo que
@@ -2592,6 +2637,23 @@ nodes.append(node("¿Cierre listo?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"fc1","leftValue":"={{ $json.fin_cierre === true }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1540, 700))
+# === LA BD MANDA AL ENTREGAR (2026-08-05): antes de finalizar, se lee el lead REAL de MySQL. ===
+# El SELECT es de subconsultas escalares (SIEMPRE 1 fila) y hace PASSTHROUGH de wa_id y pend_token como
+# columnas — así el finalizador no depende de $('nodo').first() (el cron emite muchos items por tick).
+# Si MySQL está caído: onError deja seguir un item {error} sin wa_id -> el finalizador responde 'super'
+# SIN borrar pendCierre -> reintento al minuto; a los 10 min la poda de varados entrega igual. Autocurable.
+_LEER_BD_WHERE = ("FROM leads WHERE telefono=$%d AND modo_prueba=0 AND creado_en > NOW() - INTERVAL 2 HOUR "
+                  "AND asesor_tel IS NOT NULL AND asesor_tel<>'' ORDER BY id DESC LIMIT 1")
+_LEER_BD_SQL = ("SELECT $1 AS wa_id, $2 AS pend_token, "
+    "(SELECT id "+_LEER_BD_WHERE % 3+") AS bd_id, "
+    "(SELECT detalle "+_LEER_BD_WHERE % 4+") AS bd_detalle, "
+    "(SELECT asesor "+_LEER_BD_WHERE % 5+") AS bd_asesor, "
+    "(SELECT asesor_tel "+_LEER_BD_WHERE % 6+") AS bd_asesor_tel")
+nodes.append(node("Leer lead BD (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":_LEER_BD_SQL,
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.pend_token, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+    1650, 700, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Finalizar cierre", "n8n-nodes-base.code", 2, {"jsCode":CODE_FINALIZAR}, 1760, 700))
 nodes.append(node("¿Hay aviso 2?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
@@ -3066,7 +3128,8 @@ connections = {
  "Separar adjuntos 2": {"main":[[{"node":"Reenviar adjunto 2 (Meta)","type":"main","index":0}]]},
  "Cada 1 min (inactivos)": {"main":[[{"node":"Revisar inactivos","type":"main","index":0}]]},
  "Revisar inactivos": {"main":[[{"node":"¿Cierre listo?","type":"main","index":0}]]},
- "¿Cierre listo?": {"main":[[{"node":"Finalizar cierre","type":"main","index":0}],[{"node":"Enviar recordatorio (Meta)","type":"main","index":0},{"node":"Guardar recordatorio (MySQL)","type":"main","index":0}]]},
+ "¿Cierre listo?": {"main":[[{"node":"Leer lead BD (MySQL)","type":"main","index":0}],[{"node":"Enviar recordatorio (Meta)","type":"main","index":0},{"node":"Guardar recordatorio (MySQL)","type":"main","index":0}]]},
+ "Leer lead BD (MySQL)": {"main":[[{"node":"Finalizar cierre","type":"main","index":0}]]},
  "¿Registrar chat?": {"main":[[{"node":"Guardar chat (MySQL)","type":"main","index":0}],[]]},
  "¿Registrar consentimiento?": {"main":[[{"node":"Guardar consentimiento (MySQL)","type":"main","index":0}],[]]},
  "¿Responder al cliente?": {"main":[[{"node":"Enviar al cliente (Meta)","type":"main","index":0}],[{"node":"Sin respuesta (dup/vacío)","type":"main","index":0}]]},
@@ -3141,6 +3204,7 @@ _POS = {
   "Guardar consentimiento (MySQL)": (2440, 980),
   # carril de CIERRE (2026-07-24: lo alimenta el cron cada 1 min vía "¿Cierre listo?" — ya no hay Wait en la ejecución del mensaje)
   "¿Cierre listo?": (680, 1160),
+  "Leer lead BD (MySQL)": (2440, 1160),
   "Finalizar cierre": (2660, 1160),
   "¿Hay lead 2?": (2880, 1160),
   "Guardar lead 2 (MySQL)": (3100, 1220),
