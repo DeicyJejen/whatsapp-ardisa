@@ -2025,10 +2025,14 @@ if(preguntaHorario){
     // recuerda al asesor aunque el cliente solo diga "buen día". Máximo 1 vez por día por cliente.
     const _dColF=e=>{const c=new Date(e-5*3600000);return c.getUTCFullYear()+'-'+(c.getUTCMonth()+1)+'-'+c.getUTCDate();};
     const _hoyC=_dColF(NOW);
-    if(_dest && st.closedAt && (NOW-st.closedAt)<48*3600000 && _dColF(st.closedAt)!==_hoyC && st.dia2Reg!==_hoyC){
+    // 2026-08-05 (caso Claudia Ardila, lead #225): la condición solo miraba QUE el cierre fue ayer — nunca
+    // le preguntaba a la BD si el asesor YA reportó. Karina atendió y reportó "Perdido" a la 1 pm y el bot
+    // igual la acusó de "no atendido" al día siguiente (misma acusación falsa que ayer llenó el Teams).
+    // PEND_ID viene de la BD y es != 0 SOLO si hay un lead SIN reportar: esa es la vara. La BD manda.
+    if(_dest && PEND_ID && st.closedAt && (NOW-st.closedAt)<48*3600000 && _dColF(st.closedAt)!==_hoyC && st.dia2Reg!==_hoyC){
       st.dia2Reg=_hoyC; st.lastRemind=NOW; etapa='seguimiento_dia2';
       leadRow={creado_en:fechaCol(), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||'Ardisa'), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||'—'),
-        solicitud:'Reintento — no atendido ayer', detalle:'⚠️ El cliente escribió AYER, no fue atendido y volvió a escribir hoy.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):''),
+        solicitud:'Reintento — no atendido ayer', detalle:'⚠️ El cliente escribió AYER (solicitud #'+PEND_ID+' sin reporte) y volvió a escribir hoy.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):''),
         asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
       const _rec2=txt(_dest,'⚠️ *Cliente de AYER aún sin atender — volvió a escribir*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\nPor favor contáctalo hoy. 📲 *Escríbele:* https://wa.me/'+wa);
       if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else encolarMedia(_rec2, st.nombre||'');
