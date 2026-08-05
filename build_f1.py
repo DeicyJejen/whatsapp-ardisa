@@ -127,6 +127,7 @@ const d = $('Extraer datos').first().json;   // Fase 2: insumos SIEMPRE del extr
 // lead siga SIN REPORTAR, el cliente vuelve SIEMPRE al mismo asesor, sin importar cuánto tiempo pase.
 let PEND = {}; try{ PEND = $('Unir pendiente').first().json || {}; }catch(e){}
 const PEND_TEL = String(PEND.pend_tel||''), PEND_ASE = String(PEND.pend_asesor||''), PEND_ID = PEND.pend_id||0;
+const PEND_DET = String(PEND.pend_det||'');   // detalle del lead sin reportar (para saber si insiste en LO MISMO)
 // ¿Autorizó HOY? Lo dice la BD (tabla consentimientos), no la memoria: una carrera de n8n borra la memoria
 // pero no puede borrar la fila. Ver consintioHoy() más abajo. (fix 2026-08-03, caso Rusbel — 120 bultos de cemento)
 const CONS_SI = Number(PEND.cons_si||0) > 0;
@@ -605,11 +606,30 @@ function cerrarLead(st,opts){
   // Si este cliente YA tiene un lead SIN REPORTAR en la BD, su nuevo lead vuelve al MISMO asesor, sin importar
   // cuánto tiempo pasó ni qué dijo la rotación. "En vez de pasárselo al mismo se fue para otro asesor y eso es
   // duplicar." Solo cede ante casos de especialista (aluminios/proyectos) y si el asesor sigue activo.
-  let _reintento = false;
+  // 2026-08-05 (caso Kiara #230, corrección de Deicy): tener un lead pendiente NO siempre es "insistir".
+  // Kiara pidió una LÁMINA el 29-jul y volvió el 05-ago por una LACA: el bot la marcó "⚠️ CLIENTE SIN
+  // ATENDER: volvió a escribir" — una acusación falsa hacia la asesora y una tarjeta que confunde.
+  // Ahora se comparan los TEMAS: palabras significativas del pedido nuevo contra el pendiente.
+  //   - comparten tema  -> _reintento  (⚠️ REINTENTO, encabezado URGENTE: de verdad insiste en lo mismo)
+  //   - tema distinto   -> _otraDelMismo (solicitud NUEVA normal + nota neutral con el # pendiente)
+  // En AMBOS casos el asesor es el MISMO (la regla de oro del amarre no cambia).
+  function _temaComun(a,b){
+    if(!a || !b) return true;   // sin detalle pendiente para comparar -> se asume que insiste (conservador)
+    const _sw=/^(hola|holas?|buen[oa]s?|dias?|tardes?|noches?|senor(a|es)?|gracias|necesit\w*|quier\w*|busc\w*|cotiz\w*|precios?|manej\w*|tien\w*|vend\w*|favor|ayuda|informacion|solicitud|cliente|estas?|estos?|ustedes|donde|cuant\w*|para|con|por|una?|unos?|unas?|del|los|las|que|como|sobre|desde|hasta|algo|solo)$/;
+    const _pal=s=>String(s).toLowerCase()
+      .replace(/[áéíóúñ]/g,c=>({'á':'a','é':'e','í':'i','ó':'o','ú':'u','ñ':'n'}[c]||c))
+      .replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>3 && !_sw.test(w));
+    const _set=new Set(_pal(a));
+    return _pal(b).some(w=>_set.has(w));
+  }
+  let _reintento = false, _otraDelMismo = false;
+  const _temaNuevo = (st.detalle||'')+' '+(st.iaProd||'');
   if(PEND_TEL && PEND_ASE && asesor.num && PEND_TEL!==asesor.num && ASESORES[PEND_TEL]){
-    _reintento = true;
+    if(_temaComun(PEND_DET, _temaNuevo)) _reintento = true; else _otraDelMismo = true;
     asesor = {nombre:PEND_ASE, num:PEND_TEL, ciudad:asesor.ciudad, tienda:asesor.tienda, f:(ASESORES_F[PEND_TEL]?1:0)};
-  } else if(PEND_TEL && PEND_TEL===asesor.num){ _reintento = true; }
+  } else if(PEND_TEL && PEND_TEL===asesor.num){
+    if(_temaComun(PEND_DET, _temaNuevo)) _reintento = true; else _otraDelMismo = true;
+  }
   const numDisp = asesor.num ? ('+'+asesor.num) : '(número pendiente)';
   // CLIENTE DE PRUEBA/DEMO: si el que escribe es un número de demo, el aviso va SOLO a DEMO_DEST (no al asesor real).
   const _esDemo = CLIENTES_PRUEBA.indexOf(wa) >= 0;
@@ -666,8 +686,14 @@ function cerrarLead(st,opts){
        '📌 Ya tenía la solicitud'+(PEND_ID?(' *#'+PEND_ID+'*'):'')+' registrada contigo'+(PEND.pend_fecha?(' desde el *'+PEND.pend_fecha+'*'):'')+'.\n'+
        '➡️ Sigue siendo TU cliente: no se le pasó a nadie más. Contáctalo hoy.\n\n')
     : '';
-  const _avisoBody = _urg +
-    (_reintento ? '🔔 *El cliente insiste — nueva solicitud del MISMO cliente*\n\n' : '🔔 *Nuevo cliente para atender*\n\n')+
+  // Cliente con pendiente que pide OTRA cosa: encabezado propio (sin acusar) + recordatorio neutral del pendiente.
+  const _notaPend = _otraDelMismo
+    ? ('📌 Este cliente también tiene la solicitud'+(PEND_ID?(' *#'+PEND_ID+'*'):'')+
+       (PEND.pend_fecha?(' del *'+PEND.pend_fecha+'*'):'')+' pendiente de reporte — aprovecha y resuélvele las dos. 🙌\n\n')
+    : '';
+  const _avisoBody = _urg + _notaPend +
+    (_reintento ? '🔔 *El cliente insiste — nueva solicitud del MISMO cliente*\n\n'
+     : (_otraDelMismo ? '➕ *Nueva solicitud de un cliente que YA tienes*\n\n' : '🔔 *Nuevo cliente para atender*\n\n'))+
     '👤 *Cliente:* '+st.nombre+'\n'+
     '📱 *WhatsApp:* +'+wa+'\n'+
     '📍 *Ciudad:* '+(st.ciudad||'—')+'\n'+
@@ -699,7 +725,14 @@ function cerrarLead(st,opts){
   store.leads.push({ts:NOW, wa, nombre:st.nombre, ciudad:(st.ciudad||''), ciudadId:(st.ciudadId||''), marca:st.marca, ocupacion:(st.ocupacion||''), interes:(st.interes||''), tiposol:(st.tiposol||''), detalle:_detExcel, asesor:asesor.nombre, tienda:asesor.tienda, destino:destino, fuera:!!st.fuera});
   if(store.leads.length>2000) store.leads.splice(0, store.leads.length-2000);   // cota
   const _p=n=>String(n).padStart(2,'0'); const _cd=new Date(NOW-5*3600000);   // hora Colombia (UTC-5)
-  leadRow={creado_en:_cd.getUTCFullYear()+'-'+_p(_cd.getUTCMonth()+1)+'-'+_p(_cd.getUTCDate())+' '+_p(_cd.getUTCHours())+':'+_p(_cd.getUTCMinutes())+':'+_p(_cd.getUTCSeconds()), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||''), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||''), solicitud:(_reintento?('⚠️ REINTENTO — '+(st.tiposol||'')):(st.tiposol||'')), detalle:(_reintento?('⚠️ CLIENTE SIN ATENDER: volvió a escribir'+(PEND_ID?(' (ya tenía la solicitud #'+PEND_ID+' con el mismo asesor)'):'')+'. '+_detExcel):_detExcel), asesor:(asesor.nombre||''), asesor_tel:(asesor.num||''), fuera_horario: st.fuera?1:0, modo_prueba: (MODO_PRUEBA||_esDemo)?1:0};
+  leadRow={creado_en:_cd.getUTCFullYear()+'-'+_p(_cd.getUTCMonth()+1)+'-'+_p(_cd.getUTCDate())+' '+_p(_cd.getUTCHours())+':'+_p(_cd.getUTCMinutes())+':'+_p(_cd.getUTCSeconds()), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||''), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||''),
+    solicitud:(_reintento?('⚠️ REINTENTO — '+(st.tiposol||'')):(st.tiposol||'')),
+    detalle:(_reintento
+      ? ('⚠️ CLIENTE SIN ATENDER: volvió a escribir'+(PEND_ID?(' (ya tenía la solicitud #'+PEND_ID+' con el mismo asesor)'):'')+'. '+_detExcel)
+      : (_otraDelMismo
+        ? (_detExcel+' · Nota: también tiene pendiente la solicitud'+(PEND_ID?(' #'+PEND_ID):'')+' sin reporte (mismo asesor).')
+        : _detExcel)),
+    asesor:(asesor.nombre||''), asesor_tel:(asesor.num||''), fuera_horario: st.fuera?1:0, modo_prueba: (MODO_PRUEBA||_esDemo)?1:0};
   // Reenvío al asesor de TODOS los adjuntos que el cliente mandó en la conversación (mismo phone number id -> reusamos los media id).
   let aviso_medias = [];
   const _seenM = {};
@@ -2322,10 +2355,13 @@ _PEND_SQL = ("SELECT "
     # conexión (utf8mb4) y si el driver no la fija se convierte en '????'. Aquí solo viaja el número de severidad.
     "(SELECT GROUP_CONCAT(CONCAT(z.severidad,'|', z.detalle) ORDER BY z.severidad, z.id DESC SEPARATOR '~~') "
       "FROM (SELECT severidad, id, LEFT(detalle,130) detalle FROM alertas WHERE creado_en >= NOW() - INTERVAL 7 DAY "
-            "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det")
+            "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det, "
+    # === DETALLE del lead pendiente (2026-08-05, caso Kiara #230): para distinguir "insiste en LO MISMO"
+    # (-> ⚠️ REINTENTO) de "viene por OTRA cosa" (-> solicitud nueva con nota neutral, mismo asesor). ===
+    "(SELECT LEFT(detalle,300) FROM leads WHERE telefono=$7 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_det")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -2338,6 +2374,7 @@ return [{ json: Object.assign({}, d, {
   pend_asesor:  p.pend_asesor  || '',
   pend_tel:     p.pend_tel     || '',
   pend_fecha:   p.pend_fecha   ? String(p.pend_fecha) : '',
+  pend_det:     p.pend_det     ? String(p.pend_det)   : '',
   rep_hoy:      p.rep_hoy      || 0,
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',
