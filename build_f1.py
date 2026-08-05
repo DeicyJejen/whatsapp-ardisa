@@ -1860,8 +1860,15 @@ if(preguntaHorario){
     wpp_body=lista(wa,'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA); }
 } else if(st.paso==='detalle'){
   // Fix 1: aceptar media (foto/audio) como lead válido en vez de descartarla
+  // BOTÓN VIEJO RE-TOCADO (2026-08-05, informe multi-agente): WhatsApp deja tocables TODOS los menús viejos
+  // del chat. Si el cliente re-toca uno en este paso ("✅ Sí, autorizo", "🧱 Construcción", una ciudad...), la
+  // etiqueta llegaba como texto y CERRABA el lead con esa basura como solicitud (hasta "❌ No autorizo" creaba
+  // un lead). Mismo patrón ya arreglado en el paso del nombre. Un botón NUNCA es la descripción del pedido.
+  if(id && !es_media){
+    etapa='detalle'; wpp_body=txt(wa,'¡Ya casi terminamos! ✍️ Cuéntanos *qué producto* necesitas (producto, cantidad y medidas) para pasarte con tu asesor.');
+  }
   // "ok / gracias / listo / dale" en este paso = el cliente confirma (su solicitud ya cerró, o solo asiente). NO lo interrogamos con "cuéntanos más".
-  if(!es_media && texto && /^((ok(ay)?|listo|dale|vale|bueno|buenas|perfecto|de acuerdo|gracias|muchas|mil|muy|amable|va|hecho|entendido|correcto|👍|🙏|👌)[\s.,!👍🙏👌]*)+$/i.test(low)){
+  else if(!es_media && texto && /^((ok(ay)?|listo|dale|vale|bueno|buenas|perfecto|de acuerdo|gracias|muchas|mil|muy|amable|va|hecho|entendido|correcto|👍|🙏|👌)[\s.,!👍🙏👌]*)+$/i.test(low)){
     etapa='detalle_ack'; wpp_body=txt(wa,'¡Perfecto'+(st.nombre?(', '+st.nombre.split(' ')[0]):'')+'! 🤝 Aquí estamos para lo que necesites.'); }
   else if(!es_media && (!texto || [...texto].length<=2)){ etapa='detalle'; wpp_body=txt(wa,'¿Nos cuentas un poco más, por favor? Indícanos *qué producto* necesitas. ✍️'); }
   // La IA valida: si el texto NO es un producto real (p.ej. "prueba ti", "asdf"), NO cerramos con basura.
@@ -2194,7 +2201,10 @@ if(!r || (NOW - r.t0) > WIN) r = {t0:NOW, n:0};
 const _cd = new Date(NOW - 5*3600000), day = _cd.toISOString().slice(0,10);
 if(store.aiSpend.day !== day) store.aiSpend = {day, n:0};
 const CAP_DIA = 1500;                                        // tope global diario
-const largoOk = texto.length >= 3 && texto.length <= 600;
+// 2026-08-05: el tope era 600 y descartaba justo las LISTAS DE MATERIALES pegadas — los leads más ricos
+// (la lista de 9 productos de Claudia Parra tiene ~250 chars, pero las de obra pasan de 600 fácil).
+// El texto que VIAJA a la API se recorta a 1200 abajo; el tope aquí solo evita el abuso extremo.
+const largoOk = texto.length >= 3 && texto.length <= 2500;
 let gastar = !esRetry && largoOk && (r.n < MAX_WIN) && (store.aiSpend.n < CAP_DIA);
 const motivo = gastar ? 'ok' : (esRetry?'retry':(!largoOk?'texto':(r.n>=MAX_WIN?'rate':'cap')));
 const NLU_SYSTEM = `__NLU_SYSTEM__`;
@@ -2202,7 +2212,7 @@ const NLU_TOOL = __NLU_TOOL__;
 let ia_body = null;
 if(gastar){
   r.n++; store.aiRate[wa] = r; store.aiSpend.n++;            // consume cupo SOLO si vamos a gastar
-  const textoSeguro = [...texto].slice(0,600).join('').replace(/<\/?\s*mensaje_cliente\s*>/gi,' ');
+  const textoSeguro = [...texto].slice(0,1200).join('').replace(/<\/?\s*mensaje_cliente\s*>/gi,' ');
   // CONTEXTO (2026-07-21, pedido Deicy "la IA debe entender mejor"): mensajes previos del cliente + estado del flujo.
   // Así la IA clasifica la CONVERSACIÓN, no un mensaje suelto (la info suele venir repartida en varios mensajes).
   let ctx='';
@@ -2345,7 +2355,10 @@ nodes.append(node("¿Usar IA?", "n8n-nodes-base.if", 2,
         {"id":"u2","leftValue":"={{ $json.mtype }}","rightValue":"text","operator":{"type":"string","operation":"equals"}},
         {"id":"u3","leftValue":"={{ $json.opcion_id }}","rightValue":"","operator":{"type":"string","operation":"empty","singleValue":True}},
         {"id":"u4","leftValue":"={{ $json.es_saludo }}","rightValue":True,"operator":{"type":"boolean","operation":"false","singleValue":True}},
-        {"id":"u5","leftValue":"={{ $json.pide_humano_kw }}","rightValue":True,"operator":{"type":"boolean","operation":"false","singleValue":True}},
+        # u5 ELIMINADA (2026-08-05, informe multi-agente): saltarse la IA cuando el texto trae "asesor" dejaba
+        # SIN veredicto justo los mensajes tipo "me pasan un asesor que me cotice porcelanato para 80 m2" — el
+        # escape rutear con ia=null y cerraba con el grupo por defecto ('frescasa' salió como Acabados siendo
+        # Construcción). El Cerebro maneja el escape igual, ahora CON la lectura de la IA. La IA manda.
         {"id":"u6","leftValue":"={{ $json.espera_ia }}","rightValue":True,"operator":{"type":"boolean","operation":"true","singleValue":True}},
         {"id":"u7","leftValue":"={{ $json.texto }}","rightValue":"","operator":{"type":"string","operation":"notEmpty","singleValue":True}}]},"options":{}}, 640, 180))
 nodes.append(node("Preparar IA", "n8n-nodes-base.code", 2, {"jsCode":CODE_PREPARA_IA.replace("__IA_MODEL__", IA_MODEL).replace("__NLU_SYSTEM__", NLU_SYSTEM_TXT).replace("__NLU_TOOL__", NLU_TOOL_JS)}, 840, 150))
@@ -2420,6 +2433,19 @@ nodes.append(node("Guardar lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
      "query":_LEAD_INSERT_SQL,
      "options":{"queryReplacement":"={{ ["+", ".join(LEAD_PATH+"."+c for c in _leadcols)+", "+LEAD_PATH+".telefono] }}"}},
     1760, 460, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+# === LA BD SIEMPRE COMPLETA (2026-08-05, caso Claudia Parra #224): si el candado bloqueó el INSERT (ya hay un
+# lead de este cliente hace <45 min), lo que trae ESTE cierre se le SUMA al detalle de la fila existente — en SQL,
+# donde MySQL serializa y ninguna carrera de staticData puede pisarlo. Claudia mandó 4 mensajes en 2 s: el lead
+# quedó solo con 1 de los 4; con esto la fila acumula TODO aunque los avisos corran en paralelo.
+# LOCATE=0 evita duplicar (la fila recién insertada por este mismo cierre ya contiene su detalle -> no-op).
+_SUMAR_SQL = ("UPDATE leads SET detalle = CONCAT(detalle, CHAR(10), '➕ ', $1) "
+    "WHERE telefono=$2 AND modo_prueba=$3 AND creado_en > NOW() - INTERVAL 45 MINUTE "
+    "AND $4<>'' AND LOCATE($5, detalle)=0 ORDER BY id DESC LIMIT 1")
+nodes.append(node("Sumar detalle (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":_SUMAR_SQL,
+     "options":{"queryReplacement":"={{ ["+LEAD_PATH+".detalle, "+LEAD_PATH+".telefono, "+LEAD_PATH+".modo_prueba, "+LEAD_PATH+".detalle, "+LEAD_PATH+".detalle] }}"}},
+    1870, 460, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # === AVISO DETRÁS DEL CANDADO (2026-07-24, caso Lina Cotamo): antes el aviso y el guardado iban EN PARALELO,
 # así que el candado NOT EXISTS bloqueaba la fila duplicada pero el AVISO ya había salido al 2º asesor.
 # Ahora: Guardar (candado) -> ¿la BD dejó pasar? -> solo entonces avisar. affectedRows===0 = duplicado bloqueado.
@@ -2430,18 +2456,29 @@ nodes.append(node("¿Hay lead?", "n8n-nodes-base.if", 2,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1540, 460))
 nodes.append(node("¿Lead ya existía?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
-     "conditions":[{"id":"dx1","leftValue":"={{ $json.affectedRows === 0 }}","rightValue":True,
+     "conditions":[{"id":"dx1","leftValue":"={{ $json.es_previo ? true : false }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1980, 460))
 # === DUPLICADO BLOQUEADO -> NOTA DE ADICIÓN (2026-07-29, caso Cristian #135/#136) ===
 # Antes esta rama era un NoOp: el candado evitaba la fila duplicada pero lo que el cliente volvió a escribir se
 # perdía en silencio. Ahora buscamos en la BD el lead ORIGINAL (que puede ser de otra ejecución/otro asesor si la
 # carrera también movió la rotación) y le mandamos a ESE asesor una nota de adición. Nunca se traga información.
+# 2026-08-05: SIEMPRE devuelve 1 fila (subconsultas escalares, patrón de _PEND_SQL) — si devolviera 0 filas,
+# el flujo aguas abajo se cortaría y el aviso se perdería. `es_previo`=1 significa "el lead de la BD es de hace
+# más de 90 s" = lo insertó OTRO cierre -> este es un duplicado bloqueado por el candado. Esta es la vara que
+# reemplaza a `affectedRows === 0`: el nodo MySQL 2.5 devuelve {success:true} SIN affectedRows, así que la
+# detección de duplicados llevaba MUERTA EN SILENCIO desde el 29-jul (la nota de adición no salía jamás).
+_BUSCAR_ORIG_WHERE = ("FROM leads WHERE telefono=$%d AND creado_en > NOW() - INTERVAL 45 MINUTE "
+                      "AND asesor_tel IS NOT NULL AND asesor_tel<>'' ORDER BY id DESC LIMIT 1")
+_BUSCAR_ORIG_SQL = ("SELECT "
+    "(SELECT id "+_BUSCAR_ORIG_WHERE % 1+") AS id, "
+    "(SELECT asesor "+_BUSCAR_ORIG_WHERE % 2+") AS asesor, "
+    "(SELECT asesor_tel "+_BUSCAR_ORIG_WHERE % 3+") AS asesor_tel, "
+    "(SELECT telefono "+_BUSCAR_ORIG_WHERE % 4+") AS telefono, "
+    "COALESCE((SELECT creado_en < NOW() - INTERVAL 90 SECOND "+_BUSCAR_ORIG_WHERE % 5+"), 0) AS es_previo")
 nodes.append(node("Buscar lead original (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":("SELECT id, asesor, asesor_tel FROM leads WHERE telefono=$1 "
-              "AND creado_en > NOW() - INTERVAL 45 MINUTE AND asesor_tel IS NOT NULL AND asesor_tel<>'' "
-              "ORDER BY id DESC LIMIT 1"),
-     "options":{"queryReplacement":"={{ ["+LEAD_PATH+".telefono] }}"}},
+     "query":_BUSCAR_ORIG_SQL,
+     "options":{"queryReplacement":"={{ ["+", ".join([LEAD_PATH+".telefono"]*5)+"] }}"}},
     2200, 520, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("¿Asesor del lead original?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
@@ -2571,17 +2608,27 @@ nodes.append(node("Guardar lead 2 (MySQL)", "n8n-nodes-base.mySql", 2.5,
      "query":_LEAD_INSERT_SQL,
      "options":{"queryReplacement":"={{ ["+", ".join("$('Finalizar cierre').first().json.lead."+c for c in _leadcols)+", $('Finalizar cierre').first().json.lead.telefono] }}"}},
     2200, 840, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+# Igual que en la ruta inmediata: si el candado bloqueó, el detalle de ESTE cierre se suma a la fila existente.
+_LEAD2 = "$('Finalizar cierre').first().json.lead"
+nodes.append(node("Sumar detalle 2 (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":_SUMAR_SQL,
+     "options":{"queryReplacement":"={{ ["+_LEAD2+".detalle, "+_LEAD2+".telefono, "+_LEAD2+".modo_prueba, "+_LEAD2+".detalle, "+_LEAD2+".detalle] }}"}},
+    2310, 840, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # === AVISO 2 DETRÁS DEL CANDADO + RESCATE (2026-07-24, caso Lina Cotamo #120): si el candado bloqueó el lead
 # (otro cierre del mismo cliente hace <5 min ya lo guardó), NO se manda la tarjeta al 2º asesor. En su lugar,
 # se busca en la BD quién tiene el lead original y se le reenvía a ÉL la info nueva (nota + fotos), para no perderla.
+# 2026-08-05: misma vara `es_previo` que la ruta inmediata (affectedRows también estaba muerto aquí -> el
+# "redirect al asesor original" de la ruta diferida no disparaba jamás). La ventana pasa de 10 a 45 MIN para
+# alinearla con el candado: un duplicado bloqueado por un lead de hace 20 min encontraba 0 filas y se perdía.
 nodes.append(node("¿Lead 2 ya existía?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
-     "conditions":[{"id":"dx2","leftValue":"={{ $json.affectedRows === 0 }}","rightValue":True,
+     "conditions":[{"id":"dx2","leftValue":"={{ $json.es_previo ? true : false }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 2420, 840))
 nodes.append(node("Buscar asesor del lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"SELECT asesor, asesor_tel, telefono FROM leads WHERE telefono=$1 AND creado_en > NOW() - INTERVAL 10 MINUTE ORDER BY id DESC LIMIT 1",
-     "options":{"queryReplacement":"={{ [ ($('Finalizar cierre').first().json.lead||{}).telefono ] }}"}},
+     "query":_BUSCAR_ORIG_SQL,
+     "options":{"queryReplacement":"={{ ["+", ".join(["($('Finalizar cierre').first().json.lead||{}).telefono"]*5)+"] }}"}},
     2640, 900, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 _CODE_REDIRIGIR = r"""
 // Duplicado bloqueado: rearma la info nueva (nota + fotos) para el asesor que YA tiene el lead.
@@ -2722,7 +2769,12 @@ for(const wa in S){
       delete store.rescate[wa];
       const _nm = _resc.lead.nombre ? (', '+String(_resc.lead.nombre).split(' ')[0]) : '';
       out.push(emit(wa,st,'Gracias por escribirnos'+_nm+'. 🙏\n\nYa pasamos tu solicitud a *'+(_resc.lead.asesor||'un asesor')+'*, quien te contactará para continuar.\n\nSi quieres agregar algo, escríbenos y con gusto lo sumamos. 🤝','cierre_rescate'));
+      // 2026-08-05 (informe multi-agente): la sesión 'cerrado' del rescate quedaba SIN destino/asesor ->
+      // si el cliente rescatado agregaba algo después, el bot respondía "Ya se lo pasamos a tu asesor"
+      // SIN mandarle nada a nadie (la adición exige _dest). Ahora la sesión sabe quién es su asesor.
       st.dormido=NOW; delete st.recordado; st.paso='cerrado'; st.closedAt=NOW;
+      st.destino=(_resc.destino||''); st.asesorNom=(_resc.lead.asesor||''); st.asesorNum=(_resc.lead.asesor_tel||_resc.destino||'');
+      st.nombre=st.nombre||(_resc.lead.nombre||''); st.ciudad=st.ciudad||(_resc.lead.ciudad||''); st.marca=st.marca||(_resc.lead.marca||'');
       continue;
     }
     out.push(emit(wa,st,'Gracias por comunicarte con *Grupo Ardisa*. 🙏\n\nCerramos esta conversación por ahora. Cuando lo necesites, escríbenos y con gusto retomamos tu solicitud.\n\nQue tengas un excelente día. 🌟','cierre_inactividad'));
@@ -3003,9 +3055,10 @@ connections = {
  "¿Guardar seguimiento?": {"main":[[{"node":"Guardar seguimiento (MySQL)","type":"main","index":0}],[]]},
  "Finalizar cierre": {"main":[[{"node":"¿Hay lead 2?","type":"main","index":0}]]},
  "¿Hay lead 2?": {"main":[[{"node":"Guardar lead 2 (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},
- "Guardar lead 2 (MySQL)": {"main":[[{"node":"¿Lead 2 ya existía?","type":"main","index":0}]]},
- "¿Lead 2 ya existía?": {"main":[[{"node":"Buscar asesor del lead (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},
- "Buscar asesor del lead (MySQL)": {"main":[[{"node":"Redirigir al asesor original","type":"main","index":0}]]},
+ "Guardar lead 2 (MySQL)": {"main":[[{"node":"Sumar detalle 2 (MySQL)","type":"main","index":0}]]},
+ "Sumar detalle 2 (MySQL)": {"main":[[{"node":"Buscar asesor del lead (MySQL)","type":"main","index":0}]]},
+ "Buscar asesor del lead (MySQL)": {"main":[[{"node":"¿Lead 2 ya existía?","type":"main","index":0}]]},
+ "¿Lead 2 ya existía?": {"main":[[{"node":"Redirigir al asesor original","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},
  "Redirigir al asesor original": {"main":[[{"node":"Reenviar al asesor original (Meta)","type":"main","index":0}]]},
  "¿Hay aviso 2?": {"main":[[{"node":"Avisar al asesor 2 (Meta)","type":"main","index":0}],[]]},
  "Avisar al asesor 2 (Meta)": {"main":[[{"node":"¿Hay adjunto 2?","type":"main","index":0}]]},
@@ -3020,9 +3073,10 @@ connections = {
  "Enviar al cliente (Meta)": {"main":[[{"node":"¿Hay aviso al asesor?","type":"main","index":0}]]},
  "¿Hay aviso al asesor?": {"main":[[{"node":"¿Hay lead?","type":"main","index":0}],[]]},
  "¿Hay lead?": {"main":[[{"node":"Guardar lead (MySQL)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
- "Guardar lead (MySQL)": {"main":[[{"node":"¿Lead ya existía?","type":"main","index":0}]]},
- "¿Lead ya existía?": {"main":[[{"node":"Buscar lead original (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 1?","type":"main","index":0}]]},
- "Buscar lead original (MySQL)": {"main":[[{"node":"¿Asesor del lead original?","type":"main","index":0}]]},
+ "Guardar lead (MySQL)": {"main":[[{"node":"Sumar detalle (MySQL)","type":"main","index":0}]]},
+ "Sumar detalle (MySQL)": {"main":[[{"node":"Buscar lead original (MySQL)","type":"main","index":0}]]},
+ "Buscar lead original (MySQL)": {"main":[[{"node":"¿Lead ya existía?","type":"main","index":0}]]},
+ "¿Lead ya existía?": {"main":[[{"node":"¿Asesor del lead original?","type":"main","index":0}],[{"node":"¿Hay aviso 1?","type":"main","index":0}]]},
  "¿Asesor del lead original?": {"main":[[{"node":"Avisar adición (Meta)","type":"main","index":0}],[{"node":"Aviso omitido (duplicado)","type":"main","index":0}]]},
  "¿Hay aviso 1?": {"main":[[{"node":"Avisar al asesor (Meta)","type":"main","index":0}],[]]},
  "Avisar al asesor (Meta)": {"main":[[{"node":"¿Hay adjunto?","type":"main","index":0}]]},
@@ -3068,9 +3122,10 @@ _POS = {
   "¿Hay aviso al asesor?": (2660, 460),
   "¿Hay lead?": (2880, 520),
   "Guardar lead (MySQL)": (3100, 560),
-  "¿Lead ya existía?": (3320, 560),
+  "Sumar detalle (MySQL)": (3210, 660),
+  "¿Lead ya existía?": (3540, 560),
   "¿Hay aviso 1?": (3320, 440),
-  "Buscar lead original (MySQL)": (3540, 620),
+  "Buscar lead original (MySQL)": (3380, 660),
   "¿Asesor del lead original?": (3760, 620),
   "Avisar adición (Meta)": (3980, 580),
   "Aviso omitido (duplicado)": (3980, 760),
@@ -3089,8 +3144,9 @@ _POS = {
   "Finalizar cierre": (2660, 1160),
   "¿Hay lead 2?": (2880, 1160),
   "Guardar lead 2 (MySQL)": (3100, 1220),
-  "¿Lead 2 ya existía?": (3320, 1220),
-  "Buscar asesor del lead (MySQL)": (3540, 1300),
+  "Sumar detalle 2 (MySQL)": (3210, 1320),
+  "¿Lead 2 ya existía?": (3540, 1220),
+  "Buscar asesor del lead (MySQL)": (3380, 1320),
   "Redirigir al asesor original": (3760, 1300),
   "Reenviar al asesor original (Meta)": (3980, 1300),
   "¿Hay aviso 2?": (3540, 1100),
