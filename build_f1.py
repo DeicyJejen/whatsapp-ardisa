@@ -654,7 +654,11 @@ function cerrarLead(st,opts){
     if(_conInfo.length) _cliArr = _conInfo;
   }
   const _cliAll = _cliArr.length ? _cliArr.join('  ·  ') : '';
-  const _detShown = _cliAll || st.detalle || _detFallback;
+  // El cuerpo de un mensaje de WhatsApp muere a los 4096 caracteres: la tarjeta lleva otros ~600 de
+  // encabezados, así que el detalle se muestra hasta 1800 y, si el pedido es aún más largo, se le dice
+  // al asesor que abra el chat (el lead en la BD sí guarda el texto completo — la columna es TEXT).
+  let _detShown = _cliAll || st.detalle || _detFallback;
+  if([..._detShown].length>1800) _detShown = [..._detShown].slice(0,1800).join('')+'\n… (pedido largo — ábrelo completo en el chat: wa.me/'+wa+')';
   // DETALLE para el EXCEL (columna "Solicitud del cliente"): lo que escribió el cliente + la lectura de la IA de la imagen (si envió).
   // La FOTO real se le reenvía al asesor por WhatsApp; en el Excel queda la DESCRIPCIÓN, marcada con 📎, para que no se pierda nada.
   const _nAdj = (store.medias && store.medias[wa]) ? store.medias[wa].filter(m=>m&&m.id).length : ((st.mediaId||st.imgDesc)?1:0);
@@ -686,7 +690,10 @@ function cerrarLead(st,opts){
     '📝 *Detalle:* '+_detShown+(st.imgDesc?('\n🖼️ *En la imagen (IA):* '+st.imgDesc):'')+notaHorario+mediaNota+humanoNota+'\n\n'+
     '📲 *Escríbele directamente:* https://wa.me/'+wa+notaPrueba;
   // Solicitud para la PLANTILLA (en una sola línea, con producto + imagen + notas): así el asesor ve todo aunque no reenvíe la foto.
-  const _solTpl = (st.tiposol||'Cotización / Info')+' — '+_detShown+(st.imgDesc?(' | En la imagen: '+st.imgDesc):'')+(mediaNota?' | (📎 el cliente envió adjuntos: RESPONDE este chat y te los reenvío)':'')+(st.pidioHumano?' | (pidió hablar con un asesor)':'')+(st.fuera?(' | ⏰ entró fuera de horario'):'')+' | Escríbele: wa.me/'+wa;
+  // La PLANTILLA (ventana cerrada) la corta Meta a 700: si el pedido es largo, el corte se lo llevaba
+  // TODO lo de atrás — incluido el enlace al chat. Se recorta el DETALLE, no la metadata (2026-08-06).
+  const _detTpl = ([..._detShown].length>380) ? ([..._detShown].slice(0,380).join('')+'… (pedido largo — ábrelo completo en el chat)') : _detShown;
+  const _solTpl = (st.tiposol||'Cotización / Info')+' — '+_detTpl+(st.imgDesc?(' | En la imagen: '+st.imgDesc):'')+(mediaNota?' | (📎 el cliente envió adjuntos: RESPONDE este chat y te los reenvío)':'')+(st.pidioHumano?' | (pidió hablar con un asesor)':'')+(st.fuera?(' | ⏰ entró fuera de horario'):'')+' | Escríbele: wa.me/'+wa;
   // Token de SEGUIMIENTO generado ANTES del aviso: la plantilla lleva el botón "Reportar resultado" con payload SEG:<tok>.
   const _segTok = SEG_ACTIVO ? (NOW.toString(36)+Math.floor(Math.random()*46656).toString(36)) : null;
   // AHORRO (2026-07-21): si el asesor tiene su ventana de 24h ABIERTA, el aviso sale como mensaje de SERVICIO (GRATIS)
@@ -1356,7 +1363,11 @@ store.done = store.done || {};
 // Excluye saludos, "ok/gracias", "sí/no autorizo" y las respuestas de nombre/ciudad (esas ya van en su propio campo).
 if(reinicia && store.cliMsgs){ delete store.cliMsgs[wa]; }   // saludo/menú nuevo -> log LIMPIO (no arrastrar la consulta anterior)
 if(!es_media && texto && !id){
-  const _t=[...texto].slice(0,300).join('').trim();
+  // 2026-08-06 (caso Johans #245, pedido de 14 renglones): 300 caracteres cortaban las listas de obra
+  // justo en la mitad — al asesor le llegó media orden y se perdieron los ítems más valiosos (tanques
+  // sépticos, filtro anaerobio, trampa de grasas). Un pedido real cabe en 1200; la plantilla de Meta
+  // sigue protegida por _tpv (700) y la tarjeta por su propio tope.
+  const _t=[...texto].slice(0,1200).join('').trim();
   const _esNomCiu = st && ['nombre','ciudad','ciudadOtra'].includes(st.paso);
   const _esRuido = /^((ok(ay)?|listo|dale|vale|bueno|buen[oa]s|perfecto|de acuerdo|gracias|muchas|mil|muy|amable|va|hecho|entendido|correcto|s[ií]|no|autorizo|acepto|hola|men[uú]|👍|🙏|👌)[\s.,!👍🙏👌]*)+$/i.test(low);
   if(_t.length>=2 && !reinicia && !_esNomCiu && !_esRuido){
@@ -1371,7 +1382,7 @@ if(!es_media && texto && !id){
 // `!id`: SOLO texto libre — un TOQUE de botón trae su etiqueta como texto ("🛋️ Proyecto a tu medida" contiene "medida")
 // y se colaba como "nota del cliente" -> saltaba la pregunta de producto y cerraba con basura (2026-07-23, caso Alicia #106).
 if(!es_media && !id && texto && st && !reinicia && ['nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','consent','marca'].includes(st.paso) && [...texto].length>=12 && ( /\d/.test(texto) || /(requiero|necesito|quiero|busco|cotiz|coti|precio|inodoro|sanitario|bizcocho|grifer|cambio|revisi|instala|medid|color|cantidad|referenc|cemento|cer[aá]mica|tablero|l[aá]mina|producto|material|combo|ducha|lavamanos|lavaplatos|nevera|estufa|porcelan|pintura|madera|piso|muro|pared|banca|banco|enchap|mosaico|sauna|turco|metro|m2|mt2)/i.test(low) )){
-  st.notas = (st.notas ? (st.notas+' | ') : '') + [...texto].slice(0,300).join('');
+  st.notas = (st.notas ? (st.notas+' | ') : '') + [...texto].slice(0,1200).join('');
   if(ia && (ia.grupo_pista==='CONSTRUCCION'||ia.grupo_pista==='ACABADOS')) st.notasGrupo=ia.grupo_pista;   // guarda el grupo que la IA vio en el producto (para rutear al cerrar sin re-preguntar)
 }
 // Guarda TODOS los adjuntos de la conversación (a nivel store, sobrevive reinicios de sesión) para REENVIARLOS COMPLETOS al asesor.
@@ -1672,7 +1683,7 @@ if(preguntaHorario){
   const prev = st || {};
   st = S[wa] = { paso:'marca', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, notas:prev.notas, pidioProd:prev.pidioProd, iaBest:prev.iaBest }; etapa='marca';
   // NO perder lo que la persona escribió (aunque sea general, p.ej. "¿es posible obtener una cotización?") -> va al detalle del asesor
-  if(texto && !reinicia){ st.notas=(st.notas?(st.notas+' | '):'')+[...texto].slice(0,300).join(''); }
+  if(texto && !reinicia){ st.notas=(st.notas?(st.notas+' | '):'')+[...texto].slice(0,1200).join(''); }
   const _nom = prev.nombre ? (' '+prev.nombre.split(' ')[0]) : '';
   const _bienv = prev.nombre ? ('¡Hola de nuevo'+_nom+'! ') : '¡Bienvenido a *Grupo Ardisa*! ';
   wpp_body=boton(wa,_bienv+'Con gusto te asesoramos.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
@@ -1710,7 +1721,7 @@ if(preguntaHorario){
       // Aviso de datos al cliente SIN bloquear (solo si el cierre produjo un mensaje de texto):
       if(wpp_body && wpp_body.text && typeof wpp_body.text.body==='string'){ wpp_body.text.body = 'Recibimos tus datos del formulario 🙌 Los trataremos conforme a nuestra política de privacidad (📄 '+POLITICA_URL+').\n\n'+wpp_body.text.body; }
     } else {   // sin lectura de IA: igual capturamos y pedimos SOLO la marca (no perder el lead)
-      st.paso='marca'; etapa='marca'; st.notas=[...String(texto)].slice(0,300).join('');
+      st.paso='marca'; etapa='marca'; st.notas=[...String(texto)].slice(0,1200).join('');
       wpp_body=boton(wa,'¡Hola! Gracias por dejarnos tus datos 🙌 Con gusto te conectamos con el asesor ideal.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
     }
   } else {
@@ -1718,7 +1729,7 @@ if(preguntaHorario){
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
     // si ya escribió su solicitud y la IA la entendió, la guardamos para retomarla tras autorizar (no re-preguntar)
     // Guarda LO QUE SEA que escribió antes de autorizar (aunque NO sea un producto: "con Yolanda", "de Bogotá"...) -> llega al asesor, no se pierde.
-    if(texto && !reinicia && traeSolicitud(texto, low, ia)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
+    if(texto && !reinicia && traeSolicitud(texto, low, ia)){ st.pendTexto=[...texto].slice(0,1200).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
     if(es_media && d.media_id){ st.pendMediaId=d.media_id; st.pendMediaType=d.mtype||''; if(!st.pendTexto){ const _r=resumenIA(ia); st.pendTexto='📎 '+(MTYPE_ES[d.mtype]||'un archivo')+(_r?(' — '+_r):''); st.pendIA=(ia&&ia.en_alcance)?ia:null; } }
     if(muroReciente()){   // dos "Hola" seguidos no merecen dos veces el mismo muro
       wpp_body=txt(wa,'¡Te leemos! 🙌 Solo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
@@ -1750,7 +1761,7 @@ if(preguntaHorario){
     else if(/^(no|no autorizo|no acepto|niego|no gracias|no se[nñ]or(a)?)$/i.test(_resp)) cc=['CONSENT_NO'];
   }
   // Autoriza Y ESCRIBE su solicitud en el MISMO mensaje ("Sí, necesito loseta 40x40...") -> NO perder la solicitud: la guardamos para retomarla.
-  if(cc && cc[0]==='CONSENT_SI' && !es_media && texto && [...texto].length>14 && !st.pendTexto && !/^(s[ií]|acepto|autorizo|de acuerdo|ok|dale|claro)[\s.,!]*$/i.test(low)){ st.pendTexto=[...texto].slice(0,300).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
+  if(cc && cc[0]==='CONSENT_SI' && !es_media && texto && [...texto].length>14 && !st.pendTexto && !/^(s[ií]|acepto|autorizo|de acuerdo|ok|dale|claro)[\s.,!]*$/i.test(low)){ st.pendTexto=[...texto].slice(0,1200).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
   // foto/audio enviado MIENTRAS decidía la autorización: se guarda (antes se botaba) y se retoma al autorizar
   if(es_media && d.media_id){ st.pendMediaId=d.media_id; st.pendMediaType=d.mtype||'';
     if(d.mtype==='image' && ia && ia.en_alcance){ st.pendIA=ia; st.pendImgDesc=[...(resumenIA(ia)||'foto del cliente')].slice(0,600).join(''); } }   // la lectura de la foto va a "En la imagen (IA)", NO al Detalle (evita duplicado)
@@ -1963,7 +1974,7 @@ if(preguntaHorario){
   else {
     let mediaNota='', rutTxt='';
     if(es_media){ const nm=MTYPE_ES[d.mtype]||'un archivo'; const cap=(d.media_caption||'').trim(); const _res=(d.mtype==='image')?resumenIA(ia):''; if(_res) st.imgDesc=[...(_res)].slice(0,600).join(''); st.detalle = cap ? ('"'+[...cap].slice(0,200).join('')+'"') : ''; st.mediaId=d.media_id||''; st.mediaType=d.mtype||''; rutTxt=(((ia&&ia.productos)?ia.productos.join(' '):'')+' '+_res+' '+cap).toLowerCase(); mediaNota = st.mediaId ? ((st.mediaCount>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+st.mediaCount+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: https://wa.me/'+wa) : ('\n📎 *Adjunto:* el cliente envió '+nm+' — te lo reenvío enseguida. 👇')) : ('\n📷 *El cliente adjuntó '+nm+'* — ábrela en el chat: https://wa.me/'+wa); }
-    else { const _nt=[...texto].slice(0,300).join(''); st.detalle = (st.detalle && st.detalle.length>1) ? [...(st.detalle+' '+_nt)].slice(0,400).join('') : _nt; rutTxt=st.detalle.toLowerCase(); }
+    else { const _nt=[...texto].slice(0,1200).join(''); st.detalle = (st.detalle && st.detalle.length>1) ? [...(st.detalle+' '+_nt)].slice(0,1600).join('') : _nt; rutTxt=st.detalle.toLowerCase(); }
     // === FASE 2 · PILOTO: en vez de cerrar directo, el bot COTIZA (solo números demo + usar_cotiza='si') ===
     if(!es_media && texto && CLIENTES_PRUEBA.indexOf(wa)>=0 && COTIZA_ON()){
       st.paso='cotizacion'; st.cotN=1; st.t=NOW;
