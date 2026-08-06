@@ -682,9 +682,9 @@ function cerrarLead(st,opts){
   // Encabezado URGENTE en la tarjeta + marca en el Excel, para que el asesor entienda que NO es un cliente nuevo
   // sino uno que lleva días esperándolo. "No se debe perder nada de información."
   const _urg = _reintento
-    ? ('🚨 *URGENTE — el cliente volvió a escribir y AÚN NO LO HAN ATENDIDO*\n'+
+    ? ('🚨 *URGENTE — el cliente volvió a escribir y su solicitud sigue SIN REPORTE*\n'+
        '📌 Ya tenía la solicitud'+(PEND_ID?(' *#'+PEND_ID+'*'):'')+' registrada contigo'+(PEND.pend_fecha?(' desde el *'+PEND.pend_fecha+'*'):'')+'.\n'+
-       '➡️ Sigue siendo TU cliente: no se le pasó a nadie más. Contáctalo hoy.\n\n')
+       '➡️ Sigue siendo TU cliente: si ya lo atendiste, repórtalo 🙏; si no, contáctalo hoy.\n\n')
     : '';
   // Cliente con pendiente que pide OTRA cosa: encabezado propio (sin acusar) + recordatorio neutral del pendiente.
   const _notaPend = _otraDelMismo
@@ -728,7 +728,7 @@ function cerrarLead(st,opts){
   leadRow={creado_en:_cd.getUTCFullYear()+'-'+_p(_cd.getUTCMonth()+1)+'-'+_p(_cd.getUTCDate())+' '+_p(_cd.getUTCHours())+':'+_p(_cd.getUTCMinutes())+':'+_p(_cd.getUTCSeconds()), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||''), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||''),
     solicitud:(_reintento?('⚠️ REINTENTO — '+(st.tiposol||'')):(st.tiposol||'')),
     detalle:(_reintento
-      ? ('⚠️ CLIENTE SIN ATENDER: volvió a escribir'+(PEND_ID?(' (ya tenía la solicitud #'+PEND_ID+' con el mismo asesor)'):'')+'. '+_detExcel)
+      ? ('⚠️ REINTENTO: volvió a escribir por lo mismo'+(PEND_ID?(' — su solicitud #'+PEND_ID+' (mismo asesor) sigue sin reporte'):'')+'. '+_detExcel)
       : (_otraDelMismo
         ? (_detExcel+' · Nota: también tiene pendiente la solicitud'+(PEND_ID?(' #'+PEND_ID):'')+' sin reporte (mismo asesor).')
         : _detExcel)),
@@ -2072,13 +2072,15 @@ if(preguntaHorario){
     if(_dest && PEND_ID && st.closedAt && (NOW-st.closedAt)<48*3600000 && _dColF(st.closedAt)!==_hoyC && st.dia2Reg!==_hoyC){
       st.dia2Reg=_hoyC; st.lastRemind=NOW; etapa='seguimiento_dia2';
       leadRow={creado_en:fechaCol(), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||'Ardisa'), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||'—'),
-        solicitud:'Reintento — no atendido ayer', detalle:'⚠️ El cliente escribió AYER (solicitud #'+PEND_ID+' sin reporte) y volvió a escribir hoy.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):''),
+        solicitud:'Reintento — ayer sin reporte', detalle:'⚠️ El cliente escribió AYER y volvió a escribir hoy — su solicitud #'+PEND_ID+' sigue sin reporte.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):''),
         asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
-      const _rec2=txt(_dest,'⚠️ *Cliente de AYER aún sin atender — volvió a escribir*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\nPor favor contáctalo hoy. 📲 *Escríbele:* https://wa.me/'+wa);
+      const _rec2=txt(_dest,'⚠️ *Cliente de AYER volvió a escribir — su solicitud #'+PEND_ID+' sigue sin reporte*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\nSi ya lo atendiste, repórtalo con los botones 🙏. Si no, contáctalo hoy. 📲 *Escríbele:* https://wa.me/'+wa);
       if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else encolarMedia(_rec2, st.nombre||'');
       // 2026-07-29 (Deicy): NUNCA contarle al cliente que hubo que recordarle al asesor — es un problema interno.
-      // Se reconoce la demora, se compromete el contacto y punto.
-      wpp_body=txt(wa,'Hola'+_nom+'. Lamentamos la demora en comunicarnos contigo. 🙏\n\nTu solicitud está *priorizada* con '+_asNom+', quien te contactará *hoy* dentro del horario de atención.\n\nGracias por tu paciencia. 🤝');
+      // 2026-08-06 (caso Fundación Mujer y Futuro #235): tampoco DISCULPARSE por una demora que el bot no puede
+      // comprobar — el asesor pudo haberlo atendido por fuera (aquí Yormy ya le había enviado cotización). El bot
+      // solo sabe que no hay REPORTE; el mensaje al cliente se compromete sin presumir el abandono.
+      wpp_body=txt(wa,'¡Hola de nuevo'+_nom+'! 😊\n\nTu solicitud está *priorizada* con '+_asNom+', quien te contactará *hoy* dentro del horario de atención. 🤝');
     }
     // Solo si es una QUEJA/insistencia REAL (no un simple "Hola") le recordamos al asesor (máx 1 cada 10 min).
     const _esQueja = !reinicia && /(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|cu[aá]ndo me (atienden|contestan|llaman))/i.test(low);

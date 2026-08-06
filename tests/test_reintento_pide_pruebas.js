@@ -56,6 +56,22 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   if (fue) {
     chequear('Y el detalle prueba la acusación con el # de la solicitud',
              /#218/.test((r.lead||{}).detalle||''), 'detalle=' + JSON.stringify((r.lead||{}).detalle));
+    // 2026-08-06 (caso Fundación Mujer y Futuro #235): el bot solo sabe que no hay REPORTE — no puede saber
+    // si el asesor atendió por fuera (Yormy ya había enviado cotización). La tarjeta y el Excel dicen
+    // "sin reporte"; jamás "sin atender / no atendido". Y al cliente no se le piden disculpas por una
+    // demora que quizá no existió.
+    const todo = JSON.stringify(r);
+    chequear('El bot solo afirma lo que sabe: dice "sin reporte", nunca "sin atender"',
+             /sin reporte/i.test(todo) && !/sin atender|no atendido|NO LO HAN ATENDIDO/i.test(todo),
+             todo.slice(0,200));
+    // La ventana del asesor está cerrada en el arnés -> la tarjeta viaja por la cola mediaPend (blindaje 131047),
+    // no por aviso_body. La regla se verifica donde sea que haya quedado el texto.
+    const tarjeta = JSON.stringify(r.aviso_body||'') + JSON.stringify(sd.mediaPend||{}) + JSON.stringify(sd.holds||{});
+    chequear('La tarjeta invita a reportar si ya lo atendió (no solo acusa)',
+             /ya lo atendiste, rep[oó]rtalo/i.test(tarjeta), tarjeta.slice(0,200));
+    chequear('Al cliente NO se le pide perdón por una demora no comprobada',
+             !/Lamentamos la demora/i.test(JSON.stringify(r.wpp_body||'')),
+             JSON.stringify(r.wpp_body||'').slice(0,120));
   } else { total++; ok++; console.log('  OK   | (mismo día calendario — la regla del día siguiente no aplica)'); }
 }
 
