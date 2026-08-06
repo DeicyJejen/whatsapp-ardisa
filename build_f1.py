@@ -1104,6 +1104,15 @@ const _formHits = (!es_media && texto) ? (String(texto).match(/(complet[eé]\s+e
 const esFormulario = _formHits>=2;
 
 let st=S[wa]; let wpp_body=null,aviso_body=null,etapa='',leadRow=null,aviso_medias=null,consent_log=null,pend_cierre=false,pend_token=0;
+// === LA BD MANDA TAMBIÉN PARA LA SESIÓN (2026-08-06, caso Sonia #234: "pregunta dos veces lo mismo") ===
+// El staticData es UN SOLO blob compartido entre todos los clientes: una ejecución LENTA (la IA de otro
+// cliente tardó 7.4s) lo lee viejo y al terminar lo guarda encima, borrando los avances de los demás —
+// Sonia ya iba en 'ciudad' y la carrera la devolvió a 'nombre'. La tabla `sesiones` guarda UNA FILA POR
+// CLIENTE: si la BD trae una sesión MÁS NUEVA (t mayor) que la del caché, manda la BD.
+try{
+  const _sb = PEND.ses_bd ? JSON.parse(PEND.ses_bd) : null;
+  if(_sb && _sb.t && (!st || !(Number(st.t)>=Number(_sb.t)))){ st = S[wa] = _sb; }
+}catch(e){}
 if(st && st.recordado) delete st.recordado;   // el cliente respondió -> ya no está inactivo (limpia la marca del recordatorio)
 // CLIENTE DE PRUEBA/DEMO: un SALUDO (Hola/Buenas) reinicia SIEMPRE limpio -> sale de cualquier flujo de reporte de seguimiento
 // y permite hacer la demo de cero cuantas veces quiera (su número es cliente-demo Y reportador de seguimiento a la vez).
@@ -2119,7 +2128,8 @@ try{
   }
   if(store.rescate) for(const _k in store.rescate){ if((NOW-(store.rescate[_k].t||0)) > 6*3600000) delete store.rescate[_k]; }   // poda
 }catch(e){}
-return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token}}];
+return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token,
+  ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
 """
 
 # === Cerebro de INTENCIÓN (system + herramienta) — reutilizado por TEXTO e IMAGEN (visión) ===
@@ -2340,10 +2350,15 @@ _PEND_SQL = ("SELECT "
             "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det, "
     # === DETALLE del lead pendiente (2026-08-05, caso Kiara #230): para distinguir "insiste en LO MISMO"
     # (-> ⚠️ REINTENTO) de "viene por OTRA cosa" (-> solicitud nueva con nota neutral, mismo asesor). ===
-    "(SELECT LEFT(detalle,300) FROM leads WHERE telefono=$7 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_det")
+    "(SELECT LEFT(detalle,300) FROM leads WHERE telefono=$7 AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_det, "
+    # === SESIÓN DEL CLIENTE, desde la BD (fix 2026-08-06, caso Sonia #234: "pregunta dos veces") ===
+    # El staticData es un blob COMPARTIDO: la ejecución lenta de OTRO cliente lo guarda viejo y pisa los avances
+    # de todos. `sesiones` tiene UNA FILA POR CLIENTE (a prueba de vecinos lentos). El Cerebro compara t y gana
+    # la más nueva. Misma doctrina de siempre: la BD manda, el staticData es caché.
+    "(SELECT estado FROM sesiones WHERE telefono=$8 LIMIT 1) AS ses_bd")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -2357,6 +2372,7 @@ return [{ json: Object.assign({}, d, {
   pend_tel:     p.pend_tel     || '',
   pend_fecha:   p.pend_fecha   ? String(p.pend_fecha) : '',
   pend_det:     p.pend_det     ? String(p.pend_det)   : '',
+  ses_bd:       p.ses_bd       ? String(p.ses_bd)     : '',
   rep_hoy:      p.rep_hoy      || 0,
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',
@@ -2415,6 +2431,13 @@ nodes.append(node("¿Analizar imagen?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and","conditions":[
         {"id":"v1","leftValue":"={{ $json.gastar_ia }}","rightValue":True,"operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1780, 180))
 nodes.append(node("Cerebro conversacional", "n8n-nodes-base.code", 2, {"jsCode":CODE_CEREBRO}, 1080, 340))
+# === GUARDAR SESIÓN EN LA BD (2026-08-06, caso Sonia #234): una fila por cliente, a prueba del blob compartido.
+# El WHERE ?<>'' hace que el propio SQL ignore los caminos sin sesión (dup, noop, panel) sin nodo IF extra.
+nodes.append(node("Guardar sesión (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":"INSERT INTO sesiones (telefono, estado) SELECT ?, ? FROM DUAL WHERE ? <> '' ON DUPLICATE KEY UPDATE estado=VALUES(estado)",
+     "options":{"queryReplacement":"={{ [$json.ses_tel||'', $json.ses_out||'null', $json.ses_tel||''] }}"}},
+    1320, 500, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("¿Responder al cliente?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"r1","leftValue":"={{ $json.wpp_body ? true : false }}","rightValue":True,
@@ -3141,7 +3164,7 @@ connections = {
  "Preparar IA": {"main":[[{"node":"¿Gastar IA?","type":"main","index":0}]]},
  "¿Gastar IA?": {"main":[[{"node":"🤖 IA Anthropic","type":"main","index":0}],[{"node":"Cerebro conversacional","type":"main","index":0}]]},
  "🤖 IA Anthropic": {"main":[[{"node":"Cerebro conversacional","type":"main","index":0}]]},
- "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0}]]},
+ "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0},{"node":"Guardar sesión (MySQL)","type":"main","index":0}]]},
  "¿Guardar seguimiento?": {"main":[[{"node":"Guardar seguimiento (MySQL)","type":"main","index":0}],[]]},
  "Finalizar cierre": {"main":[[{"node":"¿Hay lead 2?","type":"main","index":0}]]},
  "¿Hay lead 2?": {"main":[[{"node":"Guardar lead 2 (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},
