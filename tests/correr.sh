@@ -8,7 +8,7 @@ VERIFY_TOKEN=ardisa2026 python3 -c "import build_f1; open('tests/cerebro.js','w'
 python3 -c "
 import json
 w=json.load(open('workflow-bot-f1.json'))
-m={'Armar aviso a Deicy':'tests/n_armar.js','\u00bfLleg\u00f3 el aviso?':'tests/n_confirmar.js','Preparar IA':'tests/n_prepara.js','Finalizar cierre':'tests/n_finalizar.js','Redirigir al asesor original':'tests/n_redirigir.js'}
+m={'Armar aviso a Deicy':'tests/n_armar.js','\u00bfLleg\u00f3 el aviso?':'tests/n_confirmar.js','Preparar IA':'tests/n_prepara.js','Finalizar cierre':'tests/n_finalizar.js','Redirigir al asesor original':'tests/n_redirigir.js','Entregar cotizaci\u00f3n':'tests/n_entregar.js'}
 for n in w['nodes']:
     if n['name'] in m: open(m[n['name']],'w').write(n['parameters']['jsCode'])
 "
@@ -17,6 +17,6 @@ for t in tests/test_*.js; do
   echo "=== $t ==="
   node "$t" || fallo=1
 done
-rm -f tests/cerebro.js tests/n_armar.js tests/n_confirmar.js tests/n_prepara.js tests/n_finalizar.js tests/n_redirigir.js
+rm -f tests/cerebro.js tests/n_armar.js tests/n_confirmar.js tests/n_prepara.js tests/n_finalizar.js tests/n_redirigir.js tests/n_entregar.js
 [ $fallo -eq 0 ] && echo "TODAS LAS PRUEBAS PASAN" || echo "HAY PRUEBAS FALLANDO"
 exit $fallo
