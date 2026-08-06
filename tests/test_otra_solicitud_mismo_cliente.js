@@ -1,10 +1,9 @@
-// Corrección de Deicy (05/08, caso Kiara #230): "vino a buscar OTRO producto — eso de reingreso NO".
-// Kiara pidió una LÁMINA el 29-jul (lead #169, sin reporte) y volvió el 05-ago por una LACA. El bot
-// la marcó "⚠️ CLIENTE SIN ATENDER: volvió a escribir" — acusación falsa y tarjeta confusa.
+// Decisión de Deicy (06/08, tras los casos Kiara #230 y Fundación Mujer y Futuro #235): se eliminan las
+// tarjetas de alarma (🚨 URGENTE / ⚠️ REINTENTO) — cada acusación falsa era un reclamo de asesores.
+// "Mejor que llegue la solicitud como nueva, sin ese mensaje."
 //
-// Regla nueva: mismo asesor SIEMPRE (la regla de oro no cambia), pero la etiqueta dice la verdad:
-//   · insiste en LO MISMO  -> ⚠️ REINTENTO + encabezado URGENTE (como antes)
-//   · viene por OTRA cosa  -> solicitud NUEVA normal + nota neutral "también tiene pendiente la #X"
+// Regla vigente: mismo asesor SIEMPRE (la regla de oro no cambia); TODO cliente que vuelve llega como
+// solicitud NUEVA normal ("cliente que YA tienes") + nota neutral "también tiene pendiente la #X".
 const fs = require('fs');
 const CEREBRO = fs.readFileSync(__dirname + '/cerebro.js', 'utf8');
 
@@ -54,12 +53,14 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('Y recuerda el pendiente con el # (neutral)', /#169/.test(aviso), aviso.slice(0,180));
 }
 
-// ══ B. LO MISMO otra vez: el REINTENTO sigue igual de fuerte ═══════════════════
+// ══ B. LO MISMO otra vez: también llega como solicitud nueva, sin alarmas ══════
 {
   const { lead, aviso } = cerrar('Tiene lámina duratex de 18 mm?', IA(['lámina duratex 18mm']),
                                  PEND('Buen día · Tiene lámina duratex yutex y graffo de 18 mm?'));
-  chequear('Insistir en lo mismo SÍ es ⚠️ REINTENTO', /REINTENTO/.test(lead.solicitud||''), 'solicitud=' + lead.solicitud);
-  chequear('Con el encabezado URGENTE de siempre', /URGENTE/.test(aviso), aviso.slice(0,150));
+  chequear('Insistir en lo mismo YA NO dispara alarma (decisión Deicy 06/08)',
+           !/REINTENTO|URGENTE|SIN ATENDER|sin reporte de atención/i.test((lead.solicitud||'')+aviso.replace(/pendiente de reporte/g,'')),
+           'solicitud=' + lead.solicitud + ' aviso=' + aviso.slice(0,120));
+  chequear('La tarjeta dice "cliente que YA tienes" + nota neutral del #169', /YA tienes/.test(aviso) && /#169/.test(aviso), aviso.slice(0,180));
   chequear('Y el mismo asesor', /Natalia/i.test(lead.asesor||''), 'asesor=' + lead.asesor);
 }
 
@@ -73,11 +74,12 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            'detalle=' + String(lead.detalle).slice(0,90));
 }
 
-// ══ D. Pendiente sin detalle guardado: conservador -> se trata como reintento ══
+// ══ D. Pendiente sin detalle guardado: igual — solicitud nueva neutral ═════════
 {
-  const { lead } = cerrar('Si manejan esta pintura', IA(['pintura']), PEND(''));
-  chequear('Sin detalle para comparar, se asume que insiste (conservador)', /REINTENTO/.test(lead.solicitud||''),
+  const { lead, aviso } = cerrar('Si manejan esta pintura', IA(['pintura']), PEND(''));
+  chequear('Con o sin detalle del pendiente, nada de alarmas', !/REINTENTO|URGENTE/i.test((lead.solicitud||'')+aviso),
            'solicitud=' + lead.solicitud);
+  chequear('Pero la nota del pendiente #169 sí viaja', /#169/.test(aviso) && /Natalia/i.test(lead.asesor||''), aviso.slice(0,150));
 }
 
 console.log('\n' + ok + '/' + total + ' pruebas pasan');

@@ -606,29 +606,17 @@ function cerrarLead(st,opts){
   // Si este cliente YA tiene un lead SIN REPORTAR en la BD, su nuevo lead vuelve al MISMO asesor, sin importar
   // cuánto tiempo pasó ni qué dijo la rotación. "En vez de pasárselo al mismo se fue para otro asesor y eso es
   // duplicar." Solo cede ante casos de especialista (aluminios/proyectos) y si el asesor sigue activo.
-  // 2026-08-05 (caso Kiara #230, corrección de Deicy): tener un lead pendiente NO siempre es "insistir".
-  // Kiara pidió una LÁMINA el 29-jul y volvió el 05-ago por una LACA: el bot la marcó "⚠️ CLIENTE SIN
-  // ATENDER: volvió a escribir" — una acusación falsa hacia la asesora y una tarjeta que confunde.
-  // Ahora se comparan los TEMAS: palabras significativas del pedido nuevo contra el pendiente.
-  //   - comparten tema  -> _reintento  (⚠️ REINTENTO, encabezado URGENTE: de verdad insiste en lo mismo)
-  //   - tema distinto   -> _otraDelMismo (solicitud NUEVA normal + nota neutral con el # pendiente)
-  // En AMBOS casos el asesor es el MISMO (la regla de oro del amarre no cambia).
-  function _temaComun(a,b){
-    if(!a || !b) return true;   // sin detalle pendiente para comparar -> se asume que insiste (conservador)
-    const _sw=/^(hola|holas?|buen[oa]s?|dias?|tardes?|noches?|senor(a|es)?|gracias|necesit\w*|quier\w*|busc\w*|cotiz\w*|precios?|manej\w*|tien\w*|vend\w*|favor|ayuda|informacion|solicitud|cliente|estas?|estos?|ustedes|donde|cuant\w*|para|con|por|una?|unos?|unas?|del|los|las|que|como|sobre|desde|hasta|algo|solo)$/;
-    const _pal=s=>String(s).toLowerCase()
-      .replace(/[áéíóúñ]/g,c=>({'á':'a','é':'e','í':'i','ó':'o','ú':'u','ñ':'n'}[c]||c))
-      .replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>3 && !_sw.test(w));
-    const _set=new Set(_pal(a));
-    return _pal(b).some(w=>_set.has(w));
-  }
-  let _reintento = false, _otraDelMismo = false;
-  const _temaNuevo = (st.detalle||'')+' '+(st.iaProd||'');
+  // 2026-08-06 (decisión Deicy, tras los casos Kiara #230 y Fundación Mujer y Futuro #235): se ELIMINAN las
+  // tarjetas de alarma (🚨 URGENTE / ⚠️ REINTENTO). Cada acusación falsa era un reclamo de asesores que le
+  // llegaba a ella: "mejor que llegue la solicitud como nueva, sin ese mensaje". Cliente que vuelve =
+  // solicitud NUEVA normal + nota neutral con el # pendiente. El asesor sigue siendo el MISMO (la regla
+  // de oro del amarre no cambia). La insistencia REAL del cliente ya viaja por su propio canal (_esQueja).
+  let _yaTuyo = false;
   if(PEND_TEL && PEND_ASE && asesor.num && PEND_TEL!==asesor.num && ASESORES[PEND_TEL]){
-    if(_temaComun(PEND_DET, _temaNuevo)) _reintento = true; else _otraDelMismo = true;
+    _yaTuyo = true;
     asesor = {nombre:PEND_ASE, num:PEND_TEL, ciudad:asesor.ciudad, tienda:asesor.tienda, f:(ASESORES_F[PEND_TEL]?1:0)};
   } else if(PEND_TEL && PEND_TEL===asesor.num){
-    if(_temaComun(PEND_DET, _temaNuevo)) _reintento = true; else _otraDelMismo = true;
+    _yaTuyo = true;
   }
   const numDisp = asesor.num ? ('+'+asesor.num) : '(número pendiente)';
   // CLIENTE DE PRUEBA/DEMO: si el que escribe es un número de demo, el aviso va SOLO a DEMO_DEST (no al asesor real).
@@ -681,19 +669,13 @@ function cerrarLead(st,opts){
   // === REINTENTO: el cliente YA tenía un lead SIN REPORTAR y volvió a escribir (2026-07-29, pedido Deicy). ===
   // Encabezado URGENTE en la tarjeta + marca en el Excel, para que el asesor entienda que NO es un cliente nuevo
   // sino uno que lleva días esperándolo. "No se debe perder nada de información."
-  const _urg = _reintento
-    ? ('🚨 *URGENTE — el cliente volvió a escribir y su solicitud sigue SIN REPORTE*\n'+
-       '📌 Ya tenía la solicitud'+(PEND_ID?(' *#'+PEND_ID+'*'):'')+' registrada contigo'+(PEND.pend_fecha?(' desde el *'+PEND.pend_fecha+'*'):'')+'.\n'+
-       '➡️ Sigue siendo TU cliente: si ya lo atendiste, repórtalo 🙏; si no, contáctalo hoy.\n\n')
-    : '';
-  // Cliente con pendiente que pide OTRA cosa: encabezado propio (sin acusar) + recordatorio neutral del pendiente.
-  const _notaPend = _otraDelMismo
-    ? ('📌 Este cliente también tiene la solicitud'+(PEND_ID?(' *#'+PEND_ID+'*'):'')+
+  // Cliente que vuelve: encabezado normal "cliente que YA tienes" + recordatorio neutral del pendiente (sin acusar).
+  const _notaPend = (_yaTuyo && PEND_ID)
+    ? ('📌 Este cliente también tiene la solicitud *#'+PEND_ID+'*'+
        (PEND.pend_fecha?(' del *'+PEND.pend_fecha+'*'):'')+' pendiente de reporte — aprovecha y resuélvele las dos. 🙌\n\n')
     : '';
-  const _avisoBody = _urg + _notaPend +
-    (_reintento ? '🔔 *El cliente insiste — nueva solicitud del MISMO cliente*\n\n'
-     : (_otraDelMismo ? '➕ *Nueva solicitud de un cliente que YA tienes*\n\n' : '🔔 *Nuevo cliente para atender*\n\n'))+
+  const _avisoBody = _notaPend +
+    (_yaTuyo ? '➕ *Nueva solicitud de un cliente que YA tienes*\n\n' : '🔔 *Nuevo cliente para atender*\n\n')+
     '👤 *Cliente:* '+st.nombre+'\n'+
     '📱 *WhatsApp:* +'+wa+'\n'+
     '📍 *Ciudad:* '+(st.ciudad||'—')+'\n'+
@@ -726,12 +708,10 @@ function cerrarLead(st,opts){
   if(store.leads.length>2000) store.leads.splice(0, store.leads.length-2000);   // cota
   const _p=n=>String(n).padStart(2,'0'); const _cd=new Date(NOW-5*3600000);   // hora Colombia (UTC-5)
   leadRow={creado_en:_cd.getUTCFullYear()+'-'+_p(_cd.getUTCMonth()+1)+'-'+_p(_cd.getUTCDate())+' '+_p(_cd.getUTCHours())+':'+_p(_cd.getUTCMinutes())+':'+_p(_cd.getUTCSeconds()), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||''), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||''),
-    solicitud:(_reintento?('⚠️ REINTENTO — '+(st.tiposol||'')):(st.tiposol||'')),
-    detalle:(_reintento
-      ? ('⚠️ REINTENTO: volvió a escribir por lo mismo'+(PEND_ID?(' — su solicitud #'+PEND_ID+' (mismo asesor) sigue sin reporte'):'')+'. '+_detExcel)
-      : (_otraDelMismo
-        ? (_detExcel+' · Nota: también tiene pendiente la solicitud'+(PEND_ID?(' #'+PEND_ID):'')+' sin reporte (mismo asesor).')
-        : _detExcel)),
+    solicitud:(st.tiposol||''),
+    detalle:((_yaTuyo && PEND_ID)
+      ? (_detExcel+' · Nota: también tiene pendiente la solicitud #'+PEND_ID+' sin reporte (mismo asesor).')
+      : _detExcel),
     asesor:(asesor.nombre||''), asesor_tel:(asesor.num||''), fuera_horario: st.fuera?1:0, modo_prueba: (MODO_PRUEBA||_esDemo)?1:0};
   // Reenvío al asesor de TODOS los adjuntos que el cliente mandó en la conversación (mismo phone number id -> reusamos los media id).
   let aviso_medias = [];
@@ -2060,9 +2040,9 @@ if(preguntaHorario){
     const _asNom = st.asesorNom ? ((st.asesorF?'nuestra asesora *':'nuestro asesor *')+st.asesorNom+'*') : 'nuestro equipo de asesores';
     const _quien = st.asesorNom ? 'quien' : 'que';
     wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud ya está *en gestión* con '+_asNom+', '+_quien+' te contactará dentro del horario de atención. ¿Hay *algo más* en lo que te podamos ayudar? 🤝');
-    // DÍA SIGUIENTE SIN ATENDER (2026-07-24, pedido Deicy): si el cierre fue OTRO día (y <48h) y el cliente vuelve
-    // a escribir, se RE-REGISTRA el lead marcado "no atendido ayer" (MISMO asesor, sale en el reporte) y se le
-    // recuerda al asesor aunque el cliente solo diga "buen día". Máximo 1 vez por día por cliente.
+    // DÍA SIGUIENTE (2026-07-24, pedido Deicy; 2026-08-06, decisión Deicy: SIN tarjetas de alarma): si el cierre
+    // fue OTRO día (y <48h) y el cliente vuelve a escribir, se RE-REGISTRA como solicitud NUEVA normal (MISMO
+    // asesor, sale en el reporte) con nota neutral del pendiente. Máximo 1 vez por día por cliente.
     const _dColF=e=>{const c=new Date(e-5*3600000);return c.getUTCFullYear()+'-'+(c.getUTCMonth()+1)+'-'+c.getUTCDate();};
     const _hoyC=_dColF(NOW);
     // 2026-08-05 (caso Claudia Ardila, lead #225): la condición solo miraba QUE el cierre fue ayer — nunca
@@ -2072,9 +2052,9 @@ if(preguntaHorario){
     if(_dest && PEND_ID && st.closedAt && (NOW-st.closedAt)<48*3600000 && _dColF(st.closedAt)!==_hoyC && st.dia2Reg!==_hoyC){
       st.dia2Reg=_hoyC; st.lastRemind=NOW; etapa='seguimiento_dia2';
       leadRow={creado_en:fechaCol(), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||'Ardisa'), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||'—'),
-        solicitud:'Reintento — ayer sin reporte', detalle:'⚠️ El cliente escribió AYER y volvió a escribir hoy — su solicitud #'+PEND_ID+' sigue sin reporte.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):''),
+        solicitud:'Nueva solicitud (cliente recurrente)', detalle:'El cliente volvió a escribir hoy.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):'')+' · Nota: también tiene pendiente la solicitud #'+PEND_ID+' sin reporte (mismo asesor).',
         asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
-      const _rec2=txt(_dest,'⚠️ *Cliente de AYER volvió a escribir — su solicitud #'+PEND_ID+' sigue sin reporte*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\nSi ya lo atendiste, repórtalo con los botones 🙏. Si no, contáctalo hoy. 📲 *Escríbele:* https://wa.me/'+wa);
+      const _rec2=txt(_dest,'📌 Este cliente también tiene la solicitud *#'+PEND_ID+'* pendiente de reporte — aprovecha y resuélvele las dos. 🙌\n\n➕ *Nueva solicitud de un cliente que YA tienes*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\n📲 *Escríbele:* https://wa.me/'+wa);
       if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else encolarMedia(_rec2, st.nombre||'');
       // 2026-07-29 (Deicy): NUNCA contarle al cliente que hubo que recordarle al asesor — es un problema interno.
       // 2026-08-06 (caso Fundación Mujer y Futuro #235): tampoco DISCULPARSE por una demora que el bot no puede
@@ -2739,7 +2719,16 @@ const row = ($input.all()[0]||{}).json||{};
 const tel = row.asesor_tel ? String(row.asesor_tel).replace(/[^0-9]/g,'') : '';
 if(!tel) return [];
 const wrong = (fz.aviso_body && fz.aviso_body.to) ? String(fz.aviso_body.to).replace(/[^0-9]/g,'') : '';
-if(wrong && tel===wrong) return [];   // mismo asesor (pegajosidad funcionó): la tarjeta repetida se omite y ya
+// 2026-08-06 (caso Diana #240, "120 varillas"): en ESTA ruta (cierre diferido del rescate) el candado choca
+// con el PROPIO lead del cierre — el armado lo insertó a las 10:48 como red de seguridad y el finalizador lo
+// encontró "ya existente" a las 11:21. "Mismo asesor" aquí NO significa tarjeta repetida: la tarjeta de este
+// cierre AÚN NO HA SALIDO (salir es justo el trabajo de esta ruta). Omitirla dejó a Miguel sin enterarse de
+// su clienta. Mismo asesor => la tarjeta original sale COMPLETA (con sus copias y adjuntos, tal cual).
+if(wrong && tel===wrong){
+  const out=[{json:{media: fz.aviso_body}}];
+  for(const m of (fz.aviso_medias||[])){ if(m && m.to) out.push({json:{media:m}}); }
+  return out;
+}
 const lead = fz.lead||{};
 const out = [{json:{media:{messaging_product:'whatsapp', to:tel, type:'text',
   text:{body:'➕ *'+(lead.nombre||'El cliente')+'*'+(lead.telefono?(' (+'+lead.telefono+')'):'')+' envió *más información* de la solicitud que ya tienes asignada 👇'+(lead.detalle?('\n📝 '+[...String(lead.detalle)].slice(0,500).join('')):'')}}}}];

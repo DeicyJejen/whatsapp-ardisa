@@ -61,14 +61,15 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
     // "sin reporte"; jamás "sin atender / no atendido". Y al cliente no se le piden disculpas por una
     // demora que quizá no existió.
     const todo = JSON.stringify(r);
-    chequear('El bot solo afirma lo que sabe: dice "sin reporte", nunca "sin atender"',
-             /sin reporte/i.test(todo) && !/sin atender|no atendido|NO LO HAN ATENDIDO/i.test(todo),
+    chequear('El bot solo afirma lo que sabe: "pendiente de reporte", nunca "sin atender"',
+             /sin reporte|pendiente de reporte/i.test(todo) && !/sin atender|no atendido|NO LO HAN ATENDIDO|URGENTE/i.test(todo),
              todo.slice(0,200));
     // La ventana del asesor está cerrada en el arnés -> la tarjeta viaja por la cola mediaPend (blindaje 131047),
     // no por aviso_body. La regla se verifica donde sea que haya quedado el texto.
     const tarjeta = JSON.stringify(r.aviso_body||'') + JSON.stringify(sd.mediaPend||{}) + JSON.stringify(sd.holds||{});
-    chequear('La tarjeta invita a reportar si ya lo atendió (no solo acusa)',
-             /ya lo atendiste, rep[oó]rtalo/i.test(tarjeta), tarjeta.slice(0,200));
+    chequear('La tarjeta es la NEUTRAL de "cliente que YA tienes" (decisión Deicy 06/08)',
+             /YA tienes/.test(tarjeta) && /aprovecha y resu/i.test(tarjeta) && !/URGENTE|REINTENTO|sin atender/i.test(tarjeta),
+             tarjeta.slice(0,200));
     chequear('Al cliente NO se le pide perdón por una demora no comprobada',
              !/Lamentamos la demora/i.test(JSON.stringify(r.wpp_body||'')),
              JSON.stringify(r.wpp_body||'').slice(0,120));
