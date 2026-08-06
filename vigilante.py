@@ -62,19 +62,32 @@ for tel, nom, cuando, seg in q("""
           "%s (%s) autorizó el %s y el bot se lo volvió a pedir %ss después" % (nom or tel, tel, cuando, seg))
 
 # ═══ 2. CLIENTE PERDIDO ══════════════════════════════════════════════════════
-# Escribió 2+ mensajes propios, la conversación se cerró por inactividad y NUNCA quedó registrado.
-for wa, nom, n, ini, ult in q("""
+# Escribió y NUNCA quedó registrado como lead.
+#
+# 2026-08-06 (caso Carlos Chiquillo, Bomberos de Piedecuesta): la versión anterior EXIGÍA que la
+# conversación ya se hubiera cerrado por inactividad, así que el aviso llegaba ~1½ horas tarde (30 min
+# de espera del cierre + la corrida horaria). Carlos dijo su pedido COMPLETO en el primer mensaje
+# ("3 máscaras full face 3M ref 6800") y quedó varado en el menú de marca: el rescate del bot no se
+# arma sin LÍNEA conocida (regla de oro: ante la duda NUNCA adivinar el asesor), así que nadie se
+# habría enterado a tiempo. Ahora la vara es el SILENCIO (20 min sin escribir), con o sin cierre, y
+# basta UN mensaje si trae contenido real (>=25 caracteres). Deicy lo ve en su panel y decide a quién
+# pasarlo: el bot no adivina, la persona sí sabe.
+for wa, nom, n, ini, ult, pedido in q("""
     SELECT m.wa_id, COALESCE(MAX(m.nombre),''), SUM(m.entrada<>'(inactividad)'),
            DATE_FORMAT(MIN(m.creado_en),'%d/%m %H:%i'),
-           GROUP_CONCAT(DISTINCT LEFT(m.etapa,18) ORDER BY m.creado_en SEPARATOR '>')
+           GROUP_CONCAT(DISTINCT LEFT(m.etapa,18) ORDER BY m.creado_en SEPARATOR '>'),
+           COALESCE(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN CHAR_LENGTH(m.entrada)>=25 THEN m.entrada END
+                    ORDER BY CHAR_LENGTH(m.entrada) DESC SEPARATOR '\\n'), '\\n', 1), '')
     FROM mensajes m
     WHERE m.creado_en >= NOW() - INTERVAL 2 DAY """ + NO_CLIENTE + """
       AND NOT EXISTS (SELECT 1 FROM leads l
                       WHERE l.telefono COLLATE utf8mb4_unicode_ci = m.wa_id COLLATE utf8mb4_unicode_ci)
     GROUP BY m.wa_id
-    HAVING SUM(m.etapa='cierre_inactividad')>0 AND SUM(m.entrada<>'(inactividad)')>=2"""):
+    HAVING MAX(m.creado_en) < NOW() - INTERVAL 20 MINUTE
+       AND (SUM(m.entrada<>'(inactividad)')>=2 OR MAX(CHAR_LENGTH(m.entrada))>=25)"""):
     anota("cliente_perdido", 1, wa+"|"+ini,
-          "%s (%s) escribió %s veces desde el %s y NO quedó registrado — recorrido: %s" % (nom or wa, wa, n, ini, ult))
+          "%s (%s) escribió %s veces desde el %s y NO quedó registrado — recorrido: %s%s"
+          % (nom or wa, wa, n, ini, ult, ("  ·  PIDIÓ: "+pedido[:120]) if pedido else ""))
 
 # ═══ 3. PIDIÓ EMPLEO ═════════════════════════════════════════════════════════
 # No es cliente ni proveedor: el bot le insiste con el permiso de datos y el menú de marcas.
