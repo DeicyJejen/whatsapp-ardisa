@@ -170,6 +170,9 @@ const encolarMedia = (o, cliente) => { if(!o||!o.to) return; (store.mediaPend[o.
 const TTL = 6*3600*1000;           // 6h: sesión vieja se reinicia sola
 const hoyCol = new Date(NOW-5*3600000).toISOString().slice(0,10);   // fecha de HOY en Colombia (UTC-5)
 // Consentimiento por DÍA (decisión Deicy 2026-07-10): mismo día = no re-preguntar; otro día = pedir autorización + datos de nuevo.
+// 2026-08-10: la autorización ya NO caduca a la medianoche (ver consulta cons_si: consentimiento versionado).
+// La BD manda y trae la ÚLTIMA decisión bajo la política vigente; el caché de staticData solo cubre los
+// segundos en que la fila aún no existe, así que ahí sí se sigue mirando el día (es un caché, no la verdad).
 function consintioHoy(){ if(CONS_SI) return true;   // la BD manda: sobrevive a las carreras de staticData
   const c=store.consent[wa]; if(!c) return false; return new Date(c-5*3600000).toISOString().slice(0,10)===hoyCol; }
 // Limpia sesiones viejas (evita crecer sin límite)
@@ -1809,7 +1812,7 @@ if(preguntaHorario){
     // NO borramos la sesión: la dejamos en 'consent' (marcada 'declined') para que si cambia de opinión y toca "✅ Sí, autorizo",
     // lo aceptemos DE UNA VEZ y siga el flujo (antes se borraba S[wa] y el "Sí" quedaba en bucle re-mostrando el consentimiento).
     S[wa]={paso:'consent', t:NOW, declined:1}; }
-  else { st.consent=true; store.consent[wa]=NOW;   // guarda fecha/hora de la autorización -> no re-preguntar el MISMO día (otro día se vuelve a pedir)
+  else { st.consent=true; store.consent[wa]=NOW;   // caché local; la verdad (y la permanencia) vive en la tabla `consentimientos`
     consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id };   // registro legal auditable (Ley 1581/2012)
     if(st.pendMediaId){ st.mediaId=st.pendMediaId; st.mediaType=st.pendMediaType; delete st.pendMediaId; delete st.pendMediaType; }   // conserva la foto/audio para reenviarla al asesor
     if(st.pendImgDesc && st.pendIA){ const _idesc=st.pendImgDesc, _ia=st.pendIA; delete st.pendImgDesc; delete st.pendIA; st.imgDesc=_idesc;
@@ -2390,6 +2393,10 @@ nodes.append(node("Fin (no es mensaje)", "n8n-nodes-base.noOp", 1, {}, 860, 520)
 # nunca 0 filas; si devolviera 0 el flujo se cortaría y el bot dejaría de responder.
 # Tope de 30 días para el AMARRE: un lead más viejo ya no fuerza al asesor (evita "zombis" si alguien sale del
 # equipo o el lead quedó abandonado). No se pierde nada: el lead viejo sigue en la BD y en el Excel.
+# URL de la política vigente — la MISMA que ve el cliente y que se guarda en cada consentimiento.
+# Si cambia, el consentimiento versionado hace que todos vuelvan a autorizar (ver consulta cons_si).
+POLITICA_URL = 'https://www.ardisa.com/politica-de-datos-personales/'
+
 _PEND_COND = "modo_prueba=0 AND (estado IS NULL OR estado='') AND creado_en > NOW() - INTERVAL 30 DAY"
 # Para el PANEL de Deicy se cuentan TODOS los sin reportar, sin tope de fecha.
 _REP_COND  = "modo_prueba=0 AND (estado IS NULL OR estado='')"
@@ -2417,7 +2424,15 @@ _PEND_SQL = ("SELECT "
     # SEGUNDOS después escribió "Tienes 120 bultos de cemento" -> el bot le volvió a pedir la autorización y se perdió.
     # 21 clientes en 18 días. CURDATE() = hoy en Colombia (el servidor MySQL corre en -05), y el consentimiento
     # operativo es POR DÍA: si autorizó ayer, se le vuelve a pedir (regla legal que NO se toca).
-    "(SELECT COUNT(*) FROM consentimientos WHERE telefono=$5 AND decision='SI' AND creado_en >= CURDATE()) AS cons_si, "
+    # 2026-08-10 (decisión de Deicy tras comparar con UNIMINUTO): la autorización YA NO se pide cada día.
+    # La Ley 1581 no la vence a las 24 horas — vale hasta que el titular la revoque o hasta que cambie la
+    # política. Pedirla a diario era fricción pura: 36 personas habían autorizado dos o más veces (una, OCHO).
+    # Diseño de "consentimiento versionado", que es como lo hacen los sistemas serios:
+    #   · se mira la ÚLTIMA decisión de ese teléfono PARA LA POLÍTICA VIGENTE (la URL viaja en cada registro)
+    #   · si la última fue NO, manda el NO (revocar funciona y pesa más que un SÍ viejo)
+    #   · si Ardisa publica una política nueva, la URL cambia y TODOS vuelven a autorizar, solos
+    "(SELECT CASE WHEN c.decision='SI' THEN 1 ELSE 0 END FROM consentimientos c "
+      "WHERE c.telefono=$5 AND c.politica='" + POLITICA_URL + "' ORDER BY c.id DESC LIMIT 1) AS cons_si, "
     # === ADJUNTOS DE LA CONVERSACIÓN, desde la BD (fix 2026-08-04, caso Mario Saavedra lead #214) ===
     # Los media id vivían SOLO en store.medias (staticData). Mario mandó una foto a las 08:47 y cerró a las 08:59:
     # en esos 12 minutos ~50 ejecuciones de otros clientes pisaron esa memoria y la foto NUNCA le llegó a Karime,
