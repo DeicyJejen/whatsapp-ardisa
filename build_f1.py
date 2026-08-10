@@ -2527,12 +2527,20 @@ nodes.append(node("¿Analizar imagen?", "n8n-nodes-base.if", 2,
         {"id":"v1","leftValue":"={{ $json.gastar_ia }}","rightValue":True,"operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1780, 180))
 nodes.append(node("Cerebro conversacional", "n8n-nodes-base.code", 2, {"jsCode":CODE_CEREBRO}, 1080, 340))
 # === GUARDAR SESIÓN EN LA BD (2026-08-06, caso Sonia #234): una fila por cliente, a prueba del blob compartido.
-# El WHERE ?<>'' hace que el propio SQL ignore los caminos sin sesión (dup, noop, panel) sin nodo IF extra.
+# 2026-08-10: la primera versión usaba `SELECT ?, ? FROM DUAL WHERE ? <> ''` para saltarse sola los caminos
+# sin sesión. El CLI de MariaDB la prepara sin chistar, pero el driver del nodo MySQL de n8n NO
+# ("You have an error in your SQL syntax near '?, ? FROM DUAL WHERE ? <'") y, como el nodo va con
+# onError:continueRegularOutput, el fallo se tragó en silencio: 4 días con la tabla VACÍA y el arreglo
+# de la carrera INERTE. Ahora la consulta es la forma simple (que sí se prepara) y el filtro vive en un
+# nodo IF explícito — lo que no se puede ver, no se puede confiar.
+nodes.append(node("¿Hay sesión?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and","conditions":[
+        {"id":"hs1","leftValue":"={{ $json.ses_tel }}","rightValue":"","operator":{"type":"string","operation":"notEmpty","singleValue":True}}]},"options":{}}, 1320, 500))
 nodes.append(node("Guardar sesión (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"INSERT INTO sesiones (telefono, estado) SELECT ?, ? FROM DUAL WHERE ? <> '' ON DUPLICATE KEY UPDATE estado=VALUES(estado)",
-     "options":{"queryReplacement":"={{ [$json.ses_tel||'', $json.ses_out||'null', $json.ses_tel||''] }}"}},
-    1320, 500, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+     "query":"INSERT INTO sesiones (telefono, estado) VALUES (?, ?) ON DUPLICATE KEY UPDATE estado=VALUES(estado)",
+     "options":{"queryReplacement":"={{ [$json.ses_tel, $json.ses_out||'null'] }}"}},
+    1540, 500, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 _CODE_ENTREGAR_COT = r"""
 // FASE 2: convierte la respuesta de Claude+SAP en el mensaje al cliente. El código decide; guardrails duros:
 // sin texto, con error, o con el token [ASESOR] -> fallback (mensaje neutro + la próxima interacción o el
@@ -3310,10 +3318,11 @@ connections = {
  "Preparar IA": {"main":[[{"node":"¿Gastar IA?","type":"main","index":0}]]},
  "¿Gastar IA?": {"main":[[{"node":"🤖 IA Anthropic","type":"main","index":0}],[{"node":"Cerebro conversacional","type":"main","index":0}]]},
  "🤖 IA Anthropic": {"main":[[{"node":"Cerebro conversacional","type":"main","index":0}]]},
- "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0},{"node":"Guardar sesión (MySQL)","type":"main","index":0},{"node":"¿Cotizar?","type":"main","index":0}]]},
+ "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0},{"node":"¿Hay sesión?","type":"main","index":0},{"node":"¿Cotizar?","type":"main","index":0}]]},
+ "¿Hay sesión?": {"main":[[{"node":"Guardar sesión (MySQL)","type":"main","index":0}],[]]},
  "¿Cotizar?": {"main":[[{"node":"💰 IA Cotización (SAP)","type":"main","index":0}],[]]},
  "💰 IA Cotización (SAP)": {"main":[[{"node":"Entregar cotización","type":"main","index":0}]]},
- "Entregar cotización": {"main":[[{"node":"Responder cotización (Meta)","type":"main","index":0},{"node":"Guardar sesión (MySQL)","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0}]]},
+ "Entregar cotización": {"main":[[{"node":"Responder cotización (Meta)","type":"main","index":0},{"node":"¿Hay sesión?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0}]]},
  "¿Guardar seguimiento?": {"main":[[{"node":"Guardar seguimiento (MySQL)","type":"main","index":0}],[]]},
  "Finalizar cierre": {"main":[[{"node":"¿Hay lead 2?","type":"main","index":0}]]},
  "¿Hay lead 2?": {"main":[[{"node":"Guardar lead 2 (MySQL)","type":"main","index":0}],[{"node":"¿Hay aviso 2?","type":"main","index":0}]]},

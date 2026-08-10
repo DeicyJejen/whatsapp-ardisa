@@ -89,6 +89,24 @@ for wa, nom, n, ini, ult, pedido in q("""
           "%s (%s) escribió %s veces desde el %s y NO quedó registrado — recorrido: %s%s"
           % (nom or wa, wa, n, ini, ult, ("  ·  PIDIÓ: "+pedido[:120]) if pedido else ""))
 
+# ═══ 2c. ¿LA TABLA `sesiones` DEJÓ DE LLENARSE? ══════════════════════════════
+# 2026-08-10: el nodo que guarda la sesión por cliente (la cura de la carrera del staticData, caso
+# Sonia #234) llevaba CUATRO DÍAS fallando en silencio — su SQL no lo podía preparar el driver de n8n
+# y el nodo va con onError:continueRegularOutput, así que nadie se enteró y el arreglo estaba inerte.
+# Un arreglo que puede morir callado necesita su propio vigilante: si hoy hubo conversaciones de
+# clientes y la tabla no se movió, algo se rompió.
+_conv_hoy = q("""SELECT COUNT(DISTINCT wa_id) FROM mensajes
+                 WHERE creado_en >= CURDATE() AND etapa IN
+                   ('marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','detalle','confirmGrupo','cierre')""")
+_ses_hoy  = q("SELECT COUNT(*) FROM sesiones WHERE actualizado >= CURDATE()")
+_n_conv = int(_conv_hoy[0][0]) if _conv_hoy else 0
+_n_ses  = int(_ses_hoy[0][0])  if _ses_hoy  else 0
+if _n_conv >= 3 and _n_ses == 0:
+    anota("sesiones_no_guardan", 1, "sesiones|" + AHORA.strftime("%Y-%m-%d"),
+          "Hoy hubo %s conversaciones de clientes y la tabla `sesiones` NO registró ninguna: el nodo "
+          "'Guardar sesión (MySQL)' está fallando en silencio y la protección contra la carrera del "
+          "staticData quedó inerte" % _n_conv)
+
 # ═══ 3. PIDIÓ EMPLEO ═════════════════════════════════════════════════════════
 # No es cliente ni proveedor: el bot le insiste con el permiso de datos y el menú de marcas.
 for wa, nom, txt_, cuando in q("""
