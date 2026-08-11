@@ -928,7 +928,7 @@ const MSG_EMPLEO='¡Hola! 🙏 Gracias por tu interés en *Grupo Ardisa*.\n\nEst
 // PROVEEDORES / SPAM: esta es la línea COMERCIAL de atención a CLIENTES; no se pasan a los asesores (les haría perder tiempo).
 const MSG_PROVEEDOR='¡Hola! 🙏 Gracias por escribirnos.\n\nEste canal es la *línea comercial de atención a clientes* de *Grupo Ardisa* (cotizaciones y compras). Si deseas *ofrecernos productos o servicios como proveedor*, agradecemos tu interés, pero por este medio solo atendemos a nuestros clientes. 🤝';
 // Frases típicas de proveedor OFRECIENDO (para números de Colombia que igual son proveedores).
-const KW_PROVEEDOR=/(soy de una f[aá]brica|somos (una )?f[aá]brica|somos fabricantes|soy fabricante|f[aá]brica (en|de)|te ofrezco|le ofrezco|les ofrezco|me gustar[ií]a ofrecer|quisiera ofrecer|ofrecemos (precios|productos|nuestr|muestr|materiales)|mejores precios y calidad|buenos precios y calidad|env[ií]o de muestras|muestras gratis|linyi|shandong|guangzhou|foshan|somos (distribuidores|importadores|exportadores|proveedores)|represent(o|amos) (una|a) (f[aá]brica|empresa|marca)|manufactur)/i;
+const KW_PROVEEDOR=/(soy de una f[aá]brica|somos (una )?f[aá]brica|somos fabricantes|soy fabricante|f[aá]brica (en|de)|te ofrezco|le ofrezco|les ofrezco|me gustar[ií]a ofrecer|quisiera ofrecer|ofrecemos (precios|productos|nuestr|muestr|materiales)|mejores precios y calidad|buenos precios y calidad|env[ií]o de muestras|muestras gratis|linyi|shandong|guangzhou|foshan|somos (distribuidores|importadores|exportadores|proveedores)|soy (un |una )?(proveedor|proveedora|distribuidor|distribuidora|importador|exportador)|represent(o|amos) (una|a) (f[aá]brica|empresa|marca)|manufactur)/i;
 // Frases CLARAS de proyecto/mobiliario a medida (Alexander Arias). Conservador: un producto de mostrador NO es proyecto.
 const ES_PROYECTO=/(proyecto arquitect|dise[ñn]o arquitect|mobiliario a (la )?medida|(mueble|cocina|closet|mobiliario)s?.{0,20}\ba (la |su |tu )?medida|a (la|su|tu) medida.{0,25}(mueble|cocina|closet|mobiliario)|cocinas? integrales?|proyecto (integral|completo|arquitect|a (la |su |tu )?medida))/i;
 function ruteoIA(ia, rutTxt){   // devuelve {marca,grupo}; null = "no seguro -> preguntar". LA IA ENTIENDE Y MANDA; las palabras clave (KW) son SOLO respaldo (si la IA se cayó o no opinó).
@@ -1407,26 +1407,45 @@ if(es_media && st && ['marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd
 }
 // === FILTRO PROVEEDORES / SPAM: números que NO son de Colombia (57...), o mensajes de PROVEEDOR ofreciendo -> esta es la línea
 // COMERCIAL de atención a CLIENTES; se responde el aviso y NO se pasa a los asesores (no les hacemos perder tiempo). ===
-if(!reinicia){
+// === CARRIL PEGAJOSO DEL PROVEEDOR (2026-08-11) ===
+// `reinicia` (un "Hola" o "Buenos días" a secas) saltaba el filtro COMPLETO: al proveedor le bastaba saludar
+// para entrar al flujo de clientes y recibir el muro de autorización de datos. Ahora, a quien YA le dijimos
+// "esta es la línea de clientes" (48h), el saludo no le abre la puerta: el filtro igual lo mira.
+store.prov = store.prov || {};
+for(const _k in store.prov){ if((NOW-(store.prov[_k]||0)) > 48*3600000) delete store.prov[_k]; }
+const _provMarcado = (NOW-(store.prov[wa]||0)) < 48*3600000;   // en algún momento ya le dijimos que esta es la línea de clientes
+const _yaProv      = (NOW-(store.prov[wa]||0)) < 6*3600000;    // y fue hace poco: sigue en el carril
+if(!reinicia || _provMarcado){
   const _noCol = !String(wa).startsWith('57');
   const _ofrece = !es_media && !!texto && KW_PROVEEDOR.test(low);
   // CLIENTE REAL (aunque su número no sea de Colombia): si pide asesoría/cotización/producto o la IA lo ve EN ALCANCE, NO es proveedor -> se atiende.
-  const _pareceCliente = (ia && ia.en_alcance===true) || (ia && ia.es_reclamo===true) || (ia && ia.es_info===true) || (!es_media && !!texto && /(asesor[ií]a|asesor[ae]|cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|adquir|me interesa|tienen|venden|manejan|disponib|informaci[oó]n|producto|material|remodel|proyecto|obra|reclam|garant|pedido|factura)/i.test(low));
+  // === FIX 2026-08-11 (caso proveedor de China 8613586300781): `es_info` YA NO cuenta como señal de cliente. ===
+  // El prompt de la IA mete COMPRAS / PROVEEDURÍA dentro de es_info; o sea que "deme el contacto del departamento
+  // de compras, soy proveedor de China" salía con es_info=true -> se marcaba store.esCli (48h) -> el filtro de
+  // proveedores quedaba DESARMADO para el resto de la conversación: le mandamos los contactos de Servicio al
+  // Cliente y, al siguiente "Muchas gracias", el muro de autorización de datos. Un proveedor NO es un cliente.
+  const _pareceCliente = (ia && ia.en_alcance===true) || (ia && ia.es_reclamo===true) || (!es_media && !!texto && /(asesor[ií]a|asesor[ae]|cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|adquir|me interesa|tienen|venden|manejan|disponib|informaci[oó]n|producto|material|remodel|proyecto|obra|reclam|garant|pedido|factura)/i.test(low));
   // === FIX 2026-07-29 (auditoría, caso Laura González +61): el filtro miraba SOLO el mensaje actual. ===
   // Ella preguntó "Venden lavaderos en pasta" (señal de cliente clarísima) y fue atendida bien; pero al TOCAR
   // el botón "✅ Sí, autorizo" el texto del botón no tiene señales de cliente -> con número extranjero cayó al
   // mensaje de PROVEEDOR, perdió el consentimiento y nunca se registró. Dos memorias nuevas lo evitan:
   //   (a) store.esCli[wa]: una vez que alguien mostró intención de cliente, lo sigue siendo (se poda a las 48h).
   //   (b) tocar un BOTÓN o tener sesión/lead ya es prueba de que va por el flujo normal de clientes.
+  // El carril tapa el hueco del mensaje NEUTRO: el chino se despidió con "Muchas gracias" (sin una sola palabra
+  // de proveedor y sin señal de cliente) y ese mensaje solito lo metió al flujo normal: fuera de horario + muro
+  // + recordatorio + cierre. Se queda en el carril 6 horas y SOLO lo suelta una señal real de cliente.
   store.esCli = store.esCli || {};
   if(_pareceCliente) store.esCli[wa]=NOW;
-  const _yaEsCli = (NOW-(store.esCli[wa]||0)) < 48*3600000
+  // La marca de "es cliente" NO vale para un número al que ya tratamos como proveedor: esa marca es justo lo que
+  // el bug del 11-ago dejó pegado (la puso `es_info`) y dura 48h, así que sin esto los dos chinos ya marcados
+  // volverían a recibir el muro hoy mismo. Botón/sesión/lead siguen mandando: son actos, no deducciones.
+  const _yaEsCli = ((NOW-(store.esCli[wa]||0)) < 48*3600000 && !_provMarcado)
                 || !!id                                     // tocó un botón/lista NUESTRA
                 || !!(st && (st.consent || st.paso!=='consent'))
                 || !!(store.leads && store.leads.some(function(l){return l && l.wa===wa;}));
-  if(_ofrece || (_noCol && !_pareceCliente && !_yaEsCli)){   // proveedor SOLO si ofrece, o extranjero SIN ninguna señal de cliente
-    store.prov = store.prov || {};
+  if(_ofrece || ((_noCol || _yaProv) && !_pareceCliente && !_yaEsCli)){   // proveedor SOLO si ofrece, si es extranjero, o si ya está en el carril — y SIN ninguna señal de cliente
     if(S[wa]) S[wa].t=NOW;
+    delete store.esCli[wa];   // no deja rastro de "cliente" en quien acabamos de tratar como proveedor
     if(NOW-(store.prov[wa]||0) > 30*60*1000){   // le respondemos 1 vez cada 30 min
       store.prov[wa]=NOW;
       return [{json:{etapa:'proveedor', wa_id:wa, wpp_body:txt(wa, MSG_PROVEEDOR), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null,
@@ -1604,8 +1623,11 @@ if(preguntaHorario){
   if(store.cliMsgs) delete store.cliMsgs[wa];   // el reclamo NO deja rastro en el log de solicitudes comerciales
   etapa='reclamo'; if(st) st.reclamoAvisado=NOW;   // NO se crea lead comercial ni se pasa a un asesor de ventas
   wpp_body=null; pend_cierre=true; pend_token=_rtk;
-} else if(esInfo){
+} else if(esInfo && !_pideCompras){
   // INFORMACIÓN / SERVICIO AL CLIENTE (no es una cotización): se orienta al canal de Servicio al Cliente, NO se fuerza el flujo de ventas ni se crea lead.
+  // `!_pideCompras` (2026-08-11): a un PROVEEDOR no se le brindan contactos internos. Como la IA mete
+  // "compras / proveeduría" dentro de es_info, esta rama le entregaba el WhatsApp y el correo de Servicio al
+  // Cliente a quien nos quiere vender. Ahora eso cae a la rama de COMPRAS, que primero pregunta a qué área va.
   const _last=store.info[wa]||0;
   store.pendCierre = store.pendCierre || {};
   const _itk=NOW; store.pendCierre[wa]={token:_itk, t:NOW, destino:wa, aviso:txt(wa, MSG_INFO), avisoExtra:'', lead:null, tipo:'info'};
