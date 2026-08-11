@@ -885,6 +885,15 @@ const KW_ACAB=/\b(electrodom|nevera|refrigerador|congelador|estufa|horno|microon
 const KW_CARP=/\b(madera|maderas|tablero|tableros|aglomerado|mdf|mdp|melamin|f[oó]rmica|formica|triplex|contrachapado|riel|corredera|bisagra|herraje|canto|laca|lacad|carpinter)/;
 // RECLAMO/PQRS: esta es una línea COMERCIAL. Los reclamos van al canal de Servicio al Cliente (no a un asesor de ventas).
 const KW_RECLAMO=/(reclamo|reclamar|queja|quejar|pqrs?|inconform|no me (ha|han|an) (lleg|entreg|devuel|resuel|respond|cumpl|soluc)|no (me |)(lleg[oó]|entregaron|cumplieron)|me (cobr|cobraron|estaf)|cobr(o|aron|an) de m[aá]s|mal (servicio|atenci|atendid)|mala atenci|p[eé]sim[oa]|producto (da[nñ]ado|defectuoso|malo|en mal estado|incompleto)|lleg[oó] (da[nñ]ad|roto|incompleto|mal)|garant[ií]a|devoluci[oó]n|devolver|reembolso|me devuelv|demanda|estaf|fraude|incumpl|no cumpl|ya pagu[eé] y|pagu[eé] y (a[uú]n|todav|no|ahora|luego|despu[eé]s|dicen|me|toca)|factura mal)/i;
+// === EL CLIENTE QUE ESPERA A SU ASESOR NO ES UN PQRS (2026-08-11, caso Alfonso Crismatt, lead #261) ===
+// Escribió "Amigo la asesora nunca me escribió". La IA lo marcó es_reclamo=true (y no le falta razón: se está
+// quejando), la rama de PQRS le ganó a todas las demás y el bot lo mandó a Servicio al Cliente — que no puede
+// hacer nada con esto. Lo que necesita es que le RECUERDEN a SU asesora, y eso el bot ya sabe hacerlo.
+// Decisión de Deicy: "ahí le toca responderle que ya le recuerda a la asesora para que se comunique y le dé
+// prioridad". Esta lista vivía DUPLICADA en dos sitios con textos distintos, y a ninguno de los dos le cabía
+// "nunca me escribió" — por eso ni siquiera se le avisaba a la asesora. Ahora es UNA sola, por raíces de verbo
+// (escrib- cubre escribió/escribieron/escrito), que es lo que aguanta el idioma real.
+const KW_ESPERA_ASESOR=/(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nunca me (ha |han )?(escrib|contest|contact|respond|llam|atend)|no me (escrib|contest|contact|respond|llam|atend)\w* (nadie|nunca|a[uú]n|todav)|nadie me|sigo esperando|sigo sin (respuesta|noticias|que me)|no he recibido (respuesta|noticias|nada|llamada)|no me ha llegado (nada|respuesta)|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|muy demorad|cu[aá]ndo me (atienden|contestan|llaman)|tampoco responden)/i;
 // Mensaje PQRS (voz de marca, profesional y empático).
 const MSG_RECLAMO='¡Hola! 🙏 Lamentamos mucho el inconveniente.\n\nEn *Grupo Ardisa* queremos ayudarte a resolverlo. Este canal es nuestra *línea comercial*, por eso tu *reclamo, queja, sugerencia o solicitud* la atenderá con gusto nuestro equipo de *Servicio al Cliente*:\n\n💬 *WhatsApp:* 3176643045\n📧 *Correo:* ayuda@ardisa.com\n\nAllí le darán trámite a tu caso lo antes posible. Gracias por tu confianza en *Grupo Ardisa*. 🤝';
 const MSG_RECLAMO_CORTO='Con gusto te ayudamos. Recuerda que tu caso lo atiende nuestro equipo de *Servicio al Cliente*:\n💬 *WhatsApp:* 3176643045   ·   📧 ayuda@ardisa.com 🤝';
@@ -1515,7 +1524,7 @@ if(!st && CLIENTES_PRUEBA.indexOf(wa)<0 && store.leads){
 // otra regla de Deicy es justamente "si llegan a escribir otro día, sí le toca hacer de nuevo". Con la queja no
 // hay ambigüedad: está reclamando por el lead que ya tiene, así que va a su asesor. Para una consulta nueva el
 // flujo corre normal y el amarre de cerrarLead igual se lo asigna al MISMO asesor.
-const _quejaSinSesion = /(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|me dejaron esperando|muy demorad|cu[aá]ndo me (atienden|contestan|llaman)|tampoco responden)/i.test(low) || !!(ia && ia.es_reclamo===true);
+const _quejaSinSesion = KW_ESPERA_ASESOR.test(low) || !!(ia && ia.es_reclamo===true);
 if(!st && _quejaSinSesion && CLIENTES_PRUEBA.indexOf(wa)<0 && PEND_TEL && ASESORES[PEND_TEL]){
   st = S[wa] = { paso:'cerrado', t:NOW, closedAt:NOW-60000, nombre:(d.profileName||''), ciudad:'', ciudadId:'',
     asesorNom:PEND_ASE, asesorNum:PEND_TEL, asesorF:(ASESORES_F[PEND_TEL]?1:0), destino:PEND_TEL,
@@ -1556,7 +1565,16 @@ store.reclamo = store.reclamo || {};
 // que se equivocan más). No se registra nada ni se pide dato personal alguno: solo se le da la salida correcta.
 const _iaReclamo = !!(ia && ia.es_reclamo===true);
 const _iaInfo    = !!(ia && ia.es_info===true);
-const esReclamo = !reinicia && !id && (ia ? (ia.es_reclamo===true) : (!es_media && !!texto && KW_RECLAMO.test(low))) && (st ? (st.paso!=='consent' || _iaReclamo) : true);
+// ¿Está ESPERANDO a su asesor (y sabemos quién es)? Entonces esto no se va ni a PQRS ni al menú de "hablar con
+// un asesor": va a su propio carril, que le recuerda a SU asesora y le responde que queda priorizado.
+// Sin asesor conocido no aplica: ahí un "no me han contestado" sí es un reclamo, y Servicio al Cliente es el sitio.
+const _tieneAsesor = !!((st && (st.destino || st.asesorNom)) || (PEND_TEL && ASESORES[PEND_TEL]));
+// `st.paso==='cerrado'`: solo para quien YA cerró su solicitud (si no tenía sesión, el bloque de arriba se la
+// reconstruye desde la BD con su asesor). A mitad del flujo NO se desvía: ahí "no me han llamado" sería la
+// respuesta a la pregunta en curso y le ensuciaría el nombre o la ciudad.
+const _esperaAsesor = !reinicia && !id && !es_media && !!texto && _tieneAsesor
+                      && !!(st && st.paso==='cerrado') && KW_ESPERA_ASESOR.test(low);
+const esReclamo = !reinicia && !id && !_esperaAsesor && (ia ? (ia.es_reclamo===true) : (!es_media && !!texto && KW_RECLAMO.test(low))) && (st ? (st.paso!=='consent' || _iaReclamo) : true);
 // SOLICITUD DE INFORMACIÓN NO COMERCIAL (referencia comercial, servicio al cliente, RRHH, facturación...): respaldo por palabras clave (la IA aún no la clasifica). No aplica en el paso de consentimiento.
 store.info = store.info || {};
 const esInfo = !reinicia && !id && !es_media && !esReclamo && (ia ? (ia.es_info===true) : (!!texto && KW_INFO.test(low))) && (texto ? true : false) && (st ? (st.paso!=='consent' || _iaInfo) : true) && !(ia && ia.en_alcance===true);
@@ -1658,7 +1676,9 @@ if(preguntaHorario){
     etapa = _ofreceProv ? 'proveedor' : 'info';
     wpp_body = txt(wa, _ofreceProv ? MSG_PROVEEDOR : MSG_INFO);
   }
-} else if(pideHumano && st && st.paso!=='consent'){
+} else if(pideHumano && !_esperaAsesor && st && st.paso!=='consent'){
+  // `!_esperaAsesor`: "la ASESORA nunca me escribió" contiene la palabra "asesora" y caía aquí como si estuviera
+  // PIDIENDO un asesor — cuando ya tiene uno y de lo que se queja es de que no lo ha llamado (2026-08-11).
   st.escape=true; st.pidioHumano=true;
   // preserva el mensaje original si trae contenido (no solo la palabra gatillo)
   if(texto && !st.detalle && !/^(asesor|asesora|humano|persona|agente|0)\s*$/i.test(low)){ st.detalle=[...texto].slice(0,300).join(''); }
@@ -2147,7 +2167,11 @@ if(preguntaHorario){
       st.paso='marca';
       wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
     }
-  } else if(texto && low.length>=2 && !/^\d$/.test(low) && !_soloSaludoTxt && (NOW-(st.closedAt||0) < 24*3600000)){
+  } else if(texto && low.length>=2 && !/^\d$/.test(low) && !_soloSaludoTxt && !_esperaAsesor && (NOW-(st.closedAt||0) < 24*3600000)){
+    // `!_esperaAsesor` (2026-08-11, caso Alfonso Crismatt): "la asesora nunca me escribió" NO es un detalle
+    // que agregarle al pedido. Se le respondía "Ya se lo pasamos a Karime para que lo tenga en cuenta en tu
+    // solicitud" — al cliente que se está quejando de que Karime no lo ha llamado. Va al 'else', que le
+    // recuerda a la asesora y le responde que queda priorizado.
     // === ADICIÓN de texto tras cerrar (2026-08-03: la ventana pasa de 5 MINUTOS a 24 HORAS) ===
     // Caso real (Omar Rivera, lead #207): cerró con ciudad "Bucaramanga" y 11 minutos después escribió "Cali".
     // Como iba fuera de los 5 minutos, el bot le respondió "ya está en gestión" y ESA CIUDAD NUNCA LLEGÓ AL
@@ -2191,9 +2215,14 @@ if(preguntaHorario){
       wpp_body=txt(wa,'¡Hola de nuevo'+_nom+'! 😊\n\nTu solicitud está *priorizada* con '+_asNom+', quien te contactará *hoy* dentro del horario de atención. 🤝');
     }
     // Solo si es una QUEJA/insistencia REAL (no un simple "Hola") le recordamos al asesor (máx 1 cada 10 min).
-    const _esQueja = !reinicia && /(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nadie me|sigo esperando|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|cu[aá]ndo me (atienden|contestan|llaman))/i.test(low);
+    const _esQueja = !reinicia && KW_ESPERA_ASESOR.test(low);
     if(_esQueja && _dest && (NOW-(st.lastRemind||0) > 10*60*1000)){
-      st.lastRemind=NOW;
+      st.lastRemind=NOW; etapa='espera_asesor';
+      // 2026-08-11 (Deicy, caso Alfonso Crismatt): al que YA esperó y lo dice, no se le repite "está en gestión"
+      // como si nada — se le dice que ya le recordamos a SU asesora y que queda priorizado. Y es verdad: el
+      // recordatorio sale en este mismo mensaje (abajo). No se le cuenta el problema interno ni se le promete
+      // una hora que no controlamos.
+      wpp_body=txt(wa,'¡Hola'+_nom+'! 🙏 Gracias por avisarnos.\n\nYa le recordamos a '+_asNom+' que se comunique contigo, y tu solicitud queda *priorizada*. Te contactará dentro del horario de atención. 🤝');
       aviso_body=txt(_dest,
         '⏰ *Recordatorio — el cliente insiste*\n\n'+
         '👤 *Cliente:* '+(st.nombre||'—')+'\n'+
