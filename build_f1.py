@@ -2711,7 +2711,12 @@ nodes.append(node("¿Hay sesión?", "n8n-nodes-base.if", 2,
         {"id":"hs1","leftValue":"={{ $json.ses_tel }}","rightValue":"","operator":{"type":"string","operation":"notEmpty","singleValue":True}}]},"options":{}}, 1320, 500))
 nodes.append(node("Guardar sesión (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"INSERT INTO sesiones (telefono, estado) VALUES (?, ?) ON DUPLICATE KEY UPDATE estado=VALUES(estado)",
+     # 2026-08-11: los marcadores son `$1,$2` — NO `?`. El nodo MySQL de n8n sustituye `$n` por sus valores;
+     # con `?` manda la consulta cruda y MariaDB responde ER_PARSE_ERROR ("near '?, ?) ON DUPLICATE KEY'").
+     # El arreglo del 10-ago cambió la FORMA de la consulta (que era el problema anterior) pero heredó los `?`,
+     # y como el nodo va con onError:continueRegularOutput volvió a fallar EN SILENCIO otro día entero.
+     # Todas las demás consultas del workflow ya usaban `$n`: esta era la única distinta.
+     "query":"INSERT INTO sesiones (telefono, estado) VALUES ($1, $2) ON DUPLICATE KEY UPDATE estado=VALUES(estado)",
      "options":{"queryReplacement":"={{ [$json.ses_tel, $json.ses_out||'null'] }}"}},
     1540, 500, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 _CODE_ENTREGAR_COT = r"""
