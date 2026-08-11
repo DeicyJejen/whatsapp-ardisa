@@ -1806,7 +1806,7 @@ if(preguntaHorario){
     etapa='consent';
     if(muroReciente()){
       // El muro ya está en su pantalla: acusamos recibo de la foto y le señalamos el botón, sin repetir todo.
-      wpp_body=txt(wa,'¡Recibimos tu foto, gracias! 📷\n\nSolo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos. 🙌');
+      wpp_body=txt(wa,'¡Recibimos tu foto, gracias! 📷\n\nSi aún no lo has hecho, toca *✅ Sí, autorizo* en el mensaje de arriba y seguimos. 🙌');
     } else {
       marcarMuro();
       wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\nPara revisarla y atenderte necesitamos tu *autorización para el tratamiento de tus datos personales* 🔒. Revisa y acepta nuestra política:\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
@@ -1875,7 +1875,7 @@ if(preguntaHorario){
     if(texto && !reinicia && traeSolicitud(texto, low, ia)){ st.pendTexto=[...texto].slice(0,1200).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
     if(es_media && d.media_id){ st.pendMediaId=d.media_id; st.pendMediaType=d.mtype||''; if(!st.pendTexto){ const _r=resumenIA(ia); st.pendTexto='📎 '+(MTYPE_ES[d.mtype]||'un archivo')+(_r?(' — '+_r):''); st.pendIA=(ia&&ia.en_alcance)?ia:null; } }
     if(muroReciente()){   // dos "Hola" seguidos no merecen dos veces el mismo muro
-      wpp_body=txt(wa,'¡Te leemos! 🙌 Solo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
+      wpp_body=txt(wa,'¡Te leemos! 🙌 Si aún no lo has hecho, toca *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
     } else {
       marcarMuro();
       wpp_body=boton(wa,avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\nBienvenido a *Grupo Ardisa*.\n\nTu privacidad nos importa 🔒. Para atenderte necesitamos tu *autorización para el tratamiento de tus datos personales*. Revisa y acepta nuestra política:\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
@@ -1941,7 +1941,7 @@ if(preguntaHorario){
     if(muroReciente()){   // el muro sigue en su pantalla: acusamos recibo sin repetírselo
       const _ack = es_media ? '¡Recibimos tu foto, gracias! 📷\n\n'
                  : (_yaPidio ? 'Con gusto te ayudamos, ya tenemos tu consulta. 🙌\n\n' : '');
-      wpp_body=txt(wa, _ack + 'Solo falta que toques *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
+      wpp_body=txt(wa, _ack + 'Si aún no lo has hecho, toca *✅ Sí, autorizo* en el mensaje de arriba y seguimos.');
     } else {
       marcarMuro();
       wpp_body=boton(wa, _cab+'\n\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);

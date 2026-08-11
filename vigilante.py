@@ -52,17 +52,33 @@ NO_CLIENTE = ("AND m.wa_id <> '573205662947' AND m.wa_id NOT LIKE '5799999%' "
 # ═══ 1. CARRERA DEL CONSENTIMIENTO ═══════════════════════════════════════════
 # El cliente autoriza y segundos después el bot se lo vuelve a pedir (staticData pisado por
 # ejecuciones en paralelo). Arreglado el 3-ago leyendo la BD; esto vigila que no vuelva.
-for tel, nom, cuando, seg in q("""
+# 2026-08-11 — LA ALERTA TIENE QUE DISTINGUIR DOS COSAS QUE NO SON IGUALES (caso Adriana Poveda, #265):
+#   (a) el bot repite el MURO COMPLETO tras autorizar  -> eso es el bug de verdad (21 clientes en 18 días);
+#   (b) el bot manda el EMPUJÓN SUAVE ("Solo falta que toques ✅ Sí, autorizo") -> eso NO es el bug: es la
+#       degradación DISEÑADA para las carreras (el freno temporal `store.muro` ya evitó repetir el muro).
+# Adriana escribió 366 ms antes de que terminara la ejecución de su botón: ninguna lectura podía saberlo
+# todavía. Recibió el empujón suave, siguió y quedó registrada como lead. Avisar de eso como si fuera "el
+# error de siempre" es peor que no avisar: enseña a desconfiar del panel, y el día que aparezca el bug real
+# nadie lo va a mirar. Se distinguen por el TEXTO: el muro completo lleva la URL de la política; el empujón no.
+# Y aunque sea el muro completo, si el cliente igual terminó registrado se baja a severidad 2 (no es urgencia).
+for tel, nom, cuando, seg, quedo in q("""
     SELECT c.telefono, COALESCE(c.nombre,''), DATE_FORMAT(c.creado_en,'%d/%m %H:%i:%s'),
-           TIMESTAMPDIFF(SECOND, c.creado_en, MIN(m.creado_en))
+           TIMESTAMPDIFF(SECOND, c.creado_en, MIN(m.creado_en)),
+           EXISTS(SELECT 1 FROM leads l
+                  WHERE l.telefono COLLATE utf8mb4_unicode_ci = c.telefono COLLATE utf8mb4_unicode_ci
+                    AND l.creado_en >= c.creado_en)
     FROM consentimientos c
     JOIN mensajes m ON m.wa_id COLLATE utf8mb4_unicode_ci = c.telefono COLLATE utf8mb4_unicode_ci
     WHERE c.decision='SI' AND m.etapa='consent' AND m.creado_en > c.creado_en
       AND c.creado_en >= NOW() - INTERVAL 3 DAY
+      AND m.salida LIKE '%politica-de-datos-personales%'
     GROUP BY c.telefono, c.nombre, c.creado_en
     HAVING TIMESTAMPDIFF(SECOND, c.creado_en, MIN(m.creado_en)) <= 90"""):
-    anota("carrera_consent", 1, tel+"|"+cuando,
-          "%s (%s) autorizó el %s y el bot se lo volvió a pedir %ss después" % (nom or tel, tel, cuando, seg))
+    _reg = str(quedo) == "1"
+    anota("carrera_consent", 2 if _reg else 1, tel+"|"+cuando,
+          "%s (%s) autorizó el %s y el bot le volvió a mostrar el MURO COMPLETO %ss después%s"
+          % (nom or tel, tel, cuando, seg,
+             " (aun así quedó registrado, pero se le hizo repetir)" if _reg else " — y NO quedó registrado"))
 
 # ═══ 2. CLIENTE PERDIDO ══════════════════════════════════════════════════════
 # Escribió y NUNCA quedó registrado como lead.
