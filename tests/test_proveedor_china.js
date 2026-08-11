@@ -73,6 +73,16 @@ const CHINA = '8613586300781';
 
 // ══ Guardas: lo que NO se puede romper ══════════════════════════════════════════
 {
+  // Yolanda Quintero +63 (10-ago): CLIENTA que ya compro y pide la ficha tecnica de su Esquina Magica.
+  // La IA la marca es_info=true y su texto no trae "cotizar" ni "precio" ni "producto": si es_info se
+  // descuenta ENTERO, esta clienta recibe "solo atendemos a nuestros clientes". No puede pasar.
+  const sd = base();
+  const IA_INFO = { en_alcance:false, es_reclamo:false, es_info:true, pide_humano:false, confianza:'alta', productos:[] };
+  const r = correr({ datos: msg('639199574917', 'Buenos días. Mi nombre es Yolanda Quintero. tengo una Esquina Mágica Spar para instalar en mi cocina. Podrían enviarme la ficha técnica (incluyendo capacidad de carga) y el manual de instalación? Gracias.', IA_INFO), sd, pend:{} });
+  chequear('GUARDA: la clienta extranjera que pide una ficha tecnica NO es proveedor',
+           !/^proveedor/.test(r.etapa) && !/solo atendemos a nuestros clientes/i.test(cuerpo(r)), 'etapa=' + r.etapa);
+}
+{
   // Laura Gonzalez +61 (fix 29-jul): cliente REAL con numero extranjero -> se atiende.
   const sd = base();
   const IA_CLI = { en_alcance:true, es_reclamo:false, es_info:false, pide_humano:false, confianza:'alta', productos:['lavadero en pasta'] };

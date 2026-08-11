@@ -1419,12 +1419,19 @@ if(!reinicia || _provMarcado){
   const _noCol = !String(wa).startsWith('57');
   const _ofrece = !es_media && !!texto && KW_PROVEEDOR.test(low);
   // CLIENTE REAL (aunque su número no sea de Colombia): si pide asesoría/cotización/producto o la IA lo ve EN ALCANCE, NO es proveedor -> se atiende.
-  // === FIX 2026-08-11 (caso proveedor de China 8613586300781): `es_info` YA NO cuenta como señal de cliente. ===
+  // === FIX 2026-08-11 (caso proveedor de China 8613586300781): `es_info` ya no basta para ser cliente. ===
   // El prompt de la IA mete COMPRAS / PROVEEDURÍA dentro de es_info; o sea que "deme el contacto del departamento
   // de compras, soy proveedor de China" salía con es_info=true -> se marcaba store.esCli (48h) -> el filtro de
   // proveedores quedaba DESARMADO para el resto de la conversación: le mandamos los contactos de Servicio al
   // Cliente y, al siguiente "Muchas gracias", el muro de autorización de datos. Un proveedor NO es un cliente.
-  const _pareceCliente = (ia && ia.en_alcance===true) || (ia && ia.es_reclamo===true) || (!es_media && !!texto && /(asesor[ií]a|asesor[ae]|cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|adquir|me interesa|tienen|venden|manejan|disponib|informaci[oó]n|producto|material|remodel|proyecto|obra|reclam|garant|pedido|factura)/i.test(low));
+  //
+  // PERO es_info NO es solo proveeduría: también es la CLIENTA que ya compró y pide la ficha técnica o el
+  // manual de lo que tiene en su cocina (caso Yolanda Quintero +63, 10-ago — su mensaje no trae ni "cotizar"
+  // ni "precio" ni "producto", así que sin es_info ninguna otra señal la salva). Quitarlo del todo la habría
+  // mandado al mensaje de proveedor: "por este medio solo atendemos a nuestros clientes"... siendo clienta.
+  // Así que lo que se descuenta es solo el es_info CON OLOR A PROVEEDURÍA, no el es_info entero.
+  const _infoProv = !es_media && !!texto && /((de|con) compras|proveedur|ser (su |sus |un )?proveedor|proveedor de ustedes|inscribir(me|nos) como proveedor|soy (un |una )?(proveedor|proveedora|distribuidor|importador|exportador)|ofrecer(les|le)?\s|portafolio)/i.test(low);
+  const _pareceCliente = (ia && ia.en_alcance===true) || (ia && ia.es_reclamo===true) || (ia && ia.es_info===true && !_infoProv) || (!es_media && !!texto && /(asesor[ií]a|asesor[ae]|cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|adquir|me interesa|tienen|venden|manejan|disponib|informaci[oó]n|producto|material|remodel|proyecto|obra|reclam|garant|pedido|factura)/i.test(low));
   // === FIX 2026-07-29 (auditoría, caso Laura González +61): el filtro miraba SOLO el mensaje actual. ===
   // Ella preguntó "Venden lavaderos en pasta" (señal de cliente clarísima) y fue atendida bien; pero al TOCAR
   // el botón "✅ Sí, autorizo" el texto del botón no tiene señales de cliente -> con número extranjero cayó al
