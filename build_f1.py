@@ -484,7 +484,18 @@ function cerrarLead(st,opts){
     : 'el cliente aún no detalló su solicitud en texto';
   if(!st.nombre) st.nombre = esNombreValido(d.profileName) ? capNombre(d.profileName) : 'Cliente';
   // Sumar al detalle lo EXTRA que el cliente escribió durante la toma de datos (ej: "Requiero el bizcocho para ese inodoro")
-  if(st.notas){ st.detalle = (st.detalle ? (st.detalle+' — 📝 Nota del cliente: ') : '📝 Nota del cliente: ') + st.notas; delete st.notas; }
+  // Se guarda APARTE antes de consumirla: más abajo el detalle que ve el asesor se arma con `cliMsgs`, y
+  // cliMsgs LE GANA a st.detalle — así que la nota se perdía justo aquí (ver el merge en `_detExcel`).
+  // Solo se pega si NO está ya dicho: cuando la IA tomó la solicitud al inicio, el mismo texto vive en las dos
+  // memorias y al asesor le llegaba repetido ("Necesito 20 láminas de MDF — 📝 Nota del cliente: Necesito 20
+  // láminas de MDF"). Se compara normalizado, sin dobles espacios ni mayúsculas.
+  if(st.notas){
+    const _nrm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+    if(_nrm(st.detalle).indexOf(_nrm(st.notas))<0){
+      st.detalle = (st.detalle ? (st.detalle+' — 📝 Nota del cliente: ') : '📝 Nota del cliente: ') + st.notas;
+    }
+    delete st.notas;
+  }
   // === ANTI-RÁFAGA (fix flood de tarjetas) ===
   // Si el cliente manda varios mensajes seguidos (p.ej. una lista de cotización, cada línea un mensaje),
   // cada mensaje abre una ejecución en paralelo y varias llegan al cierre -> tarjetas repetidas al asesor
@@ -660,12 +671,31 @@ function cerrarLead(st,opts){
   // El cuerpo de un mensaje de WhatsApp muere a los 4096 caracteres: la tarjeta lleva otros ~600 de
   // encabezados, así que el detalle se muestra hasta 1800 y, si el pedido es aún más largo, se le dice
   // al asesor que abra el chat (el lead en la BD sí guarda el texto completo — la columna es TEXT).
-  let _detShown = _cliAll || st.detalle || _detFallback;
+  // === LO QUE EL CLIENTE PIDIÓ MIENTRAS LE PREGUNTÁBAMOS EL NOMBRE (2026-08-11, caso Alfonso Crismatt #261) ===
+  // El bot tiene DOS memorias de lo que pidió el cliente y se estaban anulando:
+  //   · `cliMsgs` — todo lo que escribió, pero EXCLUYE a propósito los pasos 'nombre'/'ciudad' (si no, el
+  //     nombre del cliente terminaría listado como su solicitud);
+  //   · `st.detalle` — donde caen justamente esas frases rescatadas (st.notas) y lo que tomó la IA.
+  // Aquí `_cliAll` le GANABA a `st.detalle` con un `||`, así que si el cliente decía qué necesitaba MIENTRAS
+  // le pedíamos el nombre, eso se descartaba entero. Alfonso escribió "Melamina rh de color beige o tonos
+  // similares" en ese punto y a Karime le llegó "Carpi centro Barranquilla?" — la pregunta suelta de antes de
+  // autorizar. De 157 leads desde el 23-jul, solo 2 traían la nota.
+  // Ya NO se elige: se FUSIONAN. Y se comparan normalizados para no repetir lo mismo dos veces (lo habitual es
+  // que una contenga a la otra; en ese caso gana la más completa).
+  const _mezclaDet = (a,b) => {
+    const _n = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+    if(!_n(b)) return a; if(!_n(a)) return b;
+    if(_n(a).indexOf(_n(b))>=0) return a;      // b ya está contenido en a
+    if(_n(b).indexOf(_n(a))>=0) return b;      // a ya está contenido en b -> b es la versión completa
+    return a+'  ·  '+b;
+  };
+  const _detSt = (st.detalle && st.detalle!==_detFallback) ? st.detalle : '';
+  let _detShown = _mezclaDet(_cliAll, _detSt) || _detFallback;
   if([..._detShown].length>1800) _detShown = [..._detShown].slice(0,1800).join('')+'\n… (pedido largo — ábrelo completo en el chat: wa.me/'+wa+')';
   // DETALLE para el EXCEL (columna "Solicitud del cliente"): lo que escribió el cliente + la lectura de la IA de la imagen (si envió).
   // La FOTO real se le reenvía al asesor por WhatsApp; en el Excel queda la DESCRIPCIÓN, marcada con 📎, para que no se pierda nada.
   const _nAdj = (store.medias && store.medias[wa]) ? store.medias[wa].filter(m=>m&&m.id).length : ((st.mediaId||st.imgDesc)?1:0);
-  let _detExcel = (_cliAll || (st.detalle&&st.detalle!==_detFallback?st.detalle:'') || '').trim();
+  let _detExcel = String(_mezclaDet(_cliAll, _detSt)||'').trim();
   if(st.imgDesc){ _detExcel = (_detExcel?_detExcel+' | ':'') + '📎 Imagen'+(_nAdj>1?'es ('+_nAdj+')':'')+': '+st.imgDesc; }
   else if(_nAdj>0){ _detExcel = (_detExcel?_detExcel+' | ':'') + '📎 El cliente envió '+(_nAdj>1?(_nAdj+' adjuntos'):'un adjunto')+' (foto/documento) — revísalo en el chat'; }
   if(!_detExcel) _detExcel = _detShown;
