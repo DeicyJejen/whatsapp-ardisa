@@ -1018,8 +1018,12 @@ function esNombreValido(s){
   if(ES_CIUDAD_TXT.test(s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''))) return false;   // es una ciudad, no un nombre
   if(/\d/.test(s)) return false;                                                   // nombres no llevan números (productos sí: "2/0", "700 ml")
   if(/[<>@#%*/\\|=_"“”·•]|½|¼|¾/.test(s)) return false;                             // símbolos/medidas
-  if(/\b(mm|cm|mts?|ml|kg|lt|und|unid|pulg|pulgadas?|metros?|serie|thhn|acsr|pvc|ref|cod|calibre|voltaje|kv|amp|placa|tubo|cable|varilla|cemento|cer[aá]mica|tablero|l[aá]mina|grifer[ií]a)\b/i.test(s)) return false;  // jerga de producto
+  if(/\b(mm|cm|mts?|ml|kg|lt|und|unid|pulg|pulgadas?|metros?|serie|thhn|acsr|pvc|ref|cod|calibre|voltaje|kv|amp|placa|tubo|cable|varilla|cemento|cer[aá]mica|tablero|l[aá]mina|grifer[ií]a|bajante|esquinero|tapacanto|riel|canto|melamina|yeso|teja|tejas|pintura|barniz|geotextil)\b/i.test(s)) return false;  // jerga de producto (se suma lo visto en los rebotes reales)
   if(/(necesito|quiero|busco|cotiza|coti|precio|vend[eo]|tienen|me interesa|cu[aá]nto|informaci|asesor|pedido|factura|domicilio|ayuda|urgente)/i.test(s)) return false;   // es una solicitud, no un nombre
+  // Palabras de FRASE que ningún nombre lleva (2026-08-11). Al recortar la cola por la coma, "Aun no se bien,
+  // me podrías asesorar económico" quedaba en "Aun no se bien" y pasaba: el recorte se había llevado la palabra
+  // ("asesorar") que lo delataba. Ojo: aquí NO van "de/la/del" — "Juan de la Cruz" es un apellido de lo más común.
+  if(/\b(no|s[ií]|se|bien|mal|nada|algo|todo|todos|m[aá]s|menos|muy|ya|aqu[ií]|d[oó]nde|cu[aá]ndo|c[oó]mo|porque|pero|entonces|favor|gracias|sedes|manejan|maneja|hay)\b/i.test(s)) return false;
   if(/\b(prueba|pruebas|test|testing|probando|asdf|qwerty|ejemplo|fulano|mengano|zutano|sutano|nadie|ninguno|cualquiera|jaja|jeje|jiji|holis)\b/i.test(s)) return false;   // basura/pruebas: "prueba ti", "test", etc.
   if(/^(.)\1{2,}$/i.test(s.replace(/\s/g,''))) return false;                          // una sola letra repetida: "aaaa", "xxxx"
   const pal=s.split(/\s+/).filter(Boolean);
@@ -1033,11 +1037,50 @@ function esNombreValido(s){
   return true;
 }
 // Extrae SOLO el nombre real: quita saludos e intros ("mi nombre es", "me llamo", "soy", "con"...) que la gente antepone.
+// === 2026-08-11 (caso Paola Infante, EN VIVO 10:52) ===
+// Escribió "Mucho gusto mi nombre es Paola Infante de la empresa Aqstica" y el bot le volvió a preguntar el
+// nombre. Dos fallas: "mucho gusto" no estaba en la lista de cortesías (así que no se quitaba NADA, porque el
+// patrón está anclado con ^), y nadie recortaba la COLA — la empresa, el cargo, la ciudad. Con la frase entera
+// (58 caracteres) el validador la rechazaba por larga. La gente se presenta así; el bot tiene que entenderlo.
+const _CORTESIA_NOM=/^(hola|ola|buenas tardes|buenas noches|buenos d[ií]as|buen d[ií]a|buenas|qu[eé] tal|saludos|cordial saludo|mucho gusto|un gusto|encantad[oa]|feliz d[ií]a|con mucho gusto)\b[\s,.:;!¡\-]*/i;
+// El presentador puede venir DESPUÉS de la cortesía o en mitad de la frase -> se busca en cualquier posición.
+const _INTRO_NOM=/\b(?:mi nombre completo es|mi nombre es|mi nombre|me llamo|me llaman|me dicen|yo soy|soy|le habla|les habla|habla|le escribe|les escribe|de parte de|con)\b[\s,.:;!¡\-]*/i;
+// Lo que viene DESPUÉS del nombre y NO es el nombre. Ojo: exige la palabra "empresa/compañía/..." — así
+// "Juan de la Cruz" o "María de los Ángeles" siguen intactos (el apellido con 'de' es de lo más normal).
+const _COLA_NOM=/\b(?:de|del|de la|desde|en)\s+(?:la\s+|el\s+)?(?:empresa|compa[nñ][ií]a|firma|constructora|f[aá]brica|sociedad|corporaci[oó]n|instituci[oó]n|fundaci[oó]n|almac[eé]n|dep[oó]sito|ferreter[ií]a|mueble[rs][ií]a|obra|parte de)\b.*$/i;
 function limpiaNombre(s){
   let t=String(s||'').replace(/\s+/g,' ').trim();
-  const pre=/^(hola|ola|buenas tardes|buenas noches|buenos d[ií]as|buen d[ií]a|buenas|qu[eé] tal|saludos|cordial saludo|mi nombre completo es|mi nombre es|mi nombre|me llamo|me llaman|me dicen|yo soy|soy|le habla|les habla|habla|de parte de|con)\b[\s,.:;!¡\-]*/i;
-  for(let i=0;i<4 && pre.test(t);i++){ t=t.replace(pre,'').trim(); }
-  return t.replace(/\s+/g,' ').trim();
+  for(let i=0;i<4 && _CORTESIA_NOM.test(t);i++){ t=t.replace(_CORTESIA_NOM,'').trim(); }
+  const _mi=t.match(_INTRO_NOM);
+  if(_mi) t=t.slice(_mi.index+_mi[0].length).trim();
+  t=t.split(/\s*[,;(]|\s+[-–—]\s+/)[0].trim();     // "Paola Infante, Aqstica" · "Paola Infante - compras"
+  t=t.replace(_COLA_NOM,'').trim();
+  return t.replace(/\s+/g,' ').replace(/[.,;:!¡¿?\-]+$/,'').trim();   // "Yaneth Becerra." -> sin el punto final
+}
+// Palabras que NUNCA son parte de un nombre. La lista es larga a propósito: la última red de abajo es la que
+// más fácil se equivoca, y equivocarse ahí es PEOR que volver a preguntar — deja al asesor un cliente llamado
+// "Cototizar Bultos". Probado contra los 44 rebotes reales desde el 15-jul.
+const _RUIDO_NOM=/\b(mucho|gusto|mi|nombre|me|llamo|llaman|dicen|soy|habla|escribe|le|les|de|del|la|el|los|las|un|una|unos|unas|y|o|empresa|compa[nñ][ií]a|firma|con|parte|hola|buenas|buenos|d[ií]as|tardes|noches|saludos|cordial|qu[eé]|tal|encantad[oa]|para|por|que|es|este|esta|estos|estas|quiero|quisiera|deseo|necesito|requiero|busco|comprar|cotizar|manejan|maneja|venden|vende|tienen|tiene|hay|aun|a[uú]n|profesional|encargad[oa]|asesor|asesora)\b/i;
+// ÚLTIMA RED: si tras limpiar sigue sin parecer un nombre, se miran las PRIMERAS 2 a 4 palabras — la gente que
+// se presenta pone su nombre al principio ("Yuly Quiñones necesito una cocina empotrable"). Tres condiciones,
+// las tres necesarias: anclado al INICIO (si no, "Manejas de este tipo de yeso" entrega "Este Tipo"), sin
+// palabras de ruido, y CAPITALIZADO — un nombre propio se escribe con mayúscula y "queiro comrpar" no.
+// La minúscula sí se acepta por el camino normal ("mi nombre es juan carlos gómez"): ahí el cliente DIJO que
+// es su nombre. Aquí, sin que lo diga, la mayúscula es la única señal honesta que queda.
+function nombreDeFrase(s){
+  const t=limpiaNombre(s);
+  if(esNombreValido(t)) return t;
+  // La puntuación se limpia PALABRA POR PALABRA y antes de armar el candidato. Si se limpiaba después, una
+  // dirección como "Calle 29 # 13-65 barrio Girardot" dejaba el candidato de 2 palabras "Calle -" que, al
+  // quitarle el guion, se volvía "Calle" — una sola palabra colándose por la puerta de las dos.
+  const pal=String(t||'').replace(/[^\p{L}\s'’.\-]/gu,' ').replace(/\s+/g,' ').trim().split(' ')
+              .map(w=>w.replace(/^[.\-]+/,'').replace(/[.,;:!¡¿?\-]+$/,'')).filter(Boolean);
+  const _cap = w => /^[\p{Lu}]/u.test(w);
+  for(let n=Math.min(4,pal.length); n>=2; n--){
+    const cand=pal.slice(0,n).join(' ');
+    if(cand.split(' ').every(_cap) && !_RUIDO_NOM.test(cand) && esNombreValido(cand)) return cand;
+  }
+  return t;
 }
 // Mejor resumen disponible de lo que la IA entendió (para imágenes/adjuntos): resumen -> lista de productos -> acuse.
 // Antes solo se miraba 'resumen'; cuando la IA devolvía la lista en 'productos' (típico en fotos), se perdía.
@@ -1936,7 +1979,9 @@ if(preguntaHorario){
   // Fix 1 (parte nombre): si llega media, usa el nombre de perfil de WhatsApp en vez de descartar
   if(es_media){ const _pn=[...String(d.profileName||'')].slice(0,50).join('').trim(); if(esNombreValido(_pn)){ st.nombre=capNombre(_pn); siguientePaso(st); } else { etapa='nombre'; wpp_body=txt(wa,'Recibimos tu archivo. Para asignarte un asesor, ¿nos confirmas tu *nombre y apellido*? ✍️'); } }
   else if(!texto){ etapa='nombre'; wpp_body=txt(wa,'Por favor escríbenos tu *nombre y apellido*. ✍️'); }
-  else { const _n=limpiaNombre([...texto].slice(0,60).join(''));   // quita "mi nombre es", "soy", "me llamo"... -> solo el nombre real
+  else { let _n=nombreDeFrase([...texto].slice(0,160).join(''));   // quita cortesías/intro/empresa y, si hace falta, busca el nombre DENTRO de la frase
+    // Si la IA ya leyó el nombre en este mismo mensaje, manda ella antes que volver a preguntar (2026-08-11).
+    if(!esNombreValido(_n) && ia && ia.nombre){ const _ian=limpiaNombre(String(ia.nombre)); if(esNombreValido(_ian)) _n=_ian; }
     // valida que parezca un nombre REAL de persona (no un producto, cantidad ni una solicitud). Sin nombre válido NO avanza.
     if(!esNombreValido(_n)){
       st.nombreIntentos=(st.nombreIntentos||0)+1;
