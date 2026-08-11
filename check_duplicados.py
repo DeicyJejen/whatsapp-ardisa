@@ -16,7 +16,8 @@ ALERTED = BASE + "/reportes/dup_alerted.txt"
 STATE = BASE + "/reportes/dup_lastrun.txt"
 SMTP_HOST="smtp.office365.com"; SMTP_PORT=587; SMTP_USER="noreply@ardisa.com"
 SMTP_PASS=open("/home/ubuntu/.config/ardisa/smtp_pass").read().strip()
-DEST=["deicy.jejen@ardisa.com","ernesto.rondano@ardisa.com"]
+# 2026-08-11 (pedido de Deicy): las alertas del bot van SOLO a ella (igual que en vigilante.py).
+DEST=["deicy.jejen@ardisa.com"]
 
 def q(sql):
     out = subprocess.check_output(

@@ -53,9 +53,12 @@ SMTP_PASS = open("/home/ubuntu/.config/ardisa/smtp_pass").read().strip()
 DEST_ARDISA = ["nancy.zambrano@ardisa.com", "paola.calderon@ardisa.com", "maria.ardila@ardisa.com"]
 DEST_CARP   = ["paola.calderon@ardisa.com", "maria.ardila@ardisa.com"]
 MARCAS = [("Ardisa", "Ardisa", DEST_ARDISA), ("Carpincentro", "Carpincentro", DEST_CARP)]
-DEST_PRUEBA = ["ernesto.rondano@ardisa.com"]   # para --test (correo de Deicy)
-# Copia OCULTA (BCC) de supervisión, solo en modo real: los reales (Nancy/Paola/María) NO la ven (decisión Ernesto 2026-07-21).
-BCC_COPIA = ["ernesto.rondano@ardisa.com", "deicy.jejen@ardisa.com"]
+# 2026-08-11: el comentario de aquí decía que ernesto.rondano@ardisa.com era "el correo de Deicy".
+# NO lo es: ese es el correo de la CUENTA de la máquina; Deicy es deicy.jejen@ardisa.com. Son dos
+# personas distintas y esa confusión hacía que todo le llegara duplicado a quien no lo pidió.
+DEST_PRUEBA = ["deicy.jejen@ardisa.com"]   # para --test
+# Copia OCULTA (BCC) de supervisión, solo en modo real: los reales (Nancy/Paola/María) NO la ven.
+BCC_COPIA = ["deicy.jejen@ardisa.com"]
 DIAS = 7
 OUT = "/home/ubuntu/whatsapp-ardisa/reportes/"
 os.makedirs(OUT, exist_ok=True)

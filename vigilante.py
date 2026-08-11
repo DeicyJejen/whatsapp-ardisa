@@ -23,7 +23,10 @@ KEY_N8N   = "/home/ubuntu/.config/ardisa/n8n_api_key"
 SMTP_HOST, SMTP_PORT = "smtp.office365.com", 587
 SMTP_USER = "noreply@ardisa.com"
 SMTP_PASS = open("/home/ubuntu/.config/ardisa/smtp_pass").read().strip()
-DEST      = ["deicy.jejen@ardisa.com", "ernesto.rondano@ardisa.com"]
+# 2026-08-11 (pedido de Deicy): las alertas del bot son SOLO para ella. Ernesto sale de la lista.
+# Ojo con la confusión histórica: el correo de la CUENTA de la máquina es ernesto.rondano@ardisa.com,
+# pero quien opera y recibe las alertas es Deicy — son dos personas distintas, no dos correos de la misma.
+DEST      = ["deicy.jejen@ardisa.com"]
 SECO      = "--seco" in sys.argv
 AHORA     = datetime.datetime.now()
 
