@@ -57,13 +57,40 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('Solo herramientas de mostrador en la lista blanca',
            /buscar_producto/.test(nombres) && /disponibilidad_ciudad/.test(nombres) && !/cartera|ventas|compras|contabilidad|recaudos/.test(nombres),
            nombres);
-  chequear('El sistema lleva la ciudad del cliente y los guardrails',
-           /Bucaramanga/.test(req.system||'') && /\[ASESOR\]/.test(req.system||'') && /precio de referencia/.test(req.system||''),
+  // ARRANQUE SIN PRECIO (decisión Deicy 11-ago): el servidor MCP todavía no tiene tool de precio, asi que
+  // `mcp_precio_tool` va vacio en la BD. El bot NO debe hablar de precios ni escalar por eso — resuelve
+  // producto y disponibilidad, y remite el valor al asesor.
+  chequear('El sistema lleva la ciudad del cliente y el guardrail de escalar',
+           /Bucaramanga/.test(req.system||'') && /\[ASESOR\]/.test(req.system||''),
            String(req.system||'').slice(0,120));
+  chequear('SIN tool de precio: no promete precios y no escala por no tenerlos',
+           /NO tienes precios/.test(req.system||'') && !/precio de referencia/.test(req.system||'')
+             && !/el precio no está disponible/.test(req.system||''),
+           String(req.system||'').slice(0,240));
+  chequear('SIN tool de precio: la lista blanca no la incluye',
+           !/precio/.test(nombres), nombres);
   chequear('La pregunta del cliente viaja en messages', JSON.stringify(req.messages||[]).includes('duratex'),
            JSON.stringify(req.messages||[]).slice(0,120));
   chequear('Y el rescate quedó armado (si abandona, el cron cierra)', !!sd.rescate[DEMO],
            JSON.stringify(Object.keys(sd.rescate||{})));
+}
+
+// ══ 1b. EL DÍA QUE EXISTA LA TOOL DE PRECIO: se prende desde la BD, sin desplegar ═
+// En `config.mcp_precio_tool` se guarda el NOMBRE EXACTO de la tool (no un si/no) — asi la lista blanca no
+// puede quedar nombrando una tool que se llama distinto y que el bot ignoraria en silencio.
+{
+  const sd = base(); sd.ses[DEMO] = sesion();
+  const CFG_P = Object.assign({}, CFG, { cfg_precio_tool:'consultar_precio' });
+  const r = correr({ datos: ev(DEMO,{ texto:'Cuánto vale la lámina duratex de 18mm?' }), sd, pend:CFG_P });
+  const req = r.cot_req||{};
+  const nombres=(((req.tools||[])[0]||{}).configs||[]).map(c=>c.name).join(',');
+  chequear('CON tool de precio: entra a la lista blanca con SU nombre exacto',
+           /(^|,)consultar_precio(,|$)/.test(nombres), nombres);
+  chequear('CON tool de precio: vuelven las reglas de "precio de referencia"',
+           /precio de referencia/.test(req.system||'') && !/NO tienes precios/.test(req.system||''),
+           String(req.system||'').slice(0,200));
+  chequear('CON tool de precio: sigue sin ver cartera/ventas',
+           !/cartera|ventas|compras|contabilidad|recaudos/.test(nombres), nombres);
 }
 
 // ══ 2. SEGURIDAD: cliente REAL con todo prendido -> flujo de SIEMPRE ════════════
