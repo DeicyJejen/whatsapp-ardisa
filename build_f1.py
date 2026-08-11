@@ -2961,9 +2961,17 @@ nodes.append(node("¿Guardar seguimiento?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"sg1","leftValue":"={{ $('Cerebro conversacional').item.json.hay_seg }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1760, 1240))
+# === EL REPORTE DEL ASESOR ENCUENTRA SU FILA (2026-08-11) ===
+# El WHERE era `creado_en=$6`: la fecha EXACTA que el bot guardó en el pendiente de seguimiento. Pero cuando el
+# cliente cierra DOS veces en menos de 45 minutos, el segundo INSERT lo bloquea a propósito el candado
+# anti-duplicado (su detalle se le SUMA a la fila que ya existe) — y sin embargo el pendiente se creaba con la
+# fecha del segundo cierre, que NO es la de ninguna fila. El UPDATE tocaba 0 filas y al asesor igual le
+# respondíamos "✅ ¡Registrado, gracias!". 4 reportes de 128 se perdieron así, entre ellos una VENTA GANADA de
+# $1.270.000 (Claudia Parra, 6-ago). Ahora se busca la fila REAL: la más reciente de ese teléfono creada hasta
+# ese momento — que es exactamente la fila donde el candado acumuló todo.
 nodes.append(node("Guardar seguimiento (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"UPDATE leads SET estado=$1, estado_motivo=$2, valor_venta=COALESCE($3, valor_venta), obs_asesor=TRIM(BOTH ' | ' FROM CONCAT(COALESCE(obs_asesor,''), CASE WHEN COALESCE($4,'')='' THEN '' ELSE CONCAT(' | ', $4) END)), reportado_en=NOW() WHERE telefono=$5 AND creado_en=$6",
+     "query":"UPDATE leads SET estado=$1, estado_motivo=$2, valor_venta=COALESCE($3, valor_venta), obs_asesor=TRIM(BOTH ' | ' FROM CONCAT(COALESCE(obs_asesor,''), CASE WHEN COALESCE($4,'')='' THEN '' ELSE CONCAT(' | ', $4) END)), reportado_en=NOW() WHERE telefono=$5 AND creado_en<=$6 ORDER BY creado_en DESC LIMIT 1",
      "options":{"queryReplacement":"={{ [$('Cerebro conversacional').item.json.seg_update.estado, $('Cerebro conversacional').item.json.seg_update.motivo, $('Cerebro conversacional').item.json.seg_update.valor, $('Cerebro conversacional').item.json.seg_update.obs, $('Cerebro conversacional').item.json.seg_update.telefono, $('Cerebro conversacional').item.json.seg_update.creado_en] }}"}},
     1980, 1240, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("¿Hay adjunto 2?", "n8n-nodes-base.if", 2,

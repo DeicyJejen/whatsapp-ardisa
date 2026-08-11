@@ -107,6 +107,41 @@ if _n_conv >= 3 and _n_ses == 0:
           "'Guardar sesión (MySQL)' está fallando en silencio y la protección contra la carrera del "
           "staticData quedó inerte" % _n_conv)
 
+# ═══ 2d. ¿UN REPORTE DEL ASESOR SE PERDIÓ? ═══════════════════════════════════
+# 2026-08-11 (lo notó Deicy: "no han reportado nada y en el chat de cada uno sí reportaron"): el bot le
+# dice "✅ ¡Registrado, gracias!" al asesor SIN comprobar que la fila se haya actualizado. Cuando el
+# cliente cerraba dos veces en menos de 45 min, el pendiente apuntaba a una fila que el candado
+# anti-duplicado nunca insertó -> el UPDATE tocaba 0 filas y el reporte se perdía en silencio.
+# 4 de 128 se perdieron así, uno de ellos una venta GANADA de $1.270.000. La consulta ya busca la fila
+# real; esto vigila que la promesa que se le hace al asesor sea cierta.
+# OJO con el detector: NO sirve buscar un lead con `reportado_en` cercano a la confirmación, porque al
+# RE-reportar un lead esa fecha se sobrescribe y las confirmaciones viejas quedarían huérfanas — daba 31
+# falsos positivos en 30 días. El invariante que sí se sostiene es: el cliente que aparece en una
+# confirmación tiene que tener SU lead con estado. Eso no lo borra un re-reporte.
+_leads_por_nombre = {}
+for _lid, _nom, _est, _cre in q("SELECT id, COALESCE(nombre,''), COALESCE(estado,''), creado_en FROM leads"):
+    _leads_por_nombre.setdefault(_nom.strip().lower(), []).append((_lid, _est, _cre))
+
+for _cuando, _tel_ase, _salida in q("""
+    SELECT DATE_FORMAT(creado_en,'%d/%m %H:%i'), wa_id, REPLACE(salida, CHAR(10), '§')
+    FROM mensajes WHERE etapa='seg_ok' AND creado_en >= NOW() - INTERVAL 4 DAY ORDER BY creado_en"""):
+    # el nombre del cliente es la primera línea de la confirmación que no es encabezado ni etiqueta
+    _cliente = ""
+    for _p in [p for p in _salida.split("§") if p.strip()]:
+        _s = _p.strip().lstrip("👤 ").strip()
+        if _s and not any(k in _p for k in ("Registrado", "Estado", "Motivo", "Valor", "Cuando", "📝")) and len(_s) < 60:
+            _cliente = _s
+            break
+    if not _cliente:
+        continue
+    _cands = _leads_por_nombre.get(_cliente.lower(), [])
+    if _cands and any(e for _, e, _c in _cands):
+        continue          # su lead sí quedó con estado -> el reporte llegó
+    anota("reporte_perdido", 1, "segok|" + _cuando + "|" + _tel_ase,
+          "El asesor %s reportó a *%s* el %s y el bot le confirmó '✅ ¡Registrado!', pero ese lead sigue "
+          "SIN estado en la base: el reporte se perdió y no aparece en el informe%s"
+          % (_tel_ase, _cliente, _cuando, "" if _cands else " (y no existe ningún lead con ese nombre)"))
+
 # ═══ 3. PIDIÓ EMPLEO ═════════════════════════════════════════════════════════
 # No es cliente ni proveedor: el bot le insiste con el permiso de datos y el menú de marcas.
 for wa, nom, txt_, cuando in q("""
