@@ -1614,6 +1614,11 @@ if(!st && CLIENTES_PRUEBA.indexOf(wa)<0 && store.leads){
           // asesorF venía FIJO en 0 -> a la clienta de ayer se le decía "nuestro asesor Karime Vannesa"
           // (12-ago, chat de Paola Infante). El género sale de la tabla de asesores, no de un cero.
           asesorNom:(_l.asesor||''), asesorNum:(_l.destino||''), asesorF:(ASESORES_F[_l.destino]?1:0), destino:(_l.destino||''),
+          // El PERFIL también se hereda (12-ago): store.leads siempre lo guardó, pero esta reconstrucción
+          // no lo copiaba, así que al cliente de ayer se le volvía a pedir "elige tu perfil" aunque ya lo
+          // hubiera dicho. Es seguro: si la consulta nueva es de la OTRA marca, arrancarIA lo descarta
+          // solo (una nevera no hereda "Carpintero").
+          ocupacion:(_l.ocupacion||''),
           detalle:(_l.detalle||_l.tiposol||''), interes:(_l.interes||''), marca:(_l.marca||'') };
       }
       break;   // solo el lead MÁS RECIENTE de este número decide (si es >48h, cliente nuevo normal)

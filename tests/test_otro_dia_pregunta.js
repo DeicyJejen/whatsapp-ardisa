@@ -137,5 +137,32 @@ if (otroDia) {
            r.etapa === 'adicion' && /50/.test(S(r.aviso_body)), 'etapa=' + r.etapa);
 }
 
+// ══ 8. "Algo nuevo" NO es volver a llenar todo (pregunta de Deicy, 12-ago) ════
+// Nombre, ciudad y PERFIL se heredan de su solicitud anterior: solo se le pregunta qué necesita.
+// (El perfil no se heredaba: store.leads siempre lo guardó, pero la reconstrucción no lo copiaba.)
+{
+  const WA2 = '573111222333';
+  const sd = { rot:{}, consent:{}, leads:[{ wa:WA2, ts:AYER, nombre:'Carlos Ruiz', ciudad:'Bucaramanga',
+      ciudadId:'BUCARAMANGA', asesor:'Yormy Mayz Garza', destino:'573001234567', marca:'Ardisa',
+      interes:'Construcción', ocupacion:'🛠️ Ferretero', detalle:'Cemento gris x 20 bultos' }],
+    done:{}, sent:{}, lastKey:{}, fwd:{}, medias:{}, segPend:{}, pendCierre:{}, rescate:{}, compras:{},
+    empleo:{}, muro:{}, ses:{}, info:{}, cliMsgs:{} };
+  const ev2 = (o) => Object.assign({ wa_id:WA2, profileName:'Carlos Ruiz', texto:'', mtype:'', media_id:'',
+                                     opcion_id:'', opcion_txt:'', es_media:false, ia:null }, o);
+  const ia = { en_alcance:true, confianza:'alta', productos:['varilla corrugada 1/2'],
+               grupo_pista:'CONSTRUCCION', acuse:'Con gusto, cotizamos la varilla.' };
+  if (otroDia) {
+    correr({ datos: ev2({ texto:'Buenos dias' }), sd, pend:{ cons_si:1, pend_id:250 } });
+    correr({ datos: ev2({ texto:'🆕 Algo nuevo', opcion_id:'CONT_NUEVA' }), sd, pend:{ cons_si:1, pend_id:250 } });
+    const r = correr({ datos: ev2({ texto:'ahora necesito 40 varillas corrugadas de 1/2', ia }), sd, pend:{ cons_si:1, pend_id:250 } });
+    chequear('Otro día + "algo nuevo": con decir el producto ya cierra',
+             r.etapa === 'cierre' && !!r.lead, 'etapa=' + r.etapa);
+    chequear('NO le vuelve a preguntar el perfil (lo hereda de su solicitud anterior)',
+             (r.lead || {}).tipo_cliente === '🛠️ Ferretero', S((r.lead || {}).tipo_cliente));
+    chequear('Ni el nombre ni la ciudad', (r.lead || {}).nombre === 'Carlos Ruiz' && (r.lead || {}).ciudad === 'Bucaramanga',
+             S((r.lead || {}).nombre) + ' / ' + S((r.lead || {}).ciudad));
+  } else { total += 3; ok += 3; console.log('  OK   | (mismo día calendario: no aplica)'); }
+}
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);
