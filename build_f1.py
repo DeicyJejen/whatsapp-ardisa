@@ -467,7 +467,11 @@ function cerrarLead(st,opts){
   {
     const _dv = (String(st.detalle||'')+' '+String(st.notas||'')).toLowerCase().trim();   // detalle Y notas: el producto puede estar en cualquiera (2026-07-23, caso Andrés #104)
     const _tieneMedia = !!st.mediaId || !!(store.medias && store.medias[wa] && store.medias[wa].length) || ADJ_BD.length>0;
-    const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tablero|mdf|mdp|melamin|f[oó]rmica|triplex|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraje|canto|laca)/i.test(_dv);
+    // 2026-08-12 (caso Teca): faltaba TODO el vocabulario de Carpincentro. "Tableo roble" no contaba como
+    // producto -> el cierre lo veía "vago" y pedía el producto en bucle aunque el cliente YA lo dijo. Se
+    // suma la familia de la madera y "tabl" (cubre tablero Y el typo "tableo"). Mismo cambio que en la
+    // captura de arriba: el bot debe reconocer que una madera/tablero/herraje ES un producto concreto.
+    const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|f[oó]rmica|formica|triplex|tripl|contrachap|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|cl[oó]set|closet|repisa|entrepa[ñn]o|estante|puerta)/i.test(_dv);
     const _pareceVago = /(cotiz|cotizar|cotizaci|precio|presupuesto|asesor[ií]a|asesoren|me asesor|ayuda|ay[uú]den|orientaci[oó]n|informaci[oó]n|informes?|colabor|comprar|adquirir|interesad)/i.test(_dv) && !_tieneProd;
     // GENÉRICO SIN PRODUCTO (2026-07-17, caso Arley "Un producto"): el cliente no dio un producto concreto -> NO cerramos a medias.
     const _dvLimpio = _dv.replace(/[^a-z0-9áéíóúñ]/gi,'');
@@ -1501,7 +1505,11 @@ if(!es_media && texto && !id){
 // (nombre/ciudad/perfil), no se pierde -> lo guardamos en st.notas y se suma al detalle que ve el asesor.
 // `!id`: SOLO texto libre — un TOQUE de botón trae su etiqueta como texto ("🛋️ Proyecto a tu medida" contiene "medida")
 // y se colaba como "nota del cliente" -> saltaba la pregunta de producto y cerraba con basura (2026-07-23, caso Alicia #106).
-if(!es_media && !id && texto && st && !reinicia && ['nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','consent','marca'].includes(st.paso) && [...texto].length>=12 && ( /\d/.test(texto) || /(requiero|necesito|quiero|busco|cotiz|coti|precio|inodoro|sanitario|bizcocho|grifer|cambio|revisi|instala|medid|color|cantidad|referenc|cemento|cer[aá]mica|tablero|l[aá]mina|producto|material|combo|ducha|lavamanos|lavaplatos|nevera|estufa|porcelan|pintura|madera|piso|muro|pared|banca|banco|enchap|mosaico|sauna|turco|metro|m2|mt2)/i.test(low) )){
+// 2026-08-12 (caso Teca #573053353923): faltaba TODO el vocabulario de Carpincentro (maderas, tableros,
+// herrajes). "Tableo roble" (tablero de roble, con un typo) no matcheaba nada y se perdió. Se suma la
+// familia de la madera y "tabl" (cubre tablero Y el typo "tableo"). El catch-all de verdad va en el paso
+// de ciudad/punto de abajo: lo que NO es una ciudad ni un punto, casi siempre es el producto.
+if(!es_media && !id && texto && st && !reinicia && ['nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','consent','marca'].includes(st.paso) && [...texto].length>=12 && ( /\d/.test(texto) || /(requiero|necesito|quiero|busco|cotiz|coti|precio|inodoro|sanitario|bizcocho|grifer|cambio|revisi|instala|medid|color|cantidad|referenc|cemento|cer[aá]mica|tabl|l[aá]mina|producto|material|combo|ducha|lavamanos|lavaplatos|nevera|estufa|porcelan|pintura|madera|piso|muro|pared|banca|banco|enchap|mosaico|sauna|turco|metro|m2|mt2|mdf|aglomer|f[oó]rmica|formica|melamin|contrachap|tripl|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|tapacanto|canto|herraj|bisagra|corredera|riel|closet|cl[oó]set|cocina integral|puerta|mueble|repisa|entrepa[ñn]o|estante)/i.test(low) )){
   st.notas = (st.notas ? (st.notas+' | ') : '') + [...texto].slice(0,1200).join('');
   if(ia && (ia.grupo_pista==='CONSTRUCCION'||ia.grupo_pista==='ACABADOS')) st.notasGrupo=ia.grupo_pista;   // guarda el grupo que la IA vio en el producto (para rutear al cerrar sin re-preguntar)
 }
@@ -2072,7 +2080,14 @@ if(preguntaHorario){
     } else { delete st.nombreIntentos; st.nombre=capNombre(_n); siguientePaso(st); } }
 } else if(st.paso==='ciudad'){
   const c=elige(st.marca==='Ardisa'?CIU_ARD:CIU);
-  if(!c){ wpp_body=ciudadMenu('Por favor selecciona tu *ciudad* en la lista. Si no aparece, elige *Otra ciudad*. 👇', (st.marca==='Ardisa'?CIU_ARD:CIU)); }
+  if(!c){
+    // CATCH-ALL (2026-08-12, caso Teca): lo que el cliente escribe donde pedimos CIUDAD y NO es una ciudad,
+    // casi siempre es su producto ("Tableo roble"). Se guarda como nota antes de repetir el menú, así el
+    // rescate ya tiene qué entregarle al asesor aunque el cliente abandone. Se excluye saludo/ruido suelto.
+    if(texto && !id && [...texto].length>=4 && !RE_SALUDO.test(low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim()) && !/^(no|s[ií]|ok|okay|gracias|listo|dale|vale)\s*$/i.test(low)){
+      const _n=[...texto].slice(0,300).join(''); if(!st.notas || st.notas.indexOf(_n)<0) st.notas=(st.notas?(st.notas+' | '):'')+_n;
+    }
+    wpp_body=ciudadMenu('Por favor selecciona tu *ciudad* en la lista. Si no aparece, elige *Otra ciudad*. 👇', (st.marca==='Ardisa'?CIU_ARD:CIU)); }
   else if(c[0]==='OTRA'){ st.ciudadId='OTRA'; st.paso='ciudadOtra'; etapa='ciudadOtra';
     wpp_body=txt(wa,'📍 ¿En qué *ciudad* te encuentras? Escríbela aquí (ciudad y departamento).'); }
   else { st.ciudad=c[1]; st.ciudadId=c[0];
@@ -2126,7 +2141,13 @@ if(preguntaHorario){
 } else if(st.paso==='punto'){   // Carpincentro: el cliente elige el punto de venta más cercano
   const pts=puntosDe(st.ciudadId); const opts=pts.map((p,i)=>['PT_'+i,p.tienda,p.dir]);
   const o=elige(opts);
-  if(!o){ etapa='punto'; wpp_body=lista(wa,'Por favor elige el *punto* más cercano. 👇','Ver puntos',('Puntos '+(st.ciudad||'')),opts); }
+  if(!o){ etapa='punto';
+    // CATCH-ALL (2026-08-12, caso Teca): el paso del punto es donde más se abandona (Karime atiende toda
+    // Carpincentro, así que es cosmético). Lo que escriba y no sea un punto se guarda como su producto.
+    if(texto && !id && [...texto].length>=4 && !RE_SALUDO.test(low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim()) && !/^(no|s[ií]|ok|okay|gracias|listo|dale|vale)\s*$/i.test(low)){
+      const _n=[...texto].slice(0,300).join(''); if(!st.notas || st.notas.indexOf(_n)<0) st.notas=(st.notas?(st.notas+' | '):'')+_n;
+    }
+    wpp_body=lista(wa,'Por favor elige el *punto* más cercano. 👇','Ver puntos',('Puntos '+(st.ciudad||'')),opts); }
   else { st.puntoIdx=parseInt(o[0].slice(3),10); st.paso='ocupacion'; etapa='ocupacion';
     wpp_body=lista(wa,'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA); }
 } else if(st.paso==='detalle'){
