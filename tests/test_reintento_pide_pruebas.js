@@ -46,34 +46,26 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
 }
 
 // ══ 2. DE VERDAD SIN REPORTAR (pend_id>0) ═════════════════════════════════════
-// 2026-08-12 (orden de Deicy, caso Paola Infante): el saludo de OTRO día ya NO se da por hecho que es la
-// misma solicitud. El bot PREGUNTA (paso confirmSeg) y el lead solo se crea cuando el cliente contesta.
-// Lo que NO cambia: el asesor se entera HOY MISMO de que su cliente sin reporte volvió a escribir.
+// 2026-08-12 (orden de Deicy): el cliente que vuelve OTRO día ya no queda amarrado a la solicitud de
+// ayer — entra como NUEVO y llena el formulario otra vez. La acusación de "no atendido ayer" se acabó:
+// lo que queda es la nota del pendiente, que cerrarLead pone al cerrar la solicitud nueva (prueba 4).
 {
   const sd = conLeadAyer(base());
   const r = correr({ datos: ev({ texto:'Buen día' }), sd, pend:{ cons_si:1, pend_id:218 } });
   const mismoDia = new Date(AYER).getDate() === new Date().getDate();
   if (!mismoDia) {
-    chequear('Sin reporte + otro día: el bot PREGUNTA en vez de suponer',
-             r.etapa === 'confirmSeg' && /solicitud anterior/i.test(JSON.stringify(r.wpp_body||'')),
-             'etapa=' + r.etapa + ' ' + JSON.stringify(r.wpp_body||'').slice(0,140));
-    chequear('Y todavía NO inventa un lead (nadie sabe aún si es la misma)', !r.lead,
-             JSON.stringify((r.lead||{}).solicitud));
-    // La ventana del asesor está cerrada en el arnés -> la tarjeta viaja por la cola mediaPend (blindaje 131047).
-    const tarjeta = JSON.stringify(r.aviso_body||'') + JSON.stringify(sd.mediaPend||{}) + JSON.stringify(sd.holds||{});
-    chequear('El asesor SÍ se entera hoy: su cliente sin reporte volvió a escribir',
-             /volvió a escribir hoy/i.test(tarjeta) && /#218/.test(tarjeta) && /573001234567/.test(tarjeta),
-             tarjeta.slice(0,200));
-    // 2026-08-06 (caso Fundación Mujer y Futuro #235): el bot solo sabe que no hay REPORTE — no puede saber
-    // si el asesor atendió por fuera. Se dice "sin reporte"; jamás "sin atender / no atendido".
-    const todo = JSON.stringify(r) + tarjeta;
-    chequear('El bot solo afirma lo que sabe: "sin reporte", nunca "sin atender"',
-             /sin reporte|pendiente de reporte/i.test(todo) && !/sin atender|no atendido|NO LO HAN ATENDIDO|URGENTE/i.test(todo),
-             todo.slice(0,200));
+    chequear('Otro día: entra como cliente NUEVO (no lo amarra a la de ayer)',
+             r.etapa !== 'seguimiento_dia2' && r.etapa !== 'adicion' && !r.lead,
+             'etapa=' + r.etapa + ' lead=' + JSON.stringify((r.lead||{}).solicitud));
+    const todo = JSON.stringify(r) + JSON.stringify(sd.mediaPend||{}) + JSON.stringify(sd.holds||{});
+    // 2026-08-06 (caso Fundación Mujer y Futuro #235): el bot solo sabe que no hay REPORTE — no puede
+    // saber si el asesor atendió por fuera. Jamás se dice "sin atender / no atendido".
+    chequear('Nunca se acusa al asesor de "sin atender"',
+             !/sin atender|no atendido|NO LO HAN ATENDIDO|URGENTE/i.test(todo), todo.slice(0,200));
     chequear('Al cliente NO se le pide perdón por una demora no comprobada',
              !/Lamentamos la demora/i.test(JSON.stringify(r.wpp_body||'')),
              JSON.stringify(r.wpp_body||'').slice(0,120));
-  } else { total++; ok++; console.log('  OK   | (mismo día calendario — la regla del día siguiente no aplica)'); }
+  } else { total += 3; ok += 3; console.log('  OK   | (mismo día calendario — la regla del día siguiente no aplica)'); }
 }
 
 // ══ 3. La queja explícita SIEMPRE le llega al asesor, con o sin reporte ════════
