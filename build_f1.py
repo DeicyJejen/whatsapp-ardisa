@@ -185,6 +185,15 @@ if(store.esCli) for (const k in store.esCli) { if ((NOW - store.esCli[k]) > 48*3
 for (const k in store.aiRate) { if (store.aiRate[k] && (NOW - store.aiRate[k].t0) > 10*60*1000) delete store.aiRate[k]; }   // poda el rate-limit de IA (ventana de 1 min; 10 min de gracia)
 for (const k in store.sent) { if (store.sent[k] && (NOW - store.sent[k]) > 60*60*1000) delete store.sent[k]; }   // poda el anti-ráfaga (1h)
 for (const k in store.fwd) { if (store.fwd[k] && (NOW - store.fwd[k]) > 6*3600*1000) delete store.fwd[k]; }   // poda media reenviada (6h)
+// === PODAS AÑADIDAS (2026-08-12, auditoría de robustez) — antes crecían sin límite y cada reinicio recargaba todo ===
+// store.leads era el 79% del blob (111KB / 255 entradas, TODOS los leads de siempre). Sus usos reales miran
+// <48h (rotaSticky, cliente que vuelve) o "alguna vez fue cliente" (anti-proveedor): 30 días cubre de sobra.
+// El tope de 2000 sigue de respaldo. La BD MySQL es el registro permanente; esto es solo caché operativo.
+if(store.leads && store.leads.length){ store.leads = store.leads.filter(function(l){ return l && (NOW-(l.ts||0)) < 30*24*3600*1000; }); }
+for (const k in store.cliMsgs) { const _a=store.cliMsgs[k]; const _ult=(_a&&_a.length)?(_a[_a.length-1]):null; const _tt=(_ult&&typeof _ult==='object')?_ult.t:0; if(!_a||!_a.length||(NOW-(_tt||0))>2*3600*1000) delete store.cliMsgs[k]; }   // log del cliente: se lee a 25 min, se poda a 2h
+if(store.reclamo) for (const k in store.reclamo) { if ((NOW - store.reclamo[k]) > 48*3600*1000) delete store.reclamo[k]; }   // freno de repetición de reclamo (48h)
+if(store.info) for (const k in store.info) { if ((NOW - store.info[k]) > 48*3600*1000) delete store.info[k]; }   // freno de repetición de info (48h)
+if(store.mediaNudge) for (const k in store.mediaNudge) { if ((NOW - store.mediaNudge[k]) > 72*3600*1000) delete store.mediaNudge[k]; }   // anti-spam del destrabe de cola (se re-arma solo)
 // 2026-07-29: Jhon Jairo salió de la rotación de Construcción -> la "deuda de turno" acumulada (24-jul) ya no
 // aplica. Se limpia una vez para que, si algún día vuelve a entrar a un pool, no arranque saltándose turnos.
 if(store.rotDeuda && store.rotDeuda['573164679556']) delete store.rotDeuda['573164679556'];

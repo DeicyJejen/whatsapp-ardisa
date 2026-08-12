@@ -39,6 +39,36 @@ def q(sql):
 def esc(s):
     return str(s).replace("\\","\\\\").replace("'","''").replace("\n"," ")[:400]
 
+def avisar_correo(asunto, cuerpo):
+    """Manda un correo de alerta. NO depende de MySQL (SMTP directo) -> sirve incluso con la BD caída."""
+    msg = EmailMessage()
+    msg["From"] = "Grupo Ardisa (Vigilante del Bot) <%s>" % SMTP_USER
+    msg["To"] = ", ".join(DEST); msg["Subject"] = asunto; msg.set_content(cuerpo)
+    s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60); s.ehlo()
+    s.starttls(context=ssl.create_default_context()); s.ehlo(); s.login(SMTP_USER, SMTP_PASS)
+    s.send_message(msg); s.quit()
+
+# ═══ DEAD-MAN: ¿LA BASE DE DATOS RESPONDE? (2026-08-12, auditoría de robustez) ═══
+# El modo de falla más grave y más invisible: si MySQL se cae, TODO el bot falla en silencio (leads,
+# consentimientos, sesiones) y este mismo vigilante moría en su primer SELECT antes de avisar nada — la
+# caída se conocía días después. Ahora es lo PRIMERO que se comprueba: si la BD no responde, se manda el
+# correo de una (SMTP no depende de MySQL) y se sale. La caída de la BD pasa de ser la alerta invisible a
+# ser la primera alerta.
+if not SECO:
+    try:
+        q("SELECT 1")
+    except Exception as e:
+        try:
+            avisar_correo("🔴 URGENTE — la base de datos del bot NO responde",
+                "El vigilante no pudo conectarse a la base de datos del bot (MySQL).\n\n"
+                "Mientras esté caída, el bot NO guarda leads, consentimientos ni sesiones, y las alertas del "
+                "panel tampoco funcionan. Esto necesita atención de soporte técnico DE INMEDIATO.\n\n"
+                "Detalle técnico: %s\n\nHora: %s" % (str(e)[:300], AHORA.strftime("%Y-%m-%d %H:%M")))
+            print("%s | BD CAÍDA — correo de emergencia enviado" % AHORA.strftime("%Y-%m-%d %H:%M"))
+        except Exception as e2:
+            print("BD caída Y correo falló: %s / %s" % (e, e2))
+        raise SystemExit(2)
+
 hallazgos = []   # (tipo, severidad, clave, detalle)
 def anota(tipo, sev, clave, detalle):
     hallazgos.append((tipo, sev, str(clave)[:120], detalle))
@@ -241,6 +271,53 @@ except Exception as e:
     anota("cola_adjuntos", 2, "ilegible|" + AHORA.strftime("%Y-%m-%d"),
           "No se pudo revisar la cola de adjuntos (staticData): %s" % e)
 
+# ═══ 8. ¿EL BOT ESTÁ VIVO? workflow activo + webhook responde (2026-08-12, auditoría) ═══
+# El 17-jul el workflow quedó INACTIVO tras un cambio de IP y nadie lo supo hasta que un cliente se quejó;
+# importar/actualizar n8n también lo desactiva. Aquí se comprueba directo contra la API de n8n (la key ya se
+# lee para el chequeo del token) y se toca el webhook: si el bot está muerto, es una alerta grave.
+try:
+    import urllib.request
+    _key = open(KEY_N8N).read().strip()
+    _req = urllib.request.Request("http://127.0.0.1:5678/api/v1/workflows/botArdisaFase1x",
+                                  headers={"X-N8N-API-KEY": _key})
+    with urllib.request.urlopen(_req, timeout=15) as _r:
+        _activo = json.loads(_r.read()).get("active")
+    if _activo is not True:
+        anota("bot_inactivo", 1, "inactivo|" + AHORA.strftime("%Y-%m-%d-%H"),
+              "El workflow del bot (botArdisaFase1x) está DESACTIVADO en n8n: el bot NO responde a nadie. "
+              "Reactívalo en n8n.ardisa.com (interruptor 'Active') o pide soporte. Suele pasar tras importar o "
+              "actualizar n8n.")
+    else:
+        # activo, pero ¿el webhook contesta? (registro perezoso: solo cuenta si NO da 5xx/timeout)
+        try:
+            _wr = urllib.request.Request("http://127.0.0.1:5678/webhook/bot-wsp-ardisa-f1", data=b'{"entry":[]}',
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(_wr, timeout=15).read()
+        except Exception as _we:
+            anota("bot_webhook", 1, "webhook|" + AHORA.strftime("%Y-%m-%d-%H"),
+                  "El bot está activo en n8n pero su webhook no respondió bien: %s. Revisa n8n/nginx." % str(_we)[:150])
+except Exception as e:
+    anota("bot_inactivo", 2, "apicheck|" + AHORA.strftime("%Y-%m-%d"),
+          "No se pudo verificar si el bot está activo (API de n8n): %s" % str(e)[:150])
+
+# ═══ 9. ¿EL BOT QUEDÓ MUDO EN HORARIO HÁBIL? (self-watch, 2026-08-12) ═══
+# Un cron caído o un bot que no procesa mensajes no siempre deja Traceback. Si en la última hora HÁBIL
+# (L-S, 8-17) hay CERO mensajes nuevos y el bot históricamente sí recibe a esa hora, algo está mudo.
+try:
+    _hh = AHORA.hour; _wd = AHORA.weekday()   # 0=lun ... 6=dom
+    if _wd < 6 and 9 <= _hh <= 17:            # dentro de horario, con al menos 1h de margen desde apertura
+        _rec = q("SELECT COUNT(*) FROM mensajes WHERE creado_en > NOW() - INTERVAL 65 MINUTE")
+        _hist = q("SELECT COUNT(*) FROM mensajes WHERE HOUR(creado_en)=HOUR(NOW()) "
+                  "AND creado_en > NOW() - INTERVAL 21 DAY AND creado_en < NOW() - INTERVAL 1 DAY")
+        _n_rec = int(_rec[0][0]) if _rec else 0
+        _n_hist = int(_hist[0][0]) if _hist else 0
+        if _n_rec == 0 and _n_hist >= 10:     # a esta hora suele haber tráfico y hoy no hay NADA
+            anota("bot_mudo", 1, "mudo|" + AHORA.strftime("%Y-%m-%d-%H"),
+                  "En la última hora (hábil) el bot no registró NINGÚN mensaje, cuando a esta hora normalmente "
+                  "recibe varios. Puede estar caído o desconectado de WhatsApp: revísalo.")
+except Exception as e:
+    print("check bot_mudo falló: %s" % e)
+
 # ── Guardar (idempotente) y avisar solo lo NUEVO y GRAVE ─────────────────────
 if SECO:
     for t, sev, c, det in hallazgos: print("[%s] sev%d  %s" % (t, sev, det))
@@ -265,12 +342,5 @@ if graves:
               + "\n".join("• " + d for _, _, d in graves)
               + "\n\nQuedaron registradas en la tabla `alertas` y aparecen en el panel de WhatsApp "
                 "(escribe 'informe' al bot).\n\nEste chequeo es automático y corre cada hora.")
-    msg = EmailMessage()
-    msg["From"] = "Grupo Ardisa (Vigilante del Bot) <%s>" % SMTP_USER
-    msg["To"] = ", ".join(DEST)
-    msg["Subject"] = "Alerta del bot WhatsApp — %d situacion(es) nueva(s)" % len(graves)
-    msg.set_content(cuerpo)
-    s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60); s.ehlo()
-    s.starttls(context=ssl.create_default_context()); s.ehlo(); s.login(SMTP_USER, SMTP_PASS)
-    s.send_message(msg); s.quit()
+    avisar_correo("Alerta del bot WhatsApp — %d situacion(es) nueva(s)" % len(graves), cuerpo)
     print("Correo de alerta enviado a: %s" % ", ".join(DEST))
