@@ -18,7 +18,7 @@ EMERD  = RGBColor(0x0A, 0x6B, 0x3C)
 GOLD   = RGBColor(0xC9, 0x9B, 0x3F)
 GOLDD  = RGBColor(0x9A, 0x6E, 0x10)
 PAPER  = RGBColor(0xF7, 0xF8, 0xF4)
-GHOST  = RGBColor(0xE4, 0xEB, 0xE2)   # número fantasma
+GHOST  = RGBColor(0xEC, 0xF1, 0xEA)   # número fantasma (muy tenue)
 INK    = RGBColor(0x18, 0x24, 0x20)
 SOFT   = RGBColor(0x5C, 0x6E, 0x63)
 WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
@@ -68,8 +68,8 @@ def tx(s, x, y, w, h, paras, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, sp=6):
 def cab(s, num, titulo, sub=None):
     """Encabezado premium: número fantasma + kicker dorado + título con subrayado esmeralda."""
     fondo(s)
-    tx(s, Inches(10.4), Inches(-0.55), Inches(2.9), Inches(2.4),
-       [[(num, {'s': 150, 'b': True, 'c': GHOST})]], align=PP_ALIGN.RIGHT)
+    tx(s, Inches(11.55), Inches(0.16), Inches(1.55), Inches(1.05),
+       [[(num, {'s': 60, 'b': True, 'c': GHOST})]], align=PP_ALIGN.RIGHT)
     tx(s, Inches(0.65), Inches(0.42), Inches(9.5), Inches(0.32),
        [[("M A N U A L   D E   U S U A R I O   ·   S E C C I Ó N   " + num, {'s': 10.5, 'b': True, 'c': GOLDD})]])
     tx(s, Inches(0.62), Inches(0.68), Inches(10.2), Inches(0.75),
