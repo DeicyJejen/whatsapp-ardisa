@@ -1242,11 +1242,16 @@ function repreguntar(st, pre){
 }
 
 const low=texto.toLowerCase();
+// SIN TILDES (2026-08-12, caso Alexis #269): "Grácias" no matcheaba "gracias" y la cortesía caía como
+// ADICIÓN ("ya se lo pasamos a Karime...") — el patrón reincidente de elige() ("bogota" vs "Bogotá"),
+// ahora en la despedida. Toda regex de cortesía/despedida se evalúa contra low Y contra lowST.
+const lowST=low.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 // reinicia: saludos/menú, tolerante a errores de tipeo ("hol", "holaaa", "ola", "buenass"...)
 const reinicia = /^\s*(h?o+l+a*|buen[oa]s?(\s+(d[ií]as|tardes|noches))?|hi+|hey+|hello+|menu|men[uú]|inicio|reiniciar|empezar|start)\s*$/i.test(low);
 // DESPEDIDA/cortesía: "gracias por la ayuda", "gracias, quedo atento a lo del cemento", "muy amable"...
 // (auditoría 2026-07-10) NO debe reiniciar el menú ni crear un lead duplicado — salvo que traiga una consulta NUEVA explícita.
-const esDespedida = /(^|[^a-záéíóúñ])(gracias|muy amable|quedo (atent[oa]|pendiente)|bendicion(es)?|chao|chau|adios|adiós|hasta luego|feliz (d[ií]a|tarde|noche))([^a-záéíóúñ]|$)/i.test(low)
+const _RE_DESP=/(^|[^a-záéíóúñ])(gra[sc]ias|muy amable|quedo (atent[oa]|pendiente)|bendicion(es)?|chao|chau|adios|adiós|hasta luego|feliz (d[ií]a|tarde|noche))([^a-záéíóúñ]|$)/i;
+const esDespedida = (_RE_DESP.test(low) || _RE_DESP.test(lowST))
   && !/(tambi[eé]n|ahora|adem[aá]s|otra (cosa|consulta)|nueva consulta|necesito|quiero|busco|cotiza|precio|venden|tienen|manejan|hay |tendr|me regala|requier|distribu|me interesa)/i.test(low);
 // LEAD DE FORMULARIO/ANUNCIO DE META: el mensaje auto-generado del Instant Form trae campos estructurados ("Full name:",
 // "Líneas de interés:", "WhatsApp number:"...). Se detecta por >=2 marcadores fuertes (evita falsos positivos).
@@ -2292,7 +2297,8 @@ if(preguntaHorario){
   // "tendrán", "me regala", "requiero"... Perseguir verbos uno por uno no termina nunca (mismo aprendizaje
   // que los saludos). Si la IA ve un PRODUCTO concreto, esto NO es una despedida — pase lo que pase la regex.
   const _iaVeProducto = !!(ia && ia.en_alcance===true && ia.productos && ia.productos.length);
-  const cortesia = !es_media && !_iaVeProducto && ( esDespedida || ( low.length<=60 && /(^|[^a-záéíóúñ])(gracias|thank|amable|bendicion|excelente|de nada|muy bien|buen servicio|vale|listo|ok|okay|perfecto|dale|chao|chau|adios|adiós|hasta luego)([^a-záéíóúñ]|$)/i.test(low) && !/(necesito|quiero|busco|cotiza|precio|venden|tienen|manejan|hay |tendr|me regala|requier|distribu|me interesa)/i.test(low) ) );
+  const _RE_CORT=/(^|[^a-záéíóúñ])(gra[sc]ias|thank|amable|bendicion|excelente|de nada|muy bien|buen servicio|vale|listo|ok|okay|perfecto|dale|chao|chau|adios|adiós|hasta luego)([^a-záéíóúñ]|$)/i;
+  const cortesia = !es_media && !_iaVeProducto && ( esDespedida || ( low.length<=60 && (_RE_CORT.test(low)||_RE_CORT.test(lowST)) && !/(necesito|quiero|busco|cotiza|precio|venden|tienen|manejan|hay |tendr|me regala|requier|distribu|me interesa)/i.test(low) ) );
   // ¿Producto claramente NUEVO? Solo entonces reiniciamos. (La IA lo entiende, o lo dice explícito.)
   const nuevaConsulta = !es_media && ((ia && ia.en_alcance) || /(otra (consulta|cosa)|nueva consulta|ahora (necesito|quiero|busco|me interesa)|adem[aá]s (necesito|quiero)|tambi[eé]n (necesito|quiero))/i.test(low));
   if(cortesia){
