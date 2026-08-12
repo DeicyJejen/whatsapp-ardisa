@@ -210,6 +210,37 @@ for asesor, n, viejo in q("""
     anota("sin_reportar", 2, asesor + "|" + AHORA.strftime("%Y-%W"),
           "%s tiene %s leads sin reportar de más de 10 días (el más viejo del %s)" % (asesor, n, viejo))
 
+# ═══ 7. ADJUNTOS ATASCADOS EN LA COLA DEL ASESOR ═════════════════════════════
+# (2026-08-12, auditoría): las fotos/audios de los clientes se ENCOLAN en staticData (mediaPend) cuando la
+# ventana de 24h del asesor está cerrada, y solo salen cuando el asesor le escribe al bot. Si el asesor no
+# escribe, la cola envejece EN SILENCIO: se hallaron 6 adjuntos de 4 clientes esperando a Karime hasta 167
+# HORAS. Nadie lo veía: ni el panel ni este vigilante. Se lee el staticData EN SITIO (sqlite immutable, sin
+# copiar la BD de 3GB — orden de Deicy 05-ago) y se alerta por asesor si algo lleva >6h esperando.
+try:
+    import sqlite3
+    _con = sqlite3.connect("file:/opt/n8n/data/database.sqlite?immutable=1", uri=True)
+    _sd = _con.execute("SELECT staticData FROM workflow_entity WHERE id='botArdisaFase1x'").fetchone()
+    _con.close()
+    _mp = (json.loads(_sd[0]) if _sd and _sd[0] else {}).get("global", {}).get("mediaPend", {}) or {}
+    _ms = int(AHORA.timestamp() * 1000)
+    for _dst, _items in _mp.items():
+        _viejos = [i for i in (_items or []) if (_ms - int(i.get("t", _ms))) > 6 * 3600 * 1000]
+        if not _viejos:
+            continue
+        _hrs = max(int((_ms - int(i.get("t", _ms))) / 3600000) for i in _viejos)
+        _clientes = sorted(set((i.get("cliente") or "?") for i in _viejos))
+        _asesor = q("SELECT asesor FROM leads WHERE asesor_tel='%s' ORDER BY id DESC LIMIT 1" % esc(_dst))
+        _nom = _asesor[0][0] if _asesor else _dst
+        # clave por asesor+día: si mañana sigue atascada, vuelve a avisar (a diferencia de un bug puntual,
+        # esta situación HAY que repetirla hasta que alguien la destrabe)
+        anota("cola_adjuntos", 1 if _hrs >= 24 else 2, _dst + "|" + AHORA.strftime("%Y-%m-%d"),
+              "%d adjunto(s) de %d cliente(s) llevan hasta %d horas esperando a %s (+%s): su ventana de 24h "
+              "está cerrada. Destrabe: que el asesor le escriba cualquier cosa al bot y la cola sale sola "
+              "en <2 min. Clientes: %s" % (len(_viejos), len(_clientes), _hrs, _nom, _dst, ", ".join(_clientes)[:150]))
+except Exception as e:
+    anota("cola_adjuntos", 2, "ilegible|" + AHORA.strftime("%Y-%m-%d"),
+          "No se pudo revisar la cola de adjuntos (staticData): %s" % e)
+
 # ── Guardar (idempotente) y avisar solo lo NUEVO y GRAVE ─────────────────────
 if SECO:
     for t, sev, c, det in hallazgos: print("[%s] sev%d  %s" % (t, sev, det))

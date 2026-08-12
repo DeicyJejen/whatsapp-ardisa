@@ -989,7 +989,12 @@ const MSG_EMPLEO='¡Hola! 🙏 Gracias por tu interés en *Grupo Ardisa*.\n\nEst
 // PROVEEDORES / SPAM: esta es la línea COMERCIAL de atención a CLIENTES; no se pasan a los asesores (les haría perder tiempo).
 const MSG_PROVEEDOR='¡Hola! 🙏 Gracias por escribirnos.\n\nEste canal es la *línea comercial de atención a clientes* de *Grupo Ardisa* (cotizaciones y compras). Si deseas *ofrecernos productos o servicios como proveedor*, agradecemos tu interés, pero por este medio solo atendemos a nuestros clientes. 🤝';
 // Frases típicas de proveedor OFRECIENDO (para números de Colombia que igual son proveedores).
-const KW_PROVEEDOR=/(soy de una f[aá]brica|somos (una )?f[aá]brica|somos fabricantes|soy fabricante|f[aá]brica (en|de)|te ofrezco|le ofrezco|les ofrezco|me gustar[ií]a ofrecer|quisiera ofrecer|ofrecemos (precios|productos|nuestr|muestr|materiales)|mejores precios y calidad|buenos precios y calidad|env[ií]o de muestras|muestras gratis|linyi|shandong|guangzhou|foshan|somos (distribuidores|importadores|exportadores|proveedores)|soy (un |una )?(proveedor|proveedora|distribuidor|distribuidora|importador|exportador)|represent(o|amos) (una|a) (f[aá]brica|empresa|marca)|manufactur)/i;
+// 2026-08-12 (auditoría, caso 8615755982800): el pitch de proveedor en INGLÉS ("We are glad to introduce our
+// newly launched 9mm rigid core SPC hybrid flooring...") no olía a nada — todas las redes eran de vocabulario
+// español, la IA lo marcó es_info y terminó recibiendo el muro de autorización por la foto que mandó 8s después.
+// Se suma el vocabulario del pitch en inglés (frases de VENDEDOR: "our factory", "we supply"...), cuidando de NO
+// atrapar al cliente que escribe en inglés ("do you sell...?", "I need a quote" no matchean nada de esto).
+const KW_PROVEEDOR=/(soy de una f[aá]brica|somos (una )?f[aá]brica|somos fabricantes|soy fabricante|f[aá]brica (en|de)|te ofrezco|le ofrezco|les ofrezco|me gustar[ií]a ofrecer|quisiera ofrecer|ofrecemos (precios|productos|nuestr|muestr|materiales)|mejores precios y calidad|buenos precios y calidad|env[ií]o de muestras|muestras gratis|linyi|shandong|guangzhou|foshan|somos (distribuidores|importadores|exportadores|proveedores)|soy (un |una )?(proveedor|proveedora|distribuidor|distribuidora|importador|exportador)|represent(o|amos) (una|a) (f[aá]brica|empresa|marca)|manufactur|glad to introduce|we (are glad to )?(introduce|offer|supply|export|produce)|our (new(ly launched)? )?products?\b|our factory|we are a (factory|manufacturer|supplier|trading company)|(leading|professional) (manufacturer|supplier|factory)|free samples?|whole?sale price|best price and (good )?quality|business cooperation|forward to (your|our) cooperation|our catalog(ue)?)/i;
 // Frases CLARAS de proyecto/mobiliario a medida (Alexander Arias). Conservador: un producto de mostrador NO es proyecto.
 const ES_PROYECTO=/(proyecto arquitect|dise[ñn]o arquitect|mobiliario a (la )?medida|(mueble|cocina|closet|mobiliario)s?.{0,20}\ba (la |su |tu )?medida|a (la|su|tu) medida.{0,25}(mueble|cocina|closet|mobiliario)|cocinas? integrales?|proyecto (integral|completo|arquitect|a (la |su |tu )?medida))/i;
 function ruteoIA(ia, rutTxt){   // devuelve {marca,grupo}; null = "no seguro -> preguntar". LA IA ENTIENDE Y MANDA; las palabras clave (KW) son SOLO respaldo (si la IA se cayó o no opinó).
@@ -1537,8 +1542,14 @@ if(!reinicia || _provMarcado){
   // ni "precio" ni "producto", así que sin es_info ninguna otra señal la salva). Quitarlo del todo la habría
   // mandado al mensaje de proveedor: "por este medio solo atendemos a nuestros clientes"... siendo clienta.
   // Así que lo que se descuenta es solo el es_info CON OLOR A PROVEEDURÍA, no el es_info entero.
-  const _infoProv = !es_media && !!texto && /((de|con) compras|proveedur|ser (su |sus |un )?proveedor|proveedor de ustedes|inscribir(me|nos) como proveedor|soy (un |una )?(proveedor|proveedora|distribuidor|importador|exportador)|ofrecer(les|le)?\s|portafolio)/i.test(low);
-  const _pareceCliente = (ia && ia.en_alcance===true) || (ia && ia.es_reclamo===true) || (ia && ia.es_info===true && !_infoProv) || (!es_media && !!texto && /(asesor[ií]a|asesor[ae]|cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|adquir|me interesa|tienen|venden|manejan|disponib|informaci[oó]n|producto|material|remodel|proyecto|obra|reclam|garant|pedido|factura)/i.test(low));
+  // 2026-08-12: + inglés de proveedor (el pitch del caso 8615755982800 salía es_info de la IA y nada lo olía).
+  const _infoProv = !es_media && !!texto && (/((de|con) compras|proveedur|ser (su |sus |un )?proveedor|proveedor de ustedes|inscribir(me|nos) como proveedor|soy (un |una )?(proveedor|proveedora|distribuidor|importador|exportador)|ofrecer(les|le)?\s|portafolio)/i.test(low) || KW_PROVEEDOR.test(low));
+  // La FOTO del proveedor ya marcado NO lo vuelve cliente (2026-08-12): la visión de la IA ve "un producto en
+  // alcance" en el catálogo que el proveedor manda (pisos SPC = en alcance, claro) y eso lo devolvía al flujo de
+  // clientes → muro. A quien YA le dijimos "línea de clientes", una imagen sola no lo suelta del carril: lo
+  // sueltan sus ACTOS (tocar un botón, tener sesión/lead) o una señal de cliente ESCRITA.
+  const _iaPuedeAvalar = !(es_media && _provMarcado);
+  const _pareceCliente = (_iaPuedeAvalar && ia && ia.en_alcance===true) || (ia && ia.es_reclamo===true) || (_iaPuedeAvalar && ia && ia.es_info===true && !_infoProv) || (!es_media && !!texto && /(asesor[ií]a|asesor[ae]|cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|adquir|me interesa|tienen|venden|manejan|disponib|informaci[oó]n|producto|material|remodel|proyecto|obra|reclam|garant|pedido|factura|do you (sell|have)|can i (buy|order)|quotation for|i need a quote)/i.test(low));
   // === FIX 2026-07-29 (auditoría, caso Laura González +61): el filtro miraba SOLO el mensaje actual. ===
   // Ella preguntó "Venden lavaderos en pasta" (señal de cliente clarísima) y fue atendida bien; pero al TOCAR
   // el botón "✅ Sí, autorizo" el texto del botón no tiene señales de cliente -> con número extranjero cayó al
@@ -1729,7 +1740,16 @@ for(const _k in store.empleo){ if((NOW-(store.empleo[_k]||0)) > 6*3600000) delet
 // cliente, y repetirlo solo lo confunde. A los 45 s vuelve completo (si el primero se perdió, igual lo ve).
 store.muro = store.muro || {};
 for(const _k in store.muro){ if((NOW-(store.muro[_k]||0)) > 6*3600000) delete store.muro[_k]; }
-function muroReciente(){ return (NOW - (store.muro[wa]||0)) < 45*1000; }
+// === EL MURO TAMBIÉN LO DICE LA BD (2026-08-12, auditoría) ===
+// El freno de 45s en store.muro era INALCANZABLE para el caso que debía cubrir: si la 1ª ejecución alcanzó a
+// guardar store.muro, también guardó la sesión (paso 'consent') y el 2º mensaje entra por la rama de consent —
+// nunca por la de sesión nueva; y si las ejecuciones se solapan, el 2º no ve NADA. Resultado medido: 6 clientes
+// desde el 4-ago recibieron el muro completo DOS veces en <10s (Fabián 10-ago, Paola 11-ago...). PEND.muro_45s
+// viene de la tabla `mensajes` (¿salió un muro con la URL de la política hace <45s?): la fila del 1º muro se
+// escribe ~1-3s después del webhook, así que el 2º mensaje a 3-7s SÍ la ve. El solape sub-segundo sigue sin
+// cura (dos webhooks a 22ms leen el mismo pasado — caso Mario Saavedra); esto recorta el resto.
+const MURO_BD = Number(PEND.muro_45s||0) > 0;
+function muroReciente(){ return MURO_BD || (NOW - (store.muro[wa]||0)) < 45*1000; }
 function marcarMuro(){ store.muro[wa] = NOW; }
 const _pideEmpleo = !reinicia && !id && !es_media && !!texto && KW_EMPLEO.test(low) && !(ia && ia.en_alcance===true);
 // === FIX 2026-08-03b (caso real 15:12, detectado por Deicy): NO repetirle la pregunta que ya contestó. ===
@@ -2646,6 +2666,11 @@ _PEND_SQL = ("SELECT "
     # de todos. `sesiones` tiene UNA FILA POR CLIENTE (a prueba de vecinos lentos). El Cerebro compara t y gana
     # la más nueva. Misma doctrina de siempre: la BD manda, el staticData es caché.
     "(SELECT estado FROM sesiones WHERE telefono=$8 LIMIT 1) AS ses_bd, "
+    # === ¿MURO ENVIADO HACE <45s? (2026-08-12, auditoría: 6 muros dobles desde el 4-ago) ===
+    # El freno de staticData no ve lo que otra ejecución aún no guardó; la fila de `mensajes` del primer muro
+    # sí existe ~1-3s después. Ambos muros (texto y foto) llevan la URL de la política; los empujones suaves no.
+    "(SELECT COUNT(*) FROM mensajes WHERE wa_id=$9 AND creado_en >= (NOW() - INTERVAL 45 SECOND) "
+      "AND salida LIKE \'%politica-de-datos-personales%\') AS muro_45s, "
     # === FASE 2 · CONFIG EN LA BD (2026-08-06): interruptores SIN desplegar. `usar_cotiza` prende el piloto
     # de cotización SAP (solo números demo), y la URL/token del MCP viven en la BD (rotables con un UPDATE).
     "(SELECT valor FROM config WHERE clave='usar_cotiza' LIMIT 1) AS cfg_cotiza, "
@@ -2659,7 +2684,7 @@ _PEND_SQL = ("SELECT "
     "(SELECT valor FROM config WHERE clave='mcp_precio_tool' LIMIT 1) AS cfg_precio_tool")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -2683,6 +2708,7 @@ return [{ json: Object.assign({}, d, {
   rep_hoy_det:  p.rep_hoy_det  || '',
   rep_pend_det: p.rep_pend_det || '',
   cons_si:      Number(p.cons_si || 0),  // ¿ya autorizó HOY según la BD? (a prueba de carreras de staticData)
+  muro_45s:     Number(p.muro_45s|| 0),  // ¿muro de datos enviado hace <45s? (la BD ve lo que staticData aún no)
   adj:          String(p.adj || ''),     // "mediaid:tipo,mediaid:tipo" de los últimos 45 min (a prueba de carreras)
   alr_n:        Number(p.alr_n   || 0),  // alertas de los últimos 7 días (las escribe vigilante.py)
   alr_det:      p.alr_det ? String(p.alr_det) : ''
