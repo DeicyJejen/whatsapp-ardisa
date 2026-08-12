@@ -82,6 +82,9 @@ $vcond = "wa_id ".($vista==='ase' ? 'IN' : 'NOT IN')." ($aseIn)";
 $fwhere = $fwhere==='' ? "WHERE $vcond" : "$fwhere AND $vcond";
 $ocultos=[]; if($r=@$c->query("SELECT wa_id FROM chats_ocultos")){ while($x=$r->fetch_assoc()) $ocultos[$x['wa_id']]=1; }
 // CHAT HÍBRIDO (2026-08-12): conversaciones que un humano está atendiendo desde el panel (el bot callado).
+// DECISIÓN DEICY 12-ago: "por ahora no" — la función queda instalada pero APAGADA de la interfaz.
+// Para prenderla el día que se decida: cambiar $HIBRIDO a true (todo lo demás ya está listo y probado).
+$HIBRIDO = false;
 $humanos=[]; if($r=@$c->query("SELECT telefono FROM humano WHERE hasta>NOW()")){ while($x=$r->fetch_assoc()) $humanos[$x['telefono']]=1; }
 $verOc = isset($_GET['oc']) && $_GET['oc']==='1';
 $qd = '&d='.$dayf.'&v='.$vista.($verOc?'&oc=1':'');
@@ -181,7 +184,7 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
 </head><body class="<?php echo $explicit?'chatview':'listview'; ?>">
 <div class="app">
   <div class="side">
-    <div class="hd">💬 Conversaciones <small><?php echo count($convs); ?> chats · 🟢 <?php echo $enCurso; ?> en curso<?php if(count($humanos)): ?> · 👩‍💼 <?php echo count($humanos); ?> contigo<?php endif; ?> · <?php echo $total; ?> mensajes</small>
+    <div class="hd">💬 Conversaciones <small><?php echo count($convs); ?> chats · 🟢 <?php echo $enCurso; ?> en curso<?php if($HIBRIDO && count($humanos)): ?> · 👩‍💼 <?php echo count($humanos); ?> contigo<?php endif; ?> · <?php echo $total; ?> mensajes</small>
       <a href="seguimiento.php" style="display:block;margin-top:8px;text-align:center;background:#fff;color:var(--teal-d);text-decoration:none;padding:7px;border-radius:7px;font-weight:700;font-size:.82rem">📊 Ver seguimiento de solicitudes</a>
       <div class="tabs">
         <a class="tab <?php echo $vista==='cli'?'on':''; ?>" href="?d=<?php echo $dayf; ?>&v=cli">👥 Clientes</a>
@@ -224,7 +227,7 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
       <div class="av" style="background:<?php echo avc($sel); ?>"><?php echo h(ini_($selShow)); ?></div>
       <div><div style="font-weight:700"><?php echo isset($ASE[$sel])?'🧑‍💼 ':''; echo h($selShow); ?></div>
       <div style="font-size:.74rem;opacity:.85">+<?php echo h($sel); ?><?php echo isset($ASE[$sel])?' · asesor':''; ?></div></div>
-      <?php if($vista==='cli' && !isset($ASE[$sel])): ?>
+      <?php if($HIBRIDO && $vista==='cli' && !isset($ASE[$sel])): ?>
         <?php if($selHumano): ?>
           <span style="background:#FFD54F;color:#5b4300;border-radius:7px;padding:6px 10px;font-weight:700;font-size:.78rem;margin-left:auto">👩‍💼 Atendiéndola tú — bot en pausa</span>
           <button type="button" onclick="accion('devolver')" style="background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:7px;padding:7px 11px;font-weight:600;cursor:pointer;font-size:.8rem">🤖 Devolver al bot</button>
@@ -233,7 +236,7 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
         <?php endif; ?>
       <?php endif; ?>
       <?php $selOculto = isset($ocultos[$sel]); ?>
-      <form method="post" action="?wa=<?php echo h($sel); ?><?php echo $qd; ?>" style="<?php echo ($vista==='cli' && !isset($ASE[$sel]))?'':'margin-left:auto'; ?>"
+      <form method="post" action="?wa=<?php echo h($sel); ?><?php echo $qd; ?>" style="<?php echo ($HIBRIDO && $vista==='cli' && !isset($ASE[$sel]))?'':'margin-left:auto'; ?>"
             onsubmit="return confirm('<?php echo $selOculto ? '¿Restaurar este chat a la lista?' : '¿Ocultar este chat de la lista? No se borra nada: los mensajes y reportes quedan guardados y puedes restaurarlo desde 🗂️ Ocultos.'; ?>');">
         <input type="hidden" name="wa" value="<?php echo h($sel); ?>">
         <input type="hidden" name="acc" value="<?php echo $selOculto?'restaurar':'ocultar'; ?>">
@@ -254,7 +257,7 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
         <?php endif; endforeach; ?>
       <?php if(!$msgs): ?><div class="empty">Sin mensajes.</div><?php endif; ?>
     </div>
-    <?php if($vista==='cli' && !isset($ASE[$sel])): ?>
+    <?php if($HIBRIDO && $vista==='cli' && !isset($ASE[$sel])): ?>
     <div class="composer">
       <?php if($ventanaOk): ?>
         <textarea id="cmp" rows="1" maxlength="3500" placeholder="Escribe una respuesta al cliente… (Enter envía, Shift+Enter salto)"></textarea>

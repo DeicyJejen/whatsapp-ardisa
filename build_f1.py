@@ -3357,10 +3357,32 @@ if(store.holdAviso && store.holdAviso.length){
 }
 // === ADJUNTOS EN COLA (blindaje 131047, 2026-07-22): se encolaron porque la ventana 24h del destinatario estaba
 // CERRADA. Apenas esa persona escriba o toque un botón, su ventana abre (store.win) y aquí se le entregan (<=2 min). ===
+// 2026-08-12 (alerta cola_adjuntos, pedido Deicy "corrígelo"): la cola YA NO espera en silencio a que el
+// asesor escriba por su cuenta — se hallaron adjuntos esperando 167 HORAS a Karime. Si algo lleva >6h y la
+// ventana sigue cerrada, se le manda al asesor UNA plantilla al día (aprobada, con botón): tocar el botón o
+// responder le abre la ventana y la cola sale sola en el siguiente tick. El sistema se destraba a sí mismo.
+// OJO: este nodo NO comparte variables con el Cerebro -> la plantilla se arma aquí mismo (constante repetida
+// a propósito, igual que SEG_DIAS; si se cambia 'aviso_lead_btn' en el Cerebro, cambiarla aquí también).
+store.mediaNudge = store.mediaNudge || {};
+const _tplNudge = function(to, cuerpo){
+  const _p = function(t){ return {type:'text', text:String(t||'—').replace(/[\r\n\t]+/g,' ').slice(0,700)}; };
+  return {messaging_product:'whatsapp', to:to, type:'template', template:{name:'aviso_lead_btn', language:{code:'es'},
+    components:[{type:'body', parameters:[_p('⚠️ Aviso del sistema (no es un cliente)'),_p('—'),_p('—'),_p('—'),_p('—'),_p(cuerpo)]}]}};
+};
 for(const _dst in store.mediaPend){
   let _q=(store.mediaPend[_dst]||[]).filter(function(x){return x&&x.m&&(NOW-(x.t||0))<7*24*3600000;});   // poda >7 días
   if(!_q.length){ delete store.mediaPend[_dst]; continue; }
-  if(!_wOpen(_dst)){ store.mediaPend[_dst]=_q; continue; }   // sigue cerrada -> esperar
+  if(!_wOpen(_dst)){
+    store.mediaPend[_dst]=_q;
+    const _viejo = Math.min.apply(null, _q.map(function(x){return x.t||NOW;}));
+    if((NOW-_viejo) > 6*3600000 && (NOW-(store.mediaNudge[_dst]||0)) > 24*3600000 && _dst!=='573205662947'){
+      store.mediaNudge[_dst]=NOW;
+      const _cls=_q.map(function(x){return x.cliente;}).filter(function(c,i,a){return c&&a.indexOf(c)===i;}).slice(0,3).join(', ');
+      out.push({json:{msg: _tplNudge(_dst, 'Tienes '+_q.length+' foto(s)/archivo(s) de clientes esperando'+(_cls?(' ('+_cls+')'):'')+'. Toca el botón de abajo o responde cualquier mensaje y te llegan solos en 2 minutos.'),
+        chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(cola atascada >6h)', salida:'📨 Plantilla de destrabe enviada al asesor ('+_q.length+' adjuntos en cola)', etapa:'media_nudge'}}});
+    }
+    continue;   // sigue cerrada -> esperar (pero ya con el empujón enviado)
+  }
   const _cls=_q.map(function(x){return x.cliente;}).filter(function(c,i,a){return c&&a.indexOf(c)===i;}).slice(0,3).join(', ');
   out.push({json:{msg:{messaging_product:'whatsapp', to:_dst, type:'text', text:{body:'📎 *Adjuntos del cliente'+(_cls?(' '+_cls):'')+'* que estaban pendientes — te los reenvío ahora 👇'}},
     chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjuntos en cola)', salida:'📎 Adjuntos diferidos entregados ('+_q.length+')', etapa:'media_diferida'}}});

@@ -146,7 +146,11 @@ $perd=(int)$ag['perd']; $cot=(int)$ag['cot']; $pend=$tot-$rep;
 // === PAGINACIÓN (2026-08-11, la pidió Deicy) ===
 // La tabla traía hasta 500 filas de un golpe y las pintaba todas: en "Histórico" eso es una página
 // interminable y, peor, silenciosamente RECORTADA en 500 — parecía completa sin serlo.
-$PP = 50;
+// Tamaño de página (2026-08-12, pedido Deicy: "debe tener por defecto 10 solicitudes en la tabla").
+$PPOK = [10,25,50,100];
+$PPn = isset($_GET['n']) ? (int)$_GET['n'] : 10;
+if(!in_array($PPn,$PPOK,true)) $PPn = 10;
+$PP = $PPn;
 $pg  = isset($_GET['pg']) ? max(1,(int)$_GET['pg']) : 1;
 $paginas = max(1, (int)ceil($tot / $PP));
 if($pg > $paginas) $pg = $paginas;
@@ -180,8 +184,8 @@ $qbase='p='.$per.($mf!==''?('&m='.urlencode($mf)):'').($asf!==''?('&a='.urlencod
 // Antes cada enlace se armaba a mano; al agregar un filtro nuevo había que acordarse de sumarlo en cada uno,
 // y el que se olvidara se perdía al navegar. Un solo sitio donde armarlos = un solo sitio donde equivocarse.
 function lnk($ov=[]){
-  global $per,$mf,$asf,$test,$fk;
-  $qs = array_merge(['p'=>$per,'m'=>$mf,'a'=>$asf,'f'=>$fk,'test'=>($test?'1':'')], $ov);
+  global $per,$mf,$asf,$test,$fk,$PPn;
+  $qs = array_merge(['p'=>$per,'m'=>$mf,'a'=>$asf,'f'=>$fk,'n'=>($PPn!==10?$PPn:''),'test'=>($test?'1':'')], $ov);
   $out=[];
   foreach($qs as $k=>$v){ if($v!=='' && $v!==null) $out[] = $k.'='.urlencode($v); }
   return '?'.implode('&',$out);
@@ -349,6 +353,10 @@ function lnk($ov=[]){
       Mostrando <b><?php echo $desde; ?>–<?php echo $hasta; ?></b> de <b><?php echo $tot; ?></b>
       <?php echo $tot===1?'solicitud':'solicitudes'; ?>
       <?php if($paginas>1): ?> · página <b><?php echo $pg; ?></b> de <b><?php echo $paginas; ?></b><?php endif; ?>
+      · Ver:
+      <?php foreach([10,25,50,100] as $nOp): ?>
+        <a class="pgb <?php echo $PPn===$nOp?'on':''; ?>" style="padding:2px 8px" href="<?php echo lnk(['n'=>$nOp,'pg'=>1]); ?>"><?php echo $nOp; ?></a>
+      <?php endforeach; ?>
     </span>
     <?php if($paginas > 1): ?>
     <span class="pgbtns">
