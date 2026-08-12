@@ -233,18 +233,23 @@ function lnk($ov=[]){
   select{padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:.82rem;background:#fff;color:var(--ink);font-weight:600}
   .tblbox{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 3px rgba(24,40,80,.05)}
   /* Paginación (2026-08-11) — mismo lenguaje visual de las pestañas: píldoras, no botones de otro planeta. */
-  .pager{display:flex;flex-wrap:wrap;align-items:center;gap:14px;justify-content:space-between;margin:14px 2px 6px}
-  .pginfo{font-size:.8rem;color:var(--soft)} .pginfo b{color:var(--ink)}
-  .pgbtns{display:inline-flex;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(14,42,59,.05)}
-  .pgb{text-decoration:none;color:var(--teal-d);padding:8px 13px;font-size:.82rem;font-weight:700;min-width:14px;text-align:center;border-right:1px solid var(--line)}
-  .pgb:last-child{border-right:0}
-  .pgb:hover{background:var(--sel,#EEF6F4)}
-  .pgb.on{background:var(--teal);color:#fff;pointer-events:none}
-  .pgb.off{color:#C3CDD4;pointer-events:none}
-  .pgsep{font-size:.72rem;color:var(--soft);align-self:center;margin:0 2px}
-  .pgver{display:inline-flex;align-items:center;gap:8px;font-size:.76rem;color:var(--soft)}
+  .pager{display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;justify-content:space-between;margin:16px 2px 6px}
+  .pginfo{font-size:.82rem;color:var(--soft);line-height:1.5} .pginfo b{color:var(--ink)}
+  .pgpag{font-size:.76rem;color:var(--teal-d);font-weight:700}
+  .pgbtns{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .pgb{text-decoration:none;color:var(--teal-d);background:#fff;border:1px solid var(--line);border-radius:9px;
+       padding:8px 12px;font-size:.82rem;font-weight:700;min-width:38px;text-align:center;box-shadow:0 1px 2px rgba(14,42,59,.05)}
+  .pgb.num{min-width:38px}
+  .pgb:hover{border-color:var(--teal);background:var(--sel,#EEF6F4)}
+  .pgb.on{background:var(--teal);color:#fff;border-color:var(--teal);pointer-events:none}
+  .pgb.off{color:#C3CDD4;background:#FAFCFD;border-color:var(--line);pointer-events:none;box-shadow:none}
+  .pgb.prev,.pgb.next{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .pgb.prev:hover,.pgb.next:hover{background:var(--navy2,#22376b)}
+  .pgb.prev.off,.pgb.next.off{background:#EEF1F4;color:#B6C2CB;border-color:var(--line)}
+  .pgsep{font-size:.8rem;color:var(--soft);align-self:center;padding:0 2px}
+  .pgver{display:inline-flex;align-items:center;gap:8px;font-size:.78rem;color:var(--soft)}
   .pgver .grp{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-  .pgver a{text-decoration:none;color:var(--teal-d);padding:6px 11px;font-size:.78rem;font-weight:700;border-right:1px solid var(--line)}
+  .pgver a{text-decoration:none;color:var(--teal-d);padding:7px 12px;font-size:.8rem;font-weight:700;border-right:1px solid var(--line)}
   .pgver a:last-child{border-right:0}
   .pgver a:hover{background:var(--sel,#EEF6F4)}
   .pgver a.on{background:var(--navy);color:#fff;pointer-events:none}
@@ -358,24 +363,24 @@ function lnk($ov=[]){
   <div class="pager">
     <span class="pginfo">
       <?php $desde = $off+1; $hasta = min($off+$PP, $tot); ?>
-      <b><?php echo $desde; ?>–<?php echo $hasta; ?></b> de <b><?php echo $tot; ?></b>
-      <?php echo $tot===1?'solicitud':'solicitudes'; ?>
+      Mostrando <b><?php echo $desde; ?>–<?php echo $hasta; ?></b> de <b><?php echo $tot; ?></b> <?php echo $tot===1?'solicitud':'solicitudes'; ?>
+      <?php if($paginas > 1): ?><br><span class="pgpag">Página <b><?php echo $pg; ?></b> de <b><?php echo $paginas; ?></b></span><?php endif; ?>
     </span>
     <?php if($paginas > 1): ?>
     <span class="pgbtns">
-      <?php if($paginas > 5): ?><a class="pgb <?php echo $pg<=1?'off':''; ?>" href="<?php echo $pg<=1?'#':lnk(['pg'=>1]); ?>" title="Primera página">«</a><?php endif; ?>
-      <a class="pgb <?php echo $pg<=1?'off':''; ?>" href="<?php echo $pg<=1?'#':lnk(['pg'=>$pg-1]); ?>" title="Anterior">‹</a>
+      <a class="pgb prev <?php echo $pg<=1?'off':''; ?>" href="<?php echo $pg<=1?'#':lnk(['pg'=>$pg-1]); ?>">‹ Anterior</a>
       <?php
         // Ventana de páginas alrededor de la actual (no se pintan 40 numeritos si el histórico es largo).
         $ini = max(1, $pg-2); $fin = min($paginas, $ini+4); $ini = max(1, $fin-4);
+        if($ini > 1): ?><a class="pgb" href="<?php echo lnk(['pg'=>1]); ?>">1</a><?php if($ini > 2): ?><span class="pgsep">…</span><?php endif; endif;
         for($i=$ini; $i<=$fin; $i++): ?>
-        <a class="pgb <?php echo $i===$pg?'on':''; ?>" href="<?php echo lnk(['pg'=>$i]); ?>"><?php echo $i; ?></a>
-      <?php endfor; ?>
-      <a class="pgb <?php echo $pg>=$paginas?'off':''; ?>" href="<?php echo $pg>=$paginas?'#':lnk(['pg'=>$pg+1]); ?>" title="Siguiente">›</a>
-      <?php if($paginas > 5): ?><a class="pgb <?php echo $pg>=$paginas?'off':''; ?>" href="<?php echo $pg>=$paginas?'#':lnk(['pg'=>$paginas]); ?>" title="Última página">»</a><?php endif; ?>
+        <a class="pgb num <?php echo $i===$pg?'on':''; ?>" href="<?php echo lnk(['pg'=>$i]); ?>"><?php echo $i; ?></a>
+      <?php endfor;
+        if($fin < $paginas): if($fin < $paginas-1): ?><span class="pgsep">…</span><?php endif; ?><a class="pgb" href="<?php echo lnk(['pg'=>$paginas]); ?>"><?php echo $paginas; ?></a><?php endif; ?>
+      <a class="pgb next <?php echo $pg>=$paginas?'off':''; ?>" href="<?php echo $pg>=$paginas?'#':lnk(['pg'=>$pg+1]); ?>">Siguiente ›</a>
     </span>
     <?php endif; ?>
-    <span class="pgver">por página
+    <span class="pgver">Mostrar
       <span class="grp">
         <?php foreach([10,25,50,100] as $nOp): ?>
           <a class="<?php echo $PPn===$nOp?'on':''; ?>" href="<?php echo lnk(['n'=>$nOp,'pg'=>1]); ?>"><?php echo $nOp; ?></a>
