@@ -111,7 +111,7 @@ try { const _s = $getWorkflowStaticData('global'); paso_actual = (_s.ses && _s.s
 // (para clasificar bien Construcción/Acabados aunque lo diga antes de tiempo). En respuestas cortas (un nombre, una ciudad) NO gasta IA.
 const _pareceProducto = (texto||'').trim().length>=12 && ( /\d/.test(texto||'') || /(cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|cemento|varilla|hierro|acero|cer[aá]mic|porcelan|loseta|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|pintura|tablero|mdf|melamin|madera|drywall|arena|ladrillo|teja|tubo|l[aá]mina|mueble|combo|electrodom|nevera|estufa|lavadora|aluminio|eterboard|fibrocemento|bulto|metro|m2)/i.test(_low) );
 const _pasoRecolec = (paso_actual==='nombre'||paso_actual==='ciudad'||paso_actual==='ciudadOtra'||paso_actual==='ocuArd'||paso_actual==='ocupacion'||paso_actual==='punto');
-const espera_ia = (paso_actual==='' || paso_actual==='cerrado' || paso_actual==='detalle' || paso_actual==='marca' || paso_actual==='consent' || paso_actual==='confirmGrupo') || (_pasoRecolec && _pareceProducto);
+const espera_ia = (paso_actual==='' || paso_actual==='cerrado' || paso_actual==='detalle' || paso_actual==='marca' || paso_actual==='consent' || paso_actual==='confirmGrupo' || paso_actual==='confirmSeg') || (_pasoRecolec && _pareceProducto);
 return [{ json: { es_mensaje: true, wa_id, msg_id, mtype, es_media, media_id, media_caption, texto, opcion_id, profileName,
                   usar_ia_flag: USAR_IA, es_saludo, pide_humano_kw, espera_ia, paso_actual } }];
 """
@@ -314,6 +314,24 @@ function grupoMenu(pre){ return lista(wa, (pre||'')+'Para pasarte con el asesor 
   ['GRP_ACAB','🚿 Acabados','Cerámica, grifería, sanitarios, pintura, Sika…'],
   ['GRP_MOBIL','🛋️ Proyecto a tu medida','Arquitectónico: cocinas, closets, muebles de baño - proyectos completos']
 ]); }
+// === OTRO DÍA: el bot PREGUNTA, no adivina (2026-08-12, orden de Deicy; caso Paola Infante #262/#268) ===
+// Botones de la pregunta y su redacción, en un solo sitio (se usan al entrar al paso y al repetirla).
+const CONT2=[['CONT_MISMA','📌 La misma'],['CONT_NUEVA','🆕 Algo nuevo']];
+// SUMAR dos textos del cliente sin repetir ni descartar (nació dentro de cerrarLead el 11-ago, caso
+// Alfonso #261: un `||` entre lo que escribió y el detalle guardado botaba el pedido real). Ahora vive
+// arriba porque lo necesitan los dos sitios; cerrarLead lo usa por su nombre de siempre.
+const _mezclaTxt = (a,b) => {
+  const _n = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+  if(!_n(b)) return a; if(!_n(a)) return b;
+  if(_n(a).indexOf(_n(b))>=0) return a;      // b ya está contenido en a
+  if(_n(b).indexOf(_n(a))>=0) return b;      // a ya está contenido en b -> b es la versión completa
+  return a+'  ·  '+b;
+};
+function preguntaSeg(st){
+  const _n = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
+  const _a = st.asesorNom ? ((st.asesorF?'nuestra asesora *':'nuestro asesor *')+st.asesorNom+'*') : 'nuestro equipo de asesores';
+  return boton(wa,'¡Hola de nuevo'+_n+'! 😊\n\nPara ayudarte mejor: ¿nos escribes por la *solicitud anterior* que tienes con '+_a+', o necesitas *algo nuevo*?',CONT2);
+}
 function elige(opts){
   if(id){const o=opts.find(x=>x[0]===id);if(o)return o;}   // tocó una opción (id exacto)
   // 2026-08-05: se comparan los DOS lados SIN TILDES (_norm). El cliente colombiano escribe "bogota",
@@ -682,13 +700,7 @@ function cerrarLead(st,opts){
   // autorizar. De 157 leads desde el 23-jul, solo 2 traían la nota.
   // Ya NO se elige: se FUSIONAN. Y se comparan normalizados para no repetir lo mismo dos veces (lo habitual es
   // que una contenga a la otra; en ese caso gana la más completa).
-  const _mezclaDet = (a,b) => {
-    const _n = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
-    if(!_n(b)) return a; if(!_n(a)) return b;
-    if(_n(a).indexOf(_n(b))>=0) return a;      // b ya está contenido en a
-    if(_n(b).indexOf(_n(a))>=0) return b;      // a ya está contenido en b -> b es la versión completa
-    return a+'  ·  '+b;
-  };
+  const _mezclaDet = _mezclaTxt;   // definido arriba (lo comparten cerrarLead y el paso 'confirmSeg')
   const _detSt = (st.detalle && st.detalle!==_detFallback) ? st.detalle : '';
   let _detShown = _mezclaDet(_cliAll, _detSt) || _detFallback;
   if([..._detShown].length>1800) _detShown = [..._detShown].slice(0,1800).join('')+'\n… (pedido largo — ábrelo completo en el chat: wa.me/'+wa+')';
@@ -1599,7 +1611,9 @@ if(!st && CLIENTES_PRUEBA.indexOf(wa)<0 && store.leads){
     if(_l && _l.wa===wa){
       if((NOW-(_l.ts||0))<48*3600000){
         st = S[wa] = { paso:'cerrado', t:NOW, closedAt:(_l.ts||NOW), nombre:(_l.nombre||''), ciudad:(_l.ciudad||''), ciudadId:(_l.ciudadId||''),
-          asesorNom:(_l.asesor||''), asesorNum:(_l.destino||''), asesorF:0, destino:(_l.destino||''),
+          // asesorF venía FIJO en 0 -> a la clienta de ayer se le decía "nuestro asesor Karime Vannesa"
+          // (12-ago, chat de Paola Infante). El género sale de la tabla de asesores, no de un cero.
+          asesorNom:(_l.asesor||''), asesorNum:(_l.destino||''), asesorF:(ASESORES_F[_l.destino]?1:0), destino:(_l.destino||''),
           detalle:(_l.detalle||_l.tiposol||''), interes:(_l.interes||''), marca:(_l.marca||'') };
       }
       break;   // solo el lead MÁS RECIENTE de este número decide (si es >48h, cliente nuevo normal)
@@ -1841,7 +1855,7 @@ if(preguntaHorario){
   const _n1 = st.nombre ? (', '+String(st.nombre).split(' ')[0]) : '';
   // Se retoma con naturalidad: nada de mencionar que la conversación se había cerrado ni que algo pudo perderse.
   wpp_body = repreguntar(st, 'Hola de nuevo'+_n1+'. 👋 Con gusto continuamos con tu solicitud.\n\n');
-} else if(!st || (reinicia && !(st.paso==='cerrado' && (NOW-(st.closedAt||0))<48*3600000))){
+} else if(!st || (reinicia && !((st.paso==='cerrado'||st.paso==='confirmSeg') && (NOW-(st.closedAt||0))<48*3600000))){
   // (un "Hola" de un cliente que YA cerró hace poco NO reinicia el flujo -> cae al manejo de 'cerrado' de abajo, que lo saluda y le dice que su pedido ya está en gestión.)
   // VENTANA 48h (2026-07-23, caso Milena #101-103): antes era 3h y anulaba el estado 'cerrado' reconstruido por
   // CLIENTE QUE VUELVE -> un "Buenos días" del día siguiente reiniciaba TODO (consentimiento + flujo) y la rotación
@@ -2211,6 +2225,66 @@ if(preguntaHorario){
   else { st.grupo=(g[0]==='GRP_CONS')?'CONSTRUCCION':(g[0]==='GRP_MOBIL'?'MOBILIARIO':'ACABADOS'); st.interes=_gInt(st.grupo);
     if(!st.tiposol) st.tiposol='Cotización / Info';
     const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
+} else if(st.paso==='confirmSeg'){
+  // === EL CLIENTE VUELVE OTRO DÍA: el bot PREGUNTA, no adivina (2026-08-12, orden de Deicy) ===
+  // Caso Paola Infante: cerró el 11-ago con un melamínico; el 12-ago a las 7:47 escribió "Buenos días" y
+  // "Hola! Estoy buscando asesoría" (el texto FIJO del botón de la web: no dice qué necesita). El bot dio
+  // por hecho que era la misma solicitud, le respondió "ya se lo pasamos a Karime para que lo tenga en
+  // cuenta en tu solicitud" y nadie le preguntó nunca qué necesitaba HOY. Regla de Deicy: dar por hecho
+  // que es la misma vale SOLO el mismo día, o cuando el cliente dice que no lo han contactado. Otro día
+  // no se sabe -> se pregunta. Este paso resuelve esa pregunta.
+  const _nomS = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
+  const _asNomS = st.asesorNom ? ((st.asesorF?'nuestra asesora *':'nuestro asesor *')+st.asesorNom+'*') : 'nuestro equipo de asesores';
+  const _destS = st.destino || (MODO_PRUEBA?PRUEBA_NUM:null);
+  const _opS = elige(CONT2);
+  const _iaProdS = !!(ia && ia.en_alcance===true && ia.productos && ia.productos.length);
+  const _saludoS = !es_media && !!texto && RE_SALUDO.test(low.replace(/[^\p{L}\s]/gu,' ').replace(/\s+/g,' ').trim());
+  // Todo lo que escriba mientras contesta se GUARDA (no se descarta ni se pierde): _mezclaDet, no un `||`.
+  if(!_opS && !es_media && texto && !_saludoS) st.segTxt=_mezclaTxt(st.segTxt||'', [...String(texto)].slice(0,600).join(''));
+  const _dColS=e=>{const c=new Date(e-5*3600000);return c.getUTCFullYear()+'-'+(c.getUTCMonth()+1)+'-'+c.getUTCDate();};
+  const _hoyS=_dColS(NOW);
+  if((_opS && _opS[0]==='CONT_NUEVA') || (!_opS && _iaProdS)){
+    // ALGO NUEVO -> flujo normal conservando nombre/ciudad/perfil. El amarre de la BD ("cliente sin
+    // atender = mismo asesor") le deja el MISMO asesor si el anterior sigue sin reportar.
+    const _txtN = st.segTxt || (_iaProdS?texto:'') || '';
+    const _pv = st;
+    st = S[wa] = { paso:'', t:NOW, consent:true, nombre:_pv.nombre, ciudad:_pv.ciudad, ciudadId:_pv.ciudadId,
+                   ocupacion:_pv.ocupacion, iaBest:_pv.iaBest, notas:(_txtN||'') };
+    etapa='marca';
+    if(_iaProdS){ arrancarIA(st, ia, _txtN); }
+    else { st.paso='marca'; st.pidioProd=1; etapa='pide_producto';
+      wpp_body=txt(wa,'¡Con gusto te ayudamos'+_nomS+'! 🤝\n\nCuéntanos *¿qué necesitas?* y te pasamos con el asesor experto.\n\nPor ejemplo: cemento, cerámica, grifería, pintura, tableros, fórmica, herrajes, perfilería de aluminio…'); }
+  } else if(_opS && _opS[0]==='CONT_MISMA'){
+    // LA MISMA -> ahora sí se le suma al asesor, y si su solicitud sigue SIN REPORTE se re-registra
+    // (regla del 24-jul: el cliente de ayer sin atender vuelve a salir en el reporte, con su mismo asesor).
+    etapa='seguimiento_dia2'; st.paso='cerrado'; st.t=NOW;
+    const _extraS = st.segTxt||'';
+    if(_destS && PEND_ID && st.dia2Reg!==_hoyS){
+      st.dia2Reg=_hoyS; st.lastRemind=NOW;
+      leadRow={creado_en:fechaCol(), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||'Ardisa'), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||'—'),
+        solicitud:'Reintento — volvió por la MISMA solicitud',
+        detalle:'El cliente volvió a escribir hoy y CONFIRMÓ que es por la misma solicitud.'+(_extraS?(' Hoy escribió: '+[...String(_extraS)].slice(0,400).join('')):'')+(st.detalle?(' · Solicitud original: '+[...String(st.detalle)].slice(0,400).join('')):'')+' · Sigue pendiente de reporte la solicitud #'+PEND_ID+' (mismo asesor).',
+        asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
+      const _recS=txt(_destS,'⏰ *El cliente volvió — es la MISMA solicitud*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📌 Tiene la solicitud *#'+PEND_ID+'* pendiente de reporte.\n📝 *Solicitud:* '+(st.detalle||'—')+(_extraS?('\n💬 *Hoy escribió:* '+[...String(_extraS)].slice(0,400).join('')):'')+'\n\n📲 *Escríbele:* https://wa.me/'+wa);
+      if(ventanaAbierta(_destS)||MODO_PRUEBA) aviso_body=_recS; else encolarMedia(_recS, st.nombre||'');
+    } else if(_destS && _extraS){
+      aviso_body=txt(_destS,'➕ *'+(st.nombre||'El cliente')+' agregó:* '+[...String(_extraS)].slice(0,400).join('')+'\n📱 +'+wa);
+    }
+    delete st.segTxt; delete st.segAsk; delete st.segN;
+    wpp_body=txt(wa,'¡Gracias'+_nomS+'! 🙌 Tu solicitud queda *priorizada* con '+_asNomS+', quien te contactará dentro del horario de atención. 🤝');
+  } else {
+    // Ni botón ni producto reconocible. No se repite la pregunta en ráfaga (dos mensajes en el mismo
+    // segundo son UNA sola llegada), y si aun así no la contesta, no lo dejamos en el limbo: se lo
+    // pasamos al asesor y se cierra el paso.
+    etapa='confirmSeg'; st.segN=(st.segN||0)+1; st.t=NOW;
+    if(st.segAsk && (NOW-st.segAsk)<45000){ wpp_body=null; }
+    else if(st.segN>3){
+      st.paso='cerrado'; etapa='adicion';
+      if(_destS && st.segTxt) aviso_body=txt(_destS,'➕ *'+(st.nombre||'El cliente')+' escribió:* '+[...String(st.segTxt)].slice(0,400).join('')+'\n📱 +'+wa);
+      wpp_body=txt(wa,'Gracias'+_nomS+'. ✅ Ya se lo pasamos a '+(st.asesorNom?('*'+st.asesorNom+'*'):'tu asesor')+', quien te contactará dentro del horario de atención. 🤝');
+      delete st.segTxt; delete st.segAsk; delete st.segN;
+    } else { st.segAsk=NOW; wpp_body=preguntaSeg(st); }
+  }
 } else if(st.paso==='cerrado'){
   // Ya cerró una solicitud y escribe de nuevo. CUATRO casos:
   //  (a) CORTESÍA (gracias/chao/listo) -> respondemos amable y NO reiniciamos el flujo.
@@ -2219,6 +2293,12 @@ if(preguntaHorario){
   //  (d) NUEVA consulta (ya pasó rato) -> la arrancamos conservando nombre y ciudad, saludándolo POR SU NOMBRE.
   const _nom = st.nombre ? (' '+st.nombre.split(' ')[0]) : '';
   const _dest = st.destino || (MODO_PRUEBA?PRUEBA_NUM:null);
+  // ¿Cerró HOY? (día calendario Colombia). Es la vara de la regla de Deicy del 12-ago: sumarle lo que
+  // escribe a la solicitud que ya tiene vale el MISMO día; otro día hay que preguntarle. Si no sabemos
+  // cuándo cerró, se asume que hoy (no inventamos una pregunta sin motivo).
+  const _dColF=e=>{const c=new Date(e-5*3600000);return c.getUTCFullYear()+'-'+(c.getUTCMonth()+1)+'-'+c.getUTCDate();};
+  const _hoyC=_dColF(NOW);
+  const _mismoDia = !st.closedAt || _dColF(st.closedAt)===_hoyC;
   // SOLO un saludo (sin información): no es una adición; lo maneja el 'else' (regla del cliente sin atender ayer).
   // Se normaliza quitando signos/emojis para que "Muy buenas tardes!!" también cuente como saludo suelto.
   const _soloSaludoTxt = !es_media && !!texto && RE_SALUDO
@@ -2260,12 +2340,15 @@ if(preguntaHorario){
       st.paso='marca';
       wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
     }
-  } else if(texto && low.length>=2 && !/^\d$/.test(low) && !_soloSaludoTxt && !_esperaAsesor && (NOW-(st.closedAt||0) < 24*3600000)){
+  } else if(texto && low.length>=2 && !/^\d$/.test(low) && !_soloSaludoTxt && !_esperaAsesor && _mismoDia){
     // `!_esperaAsesor` (2026-08-11, caso Alfonso Crismatt): "la asesora nunca me escribió" NO es un detalle
     // que agregarle al pedido. Se le respondía "Ya se lo pasamos a Karime para que lo tenga en cuenta en tu
     // solicitud" — al cliente que se está quejando de que Karime no lo ha llamado. Va al 'else', que le
     // recuerda a la asesora y le responde que queda priorizado.
-    // === ADICIÓN de texto tras cerrar (2026-08-03: la ventana pasa de 5 MINUTOS a 24 HORAS) ===
+    // === ADICIÓN de texto tras cerrar — SOLO EL MISMO DÍA (2026-08-12, orden de Deicy) ===
+    // La ventana era de 24 HORAS de reloj, así que cruzaba la medianoche: lo que el cliente escribía al
+    // día siguiente se le sumaba a la solicitud de ayer sin preguntarle. "Es otro día y no se sabe si es
+    // la misma o va a preguntar por otro" (Deicy, caso Paola Infante). Otro día -> paso 'confirmSeg'.
     // Caso real (Omar Rivera, lead #207): cerró con ciudad "Bucaramanga" y 11 minutos después escribió "Cali".
     // Como iba fuera de los 5 minutos, el bot le respondió "ya está en gestión" y ESA CIUDAD NUNCA LLEGÓ AL
     // ASESOR. Los adjuntos ya se reenviaban A CUALQUIER HORA; el texto no. Se iguala: lo que escriba el
@@ -2279,6 +2362,20 @@ if(preguntaHorario){
     wpp_body = (st.addN<=5)
       ? txt(wa,'Recibido'+_nom+'. ✅ Ya se lo pasamos a '+(st.asesorNom?('*'+st.asesorNom+'*'):'tu asesor')+' para que lo tenga en cuenta en tu solicitud. 🤝')
       : null;
+  } else if(!_mismoDia && texto && low.length>=2 && !_esperaAsesor){
+    // === OTRO DÍA -> PREGUNTAR (2026-08-12, orden de Deicy) ===
+    // Ni saludo suelto ni mensaje con contenido se dan por hecho: cerró otro día, así que no sabemos si
+    // escribe por lo de ayer o por algo nuevo. Se le pregunta con dos botones (paso 'confirmSeg').
+    // Al ASESOR se le avisa YA (no depende de que el cliente conteste): si su solicitud sigue sin reporte,
+    // ver que el cliente volvió a escribir es justo lo que no puede llegar tarde.
+    st.paso='confirmSeg'; st.segAsk=NOW; st.segN=1; etapa='confirmSeg'; st.t=NOW;
+    if(!_soloSaludoTxt) st.segTxt=_mezclaTxt(st.segTxt||'', [...String(texto)].slice(0,600).join(''));
+    if(_dest && PEND_ID && st.dia2Avi!==_hoyC){
+      st.dia2Avi=_hoyC; st.lastRemind=NOW;
+      const _recV=txt(_dest,'👋 *'+(st.nombre||'El cliente')+' volvió a escribir hoy*\n\n📱 *WhatsApp:* +'+wa+'\n📌 Aún tiene la solicitud *#'+PEND_ID+'* sin reporte.\n📝 *Solicitud:* '+(st.detalle||'—')+(!_soloSaludoTxt?('\n💬 *Hoy escribió:* '+[...String(texto)].slice(0,300).join('')):'')+'\n\n📲 *Escríbele:* https://wa.me/'+wa);
+      if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_recV; else encolarMedia(_recV, st.nombre||'');
+    }
+    wpp_body=preguntaSeg(st);
   } else {
     // SALUDO / SEGUIMIENTO / QUEJA (no es producto nuevo): saludamos, confirmamos que su pedido YA está en gestión y ofrecemos ayuda. NUNCA reiniciamos.
     etapa='seguimiento'; st.t=NOW;
@@ -2288,8 +2385,9 @@ if(preguntaHorario){
     // DÍA SIGUIENTE (2026-07-24, pedido Deicy; 2026-08-06, decisión Deicy: SIN tarjetas de alarma): si el cierre
     // fue OTRO día (y <48h) y el cliente vuelve a escribir, se RE-REGISTRA como solicitud NUEVA normal (MISMO
     // asesor, sale en el reporte) con nota neutral del pendiente. Máximo 1 vez por día por cliente.
-    const _dColF=e=>{const c=new Date(e-5*3600000);return c.getUTCFullYear()+'-'+(c.getUTCMonth()+1)+'-'+c.getUTCDate();};
-    const _hoyC=_dColF(NOW);
+    // 2026-08-12: _dColF/_hoyC se calculan UNA vez arriba (los usa también la regla del mismo día).
+    // Esta rama ya solo la alcanza el cliente que RECLAMA ("no me han contactado"), que es el otro caso
+    // en el que Deicy sí quiere que se dé por hecho que es la misma solicitud.
     // 2026-08-05 (caso Claudia Ardila, lead #225): la condición solo miraba QUE el cierre fue ayer — nunca
     // le preguntaba a la BD si el asesor YA reportó. Karina atendió y reportó "Perdido" a la 1 pm y el bot
     // igual la acusó de "no atendido" al día siguiente (misma acusación falsa que ayer llenó el Teams).

@@ -45,31 +45,31 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            JSON.stringify(r.aviso_body||'').slice(0,120));
 }
 
-// ══ 2. DE VERDAD SIN REPORTAR (pend_id>0) -> la regla sigue funcionando ════════
+// ══ 2. DE VERDAD SIN REPORTAR (pend_id>0) ═════════════════════════════════════
+// 2026-08-12 (orden de Deicy, caso Paola Infante): el saludo de OTRO día ya NO se da por hecho que es la
+// misma solicitud. El bot PREGUNTA (paso confirmSeg) y el lead solo se crea cuando el cliente contesta.
+// Lo que NO cambia: el asesor se entera HOY MISMO de que su cliente sin reporte volvió a escribir.
 {
   const sd = conLeadAyer(base());
   const r = correr({ datos: ev({ texto:'Buen día' }), sd, pend:{ cons_si:1, pend_id:218 } });
-  const fue = (r.etapa === 'seguimiento_dia2');
   const mismoDia = new Date(AYER).getDate() === new Date().getDate();
-  chequear('Sin reporte: el reintento SÍ se registra (o cerró hoy mismo y no aplica)',
-           fue || mismoDia, 'etapa=' + r.etapa);
-  if (fue) {
-    chequear('Y el detalle prueba la acusación con el # de la solicitud',
-             /#218/.test((r.lead||{}).detalle||''), 'detalle=' + JSON.stringify((r.lead||{}).detalle));
+  if (!mismoDia) {
+    chequear('Sin reporte + otro día: el bot PREGUNTA en vez de suponer',
+             r.etapa === 'confirmSeg' && /solicitud anterior/i.test(JSON.stringify(r.wpp_body||'')),
+             'etapa=' + r.etapa + ' ' + JSON.stringify(r.wpp_body||'').slice(0,140));
+    chequear('Y todavía NO inventa un lead (nadie sabe aún si es la misma)', !r.lead,
+             JSON.stringify((r.lead||{}).solicitud));
+    // La ventana del asesor está cerrada en el arnés -> la tarjeta viaja por la cola mediaPend (blindaje 131047).
+    const tarjeta = JSON.stringify(r.aviso_body||'') + JSON.stringify(sd.mediaPend||{}) + JSON.stringify(sd.holds||{});
+    chequear('El asesor SÍ se entera hoy: su cliente sin reporte volvió a escribir',
+             /volvió a escribir hoy/i.test(tarjeta) && /#218/.test(tarjeta) && /573001234567/.test(tarjeta),
+             tarjeta.slice(0,200));
     // 2026-08-06 (caso Fundación Mujer y Futuro #235): el bot solo sabe que no hay REPORTE — no puede saber
-    // si el asesor atendió por fuera (Yormy ya había enviado cotización). La tarjeta y el Excel dicen
-    // "sin reporte"; jamás "sin atender / no atendido". Y al cliente no se le piden disculpas por una
-    // demora que quizá no existió.
-    const todo = JSON.stringify(r);
-    chequear('El bot solo afirma lo que sabe: "pendiente de reporte", nunca "sin atender"',
+    // si el asesor atendió por fuera. Se dice "sin reporte"; jamás "sin atender / no atendido".
+    const todo = JSON.stringify(r) + tarjeta;
+    chequear('El bot solo afirma lo que sabe: "sin reporte", nunca "sin atender"',
              /sin reporte|pendiente de reporte/i.test(todo) && !/sin atender|no atendido|NO LO HAN ATENDIDO|URGENTE/i.test(todo),
              todo.slice(0,200));
-    // La ventana del asesor está cerrada en el arnés -> la tarjeta viaja por la cola mediaPend (blindaje 131047),
-    // no por aviso_body. La regla se verifica donde sea que haya quedado el texto.
-    const tarjeta = JSON.stringify(r.aviso_body||'') + JSON.stringify(sd.mediaPend||{}) + JSON.stringify(sd.holds||{});
-    chequear('La tarjeta es la NEUTRAL de "cliente que YA tienes" (decisión Deicy 06/08)',
-             /YA tienes/.test(tarjeta) && /aprovecha y resu/i.test(tarjeta) && !/URGENTE|REINTENTO|sin atender/i.test(tarjeta),
-             tarjeta.slice(0,200));
     chequear('Al cliente NO se le pide perdón por una demora no comprobada',
              !/Lamentamos la demora/i.test(JSON.stringify(r.wpp_body||'')),
              JSON.stringify(r.wpp_body||'').slice(0,120));
