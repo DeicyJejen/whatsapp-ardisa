@@ -491,7 +491,10 @@ function cerrarLead(st,opts){
         || _dvLimpio.length < 5   // respuesta demasiado corta y sin producto reconocible
         || _soloSaludo             // el detalle es solo un saludo -> no hay solicitud real
     );
-    if((_pareceVago || _generico) && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){   // describir un proyecto/a-medida NO es vago (2026-07-23)
+    // 2026-08-12 (caso Daniela "Tapa luz"): si el cliente ESCRIBIÓ esto como su producto en el paso final
+    // (opts.desdeDetalle), ya completó todo el flujo y respondió "qué necesitas" -> se confía en su palabra y
+    // NO se le vuelve a interrogar. El chequeo vago es para quien pide "cotización" SIN haber concretado nada.
+    if((_pareceVago || _generico) && !opts.desdeDetalle && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){   // describir un proyecto/a-medida NO es vago (2026-07-23)
       st.asesoriaAsk=true; st.paso='detalle';
       return {wpp_body: txt(wa,'¡Con gusto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 🤝 Para pasarte con el asesor correcto y darte una cotización precisa, cuéntame: *¿qué producto(s) necesitas cotizar?*\nPor ejemplo: cemento, cerámica, grifería, tableros, láminas, sanitarios, pintura...'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
     }
@@ -2160,6 +2163,23 @@ if(preguntaHorario){
   else { st.puntoIdx=parseInt(o[0].slice(3),10); st.paso='ocupacion'; etapa='ocupacion';
     wpp_body=lista(wa,'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA); }
 } else if(st.paso==='detalle'){
+  // ¿El texto del paso final es BASURA de verdad? (2026-08-12): solo entonces se interroga. Un producto que
+  // la IA no reconoce ("tapa luz", "geotextil nt 40") NO es basura. Basura = muy corto, saludo suelto, o
+  // patrones de prueba/teclado (asdf, prueba, jajaja). Todo lo demás se enruta.
+  // OJO: nada de `\b` al final de los patrones — con tildes o pegado a otra letra el borde de palabra falla
+  // (el error recurrente de esta casa). Se ancla al inicio con ^ y se prueba contra el texto normalizado.
+  const _esBasuraDet = (s)=>{
+    const _c=String(s||'').toLowerCase().replace(/[^a-záéíóúñ0-9 ]/gi,' ').replace(/\s+/g,' ').trim();
+    const _se=_c.replace(/\s/g,'');
+    if(_se.length < 3) return true;                                            // dos letras o menos
+    if(RE_SALUDO.test(_c)) return true;                                        // solo un saludo
+    if(/^(prueba|test|asdf|qwer|zxc|ldkfj|oruan|ninguno|ninguna)/i.test(_c)) return true;  // pruebas de teclado
+    if(/^([a-zñ])\1{2,}$/i.test(_se)) return true;                             // una letra repetida (zzz, aaaa)
+    if(/^(ja|je|ji|ha|he|hi){2,}$/i.test(_se)) return true;                    // risa (jajaja, jeje)
+    const _pal=_c.split(' ').filter(w=>w.length>=1);
+    if(_pal.length===1 && _pal[0].length>=3 && !/[aeiouáéíóú]/i.test(_pal[0])) return true;   // una palabra sin vocales (teclazo)
+    return false;
+  };
   // Fix 1: aceptar media (foto/audio) como lead válido en vez de descartarla
   // BOTÓN VIEJO RE-TOCADO (2026-08-05, informe multi-agente): WhatsApp deja tocables TODOS los menús viejos
   // del chat. Si el cliente re-toca uno en este paso ("✅ Sí, autorizo", "🧱 Construcción", una ciudad...), la
@@ -2175,8 +2195,12 @@ if(preguntaHorario){
   // La IA valida: si el texto NO es un producto real (p.ej. "prueba ti", "asdf"), NO cerramos con basura.
   // PERO si hay intención comercial clara (cotización/materiales/necesito/comprar...), aunque sea vaga, NO interrogamos:
   // lo pasamos al asesor por el cierre normal (que si hace falta pregunta Construcción/Acabados con 1 toque).
-  // Solo interrogamos (hasta 2 veces) cuando es basura sin intención.
-  else if(!es_media && ia && ia.en_alcance===false && !/(cotiz|precio|presupuesto|comprar|compra|adquir|necesito|requiero|material|muebl|producto|surtir|pedido|proyecto|obra|construc|remodel|acabad|ferreter|aluminio|vitrina|mostrador|electrodom)/i.test(low)){
+  // 2026-08-12 (caso Daniela Morales / "Tapa luz"): la IA marcó el producto fuera de alcance ("tapaluz" es un
+  // accesorio eléctrico de mostrador que la IA no reconoció) y el bot la interrogó y la perdió — habiendo
+  // completado TODO el flujo. Regla de Deicy "nada se pierde": a esta altura solo se interroga la BASURA de
+  // verdad (asdf, prueba, un saludo, dos letras). Cualquier texto con pinta de producto REAL se enruta: el
+  // asesor sabe qué es "tapa luz". Un lead de más lo descarta en 2 segundos; un cliente perdido no vuelve.
+  else if(!es_media && ia && ia.en_alcance===false && !/(cotiz|precio|presupuesto|comprar|compra|adquir|necesito|requiero|material|muebl|producto|surtir|pedido|proyecto|obra|construc|remodel|acabad|ferreter|aluminio|vitrina|mostrador|electrodom)/i.test(low) && _esBasuraDet(low)){
     st.revalidos = (st.revalidos||0) + 1;
     if(st.revalidos < 2){
       etapa='detalle';
@@ -2253,7 +2277,9 @@ if(preguntaHorario){
       else if(ia && !es_media && !st.mediaId){ st.paso='confirmGrupo'; etapa='confirmGrupo'; cerrarDet=false;
         wpp_body=grupoMenu(); }
     }
-    if(cerrarDet){ const R=cerrarLead(st,{mediaNota}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
+    // desdeDetalle: el cliente completó TODO el flujo y escribió esto como su producto en el paso final ->
+    // el cierre NO lo vuelve a ver "vago" (caso Daniela "Tapa luz": la 2ª barrera lo habría rebotado igual).
+    if(cerrarDet){ const R=cerrarLead(st,{mediaNota, desdeDetalle:(!es_media && !!texto)}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
   }
 } else if(st.paso==='cotizacion'){
   // === FASE 2 · TURNOS DE COTIZACIÓN (solo piloto). El código decide; la IA solo redacta con datos de SAP. ===
