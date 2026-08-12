@@ -1,5 +1,6 @@
 <?php
 // Seguimiento de leads — Bot WhatsApp Grupo Ardisa (solo lectura, VPN-only)
+date_default_timezone_set('America/Bogota');   // 2026-08-12: PHP en UTC, BD en Colombia -> alinear el reloj
 $dbpass = @trim(@file_get_contents('/etc/monitor-ardisa.pass'));
 $c = @new mysqli('127.0.0.1', 'monitor_ro', $dbpass, 'bot_ardisa');
 if ($c->connect_errno) { http_response_code(500); die('Sin conexión a la base de datos.'); }
@@ -232,14 +233,21 @@ function lnk($ov=[]){
   select{padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:.82rem;background:#fff;color:var(--ink);font-weight:600}
   .tblbox{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 3px rgba(24,40,80,.05)}
   /* Paginación (2026-08-11) — mismo lenguaje visual de las pestañas: píldoras, no botones de otro planeta. */
-  .pager{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between;margin:12px 2px 4px}
-  .pginfo{font-size:.82rem;color:var(--soft)} .pginfo b{color:var(--ink)}
-  .pgbtns{display:flex;flex-wrap:wrap;gap:6px}
-  .pgb{text-decoration:none;color:var(--teal-d);background:#fff;border:1px solid var(--line);
-       padding:6px 12px;border-radius:22px;font-size:.8rem;font-weight:700;min-width:16px;text-align:center}
-  .pgb:hover{border-color:var(--mint)}
-  .pgb.on{background:var(--navy);color:#fff;border-color:var(--navy)}
-  .pgb.off{color:#B6C2CB;pointer-events:none;background:#FAFCFD}
+  .pager{display:flex;flex-wrap:wrap;align-items:center;gap:14px;justify-content:space-between;margin:14px 2px 6px}
+  .pginfo{font-size:.8rem;color:var(--soft)} .pginfo b{color:var(--ink)}
+  .pgbtns{display:inline-flex;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(14,42,59,.05)}
+  .pgb{text-decoration:none;color:var(--teal-d);padding:8px 13px;font-size:.82rem;font-weight:700;min-width:14px;text-align:center;border-right:1px solid var(--line)}
+  .pgb:last-child{border-right:0}
+  .pgb:hover{background:var(--sel,#EEF6F4)}
+  .pgb.on{background:var(--teal);color:#fff;pointer-events:none}
+  .pgb.off{color:#C3CDD4;pointer-events:none}
+  .pgsep{font-size:.72rem;color:var(--soft);align-self:center;margin:0 2px}
+  .pgver{display:inline-flex;align-items:center;gap:8px;font-size:.76rem;color:var(--soft)}
+  .pgver .grp{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .pgver a{text-decoration:none;color:var(--teal-d);padding:6px 11px;font-size:.78rem;font-weight:700;border-right:1px solid var(--line)}
+  .pgver a:last-child{border-right:0}
+  .pgver a:hover{background:var(--sel,#EEF6F4)}
+  .pgver a.on{background:var(--navy);color:#fff;pointer-events:none}
   table{border-collapse:collapse;width:100%;font-size:.84rem;min-width:1020px}
   th,td{padding:11px 13px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
   thead th{background:var(--navy);color:#EAF0F7;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;font-weight:700;position:sticky;top:0;white-space:nowrap}
@@ -350,28 +358,30 @@ function lnk($ov=[]){
   <div class="pager">
     <span class="pginfo">
       <?php $desde = $off+1; $hasta = min($off+$PP, $tot); ?>
-      Mostrando <b><?php echo $desde; ?>–<?php echo $hasta; ?></b> de <b><?php echo $tot; ?></b>
+      <b><?php echo $desde; ?>–<?php echo $hasta; ?></b> de <b><?php echo $tot; ?></b>
       <?php echo $tot===1?'solicitud':'solicitudes'; ?>
-      <?php if($paginas>1): ?> · página <b><?php echo $pg; ?></b> de <b><?php echo $paginas; ?></b><?php endif; ?>
-      · Ver:
-      <?php foreach([10,25,50,100] as $nOp): ?>
-        <a class="pgb <?php echo $PPn===$nOp?'on':''; ?>" style="padding:2px 8px" href="<?php echo lnk(['n'=>$nOp,'pg'=>1]); ?>"><?php echo $nOp; ?></a>
-      <?php endforeach; ?>
     </span>
     <?php if($paginas > 1): ?>
     <span class="pgbtns">
-      <a class="pgb <?php echo $pg<=1?'off':''; ?>" href="<?php echo $pg<=1?'#':lnk(['pg'=>1]); ?>">« Primera</a>
-      <a class="pgb <?php echo $pg<=1?'off':''; ?>" href="<?php echo $pg<=1?'#':lnk(['pg'=>$pg-1]); ?>">‹ Anterior</a>
+      <?php if($paginas > 5): ?><a class="pgb <?php echo $pg<=1?'off':''; ?>" href="<?php echo $pg<=1?'#':lnk(['pg'=>1]); ?>" title="Primera página">«</a><?php endif; ?>
+      <a class="pgb <?php echo $pg<=1?'off':''; ?>" href="<?php echo $pg<=1?'#':lnk(['pg'=>$pg-1]); ?>" title="Anterior">‹</a>
       <?php
         // Ventana de páginas alrededor de la actual (no se pintan 40 numeritos si el histórico es largo).
         $ini = max(1, $pg-2); $fin = min($paginas, $ini+4); $ini = max(1, $fin-4);
         for($i=$ini; $i<=$fin; $i++): ?>
         <a class="pgb <?php echo $i===$pg?'on':''; ?>" href="<?php echo lnk(['pg'=>$i]); ?>"><?php echo $i; ?></a>
       <?php endfor; ?>
-      <a class="pgb <?php echo $pg>=$paginas?'off':''; ?>" href="<?php echo $pg>=$paginas?'#':lnk(['pg'=>$pg+1]); ?>">Siguiente ›</a>
-      <a class="pgb <?php echo $pg>=$paginas?'off':''; ?>" href="<?php echo $pg>=$paginas?'#':lnk(['pg'=>$paginas]); ?>">Última »</a>
+      <a class="pgb <?php echo $pg>=$paginas?'off':''; ?>" href="<?php echo $pg>=$paginas?'#':lnk(['pg'=>$pg+1]); ?>" title="Siguiente">›</a>
+      <?php if($paginas > 5): ?><a class="pgb <?php echo $pg>=$paginas?'off':''; ?>" href="<?php echo $pg>=$paginas?'#':lnk(['pg'=>$paginas]); ?>" title="Última página">»</a><?php endif; ?>
     </span>
     <?php endif; ?>
+    <span class="pgver">por página
+      <span class="grp">
+        <?php foreach([10,25,50,100] as $nOp): ?>
+          <a class="<?php echo $PPn===$nOp?'on':''; ?>" href="<?php echo lnk(['n'=>$nOp,'pg'=>1]); ?>"><?php echo $nOp; ?></a>
+        <?php endforeach; ?>
+      </span>
+    </span>
   </div>
   <?php endif; ?>
 </div>

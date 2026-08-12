@@ -8,9 +8,21 @@
 //   devolver -> borra la marca: el bot vuelve a atender normal.
 // Respuesta SIEMPRE JSON: {ok:true|false, err?:string}.
 header('Content-Type: application/json; charset=utf-8');
+date_default_timezone_set('America/Bogota');   // PHP en UTC, BD en Colombia -> alinear el reloj
 
 function out($arr){ echo json_encode($arr, JSON_UNESCAPED_UNICODE); exit; }
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(['ok'=>false, 'err'=>'Método no permitido']);
+
+// CHAT HÍBRIDO DESACTIVADO (decisión Deicy 12-ago): el workflow de envío se eliminó de n8n y el secreto se
+// borró para cerrar el webhook expuesto a internet. Este archivo queda como base para cuando se reactive:
+// para prenderlo hay que (1) volver a crear el workflow con Header Auth nativo (no secreto en el body) y
+// "no guardar ejecuciones exitosas", (2) poner $HIBRIDO=true en index.php. Hasta entonces, no hace nada.
+if (!file_exists('/etc/monitor-ardisa.secret')) out(['ok'=>false, 'err'=>'El chat híbrido está desactivado.']);
+
+// Defensa CSRF (auditoría): el firewall del MikroTik no frena a un navegador de la oficina engañado por
+// otra web. Toda acción debe venir del propio panel (Origin/Referer del mismo host).
+$_ORIG = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
+if (strpos($_ORIG, $_SERVER['HTTP_HOST'] ?? 'x') === false) out(['ok'=>false, 'err'=>'Origen no permitido']);
 
 $acc = $_POST['acc'] ?? '';
 $wa  = preg_replace('/[^0-9]/', '', $_POST['wa'] ?? '');

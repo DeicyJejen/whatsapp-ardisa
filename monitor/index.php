@@ -1,5 +1,12 @@
 <?php
 // Monitor de conversaciones — Bot WhatsApp Grupo Ardisa (solo lectura, VPN-only)
+// 2026-08-12 (auditoría de robustez): PHP corría en UTC y la BD guarda hora Colombia -> el contador
+// "en curso" comparaba relojes distintos (5h) y siempre daba 0. La zona se fija una vez, para todo el panel.
+date_default_timezone_set('America/Bogota');
+// Defensa CSRF (auditoría): el panel está tras el firewall del MikroTik, pero eso NO frena a un navegador
+// de la oficina engañado por otra web. Cualquier POST (ocultar/restaurar) debe venir del propio panel.
+$_ORIG = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
+$_CSRF_OK = ($_SERVER['REQUEST_METHOD'] !== 'POST') || (strpos($_ORIG, $_SERVER['HTTP_HOST'] ?? 'x') !== false);
 $dbpass = @trim(@file_get_contents('/etc/monitor-ardisa.pass'));
 $c = @new mysqli('127.0.0.1', 'monitor_ro', $dbpass, 'bot_ardisa');
 if ($c->connect_errno) { http_response_code(500); die('Sin conexión a la base de datos.'); }
@@ -7,6 +14,7 @@ $c->set_charset('utf8mb4');
 
 // Ocultar/restaurar conversación (pedido Deicy 2026-07-24): como "eliminar chat" en WhatsApp pero SIN borrar nada —
 // los mensajes y los reportes de los leads quedan intactos; el chat solo sale de la lista y se puede restaurar.
+if ($_SERVER['REQUEST_METHOD']==='POST' && !$_CSRF_OK) { http_response_code(403); exit('Origen no permitido'); }
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['acc'], $_POST['wa'])) {
   $w = preg_replace('/[^0-9]/','',$_POST['wa']);
   if ($w!=='') {
@@ -91,7 +99,7 @@ $qd = '&d='.$dayf.'&v='.$vista.($verOc?'&oc=1':'');
 
 // lista de conversaciones (última actividad primero)
 $convs = [];
-$q = "SELECT wa_id, MAX(creado_en) ult, SUBSTRING_INDEX(GROUP_CONCAT(nombre ORDER BY creado_en DESC SEPARATOR 0x1f),0x1f,1) nombre,
+$q = "SELECT wa_id, MAX(creado_en) ult, SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(nombre,'') ORDER BY creado_en DESC SEPARATOR 0x1f),0x1f,1) nombre,
        SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(NULLIF(entrada,''),salida) ORDER BY creado_en DESC SEPARATOR 0x1f),0x1f,1) ultmsg,
        COUNT(*) n
        FROM mensajes $fwhere GROUP BY wa_id ORDER BY ult DESC LIMIT 200";
