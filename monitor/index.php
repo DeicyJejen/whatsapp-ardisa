@@ -81,6 +81,8 @@ $aseIn = "'".implode("','", $aseNums)."'";
 $vcond = "wa_id ".($vista==='ase' ? 'IN' : 'NOT IN')." ($aseIn)";
 $fwhere = $fwhere==='' ? "WHERE $vcond" : "$fwhere AND $vcond";
 $ocultos=[]; if($r=@$c->query("SELECT wa_id FROM chats_ocultos")){ while($x=$r->fetch_assoc()) $ocultos[$x['wa_id']]=1; }
+// CHAT HÍBRIDO (2026-08-12): conversaciones que un humano está atendiendo desde el panel (el bot callado).
+$humanos=[]; if($r=@$c->query("SELECT telefono FROM humano WHERE hasta>NOW()")){ while($x=$r->fetch_assoc()) $humanos[$x['telefono']]=1; }
 $verOc = isset($_GET['oc']) && $_GET['oc']==='1';
 $qd = '&d='.$dayf.'&v='.$vista.($verOc?'&oc=1':'');
 
@@ -103,13 +105,21 @@ if ($sel !== '') {
   $st->bind_param('s', $sel); $st->execute(); $res = $st->get_result();
   while ($m = $res->fetch_assoc()) { $msgs[] = $m; if ($m['nombre']) $selNombre = $m['nombre']; }
 }
-$total = 0; foreach ($convs as $cv) $total += (int)$cv['n'];
+$total = 0; $enCurso = 0;
+foreach ($convs as $cv) { $total += (int)$cv['n']; if (strtotime($cv['ult']) >= time()-1800) $enCurso++; }
+// ¿Puedo escribirle al chat abierto? Ventana de 24h de WhatsApp: el CLIENTE debe haber escrito hace <24h.
+$selHumano = ($sel!=='' && isset($humanos[$sel]));
+$ventanaOk = false;
+if ($sel!=='' && $vista==='cli') {
+  $st=$c->prepare("SELECT MAX(creado_en) FROM mensajes WHERE wa_id=? AND entrada<>'' AND entrada NOT LIKE '(%'");
+  $st->bind_param('s',$sel); $st->execute(); $st->bind_result($uMsg); $st->fetch(); $st->close();
+  $ventanaOk = $uMsg && strtotime($uMsg) >= time()-24*3600;
+}
 $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
 ?><!doctype html>
 <html lang="es"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="15;url=<?php echo $refreshUrl; ?>">
 <title>Monitor · Bot Grupo Ardisa</title>
 <style>
   :root{--teal:#0E8F88;--teal-d:#0B6C68;--navy:#0E2A3B;--paper:#EAE6DF;--panel:#fff;--line:#E4E7E7;--ink:#111B21;--soft:#667781;--in:#fff;--out:#D6F5CC;--sel:#E7F3F1}
@@ -146,6 +156,15 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
   .daysep{text-align:center;margin:12px 0}
   .daysep span{background:#E1F2EF;color:var(--teal-d);font-size:.72rem;padding:4px 12px;border-radius:8px;font-weight:600;box-shadow:0 1px .5px rgba(0,0,0,.1)}
   .empty{margin:auto;color:var(--soft);text-align:center;padding:40px}
+  /* chat híbrido */
+  .out .bub.pan{background:#CDEBF7;border-top-right-radius:2px}
+  .bub.pan .who{color:#0B5D74}
+  .composer{flex:0 0 auto;display:flex;gap:8px;align-items:flex-end;padding:10px 12px;background:#F0F2F5;border-top:1px solid var(--line)}
+  .composer textarea{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px 13px;font:inherit;font-size:.93rem;resize:none;max-height:120px;outline:none;background:#fff}
+  .composer textarea:focus{border-color:var(--teal)}
+  .composer button{width:44px;height:42px;border:0;border-radius:50%;background:var(--teal);color:#fff;font-size:1.15rem;cursor:pointer;flex:0 0 auto}
+  .composer button:disabled{opacity:.5;cursor:wait}
+  .composer .cerrada{flex:1;color:var(--soft);font-size:.84rem;text-align:center;padding:6px}
   .tabs{display:flex;gap:6px;margin-top:9px}
   .tab{flex:1;text-align:center;text-decoration:none;color:#fff;background:rgba(255,255,255,.16);
     padding:5px 0;border-radius:7px;font-size:.78rem;font-weight:600}
@@ -162,7 +181,7 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
 </head><body class="<?php echo $explicit?'chatview':'listview'; ?>">
 <div class="app">
   <div class="side">
-    <div class="hd">💬 Conversaciones <small><?php echo count($convs); ?> chats · <?php echo $total; ?> mensajes · se actualiza solo</small>
+    <div class="hd">💬 Conversaciones <small><?php echo count($convs); ?> chats · 🟢 <?php echo $enCurso; ?> en curso<?php if(count($humanos)): ?> · 👩‍💼 <?php echo count($humanos); ?> contigo<?php endif; ?> · <?php echo $total; ?> mensajes</small>
       <a href="seguimiento.php" style="display:block;margin-top:8px;text-align:center;background:#fff;color:var(--teal-d);text-decoration:none;padding:7px;border-radius:7px;font-weight:700;font-size:.82rem">📊 Ver seguimiento de solicitudes</a>
       <div class="tabs">
         <a class="tab <?php echo $vista==='cli'?'on':''; ?>" href="?d=<?php echo $dayf; ?>&v=cli">👥 Clientes</a>
@@ -183,7 +202,8 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
       <?php if(!$convs): ?><div class="empty"><?php echo $vista==='ase' ? 'Aún no hay chats de asesores en este período.<br>Aquí aparecen sus reportes y recordatorios.' : 'Aún no hay conversaciones.<br>Escríbele al bot para verlas aquí.'; ?></div><?php endif; ?>
       <?php foreach($convs as $cv): $on = $cv['wa_id']===$sel;
         $nmL = (!empty($ASE[$cv['wa_id']])) ? $ASE[$cv['wa_id']] : ($cv['nombre'] ?: ('+'.$cv['wa_id']));
-        if($vista==='ase') $nmL = '🧑‍💼 '.$nmL; ?>
+        if($vista==='ase') $nmL = '🧑‍💼 '.$nmL;
+        if(isset($humanos[$cv['wa_id']])) $nmL = '👩‍💼 '.$nmL; ?>
         <a class="conv <?php echo $on?'on':''; ?>" href="?wa=<?php echo h($cv['wa_id']); ?><?php echo $qd; ?>">
           <div class="av" style="background:<?php echo avc($cv['wa_id']); ?>"><?php echo h(ini_((!empty($ASE[$cv['wa_id']]) ? $ASE[$cv['wa_id']] : $cv['nombre']) ?: $cv['wa_id'])); ?></div>
           <div class="cv-b">
@@ -204,8 +224,16 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
       <div class="av" style="background:<?php echo avc($sel); ?>"><?php echo h(ini_($selShow)); ?></div>
       <div><div style="font-weight:700"><?php echo isset($ASE[$sel])?'🧑‍💼 ':''; echo h($selShow); ?></div>
       <div style="font-size:.74rem;opacity:.85">+<?php echo h($sel); ?><?php echo isset($ASE[$sel])?' · asesor':''; ?></div></div>
+      <?php if($vista==='cli' && !isset($ASE[$sel])): ?>
+        <?php if($selHumano): ?>
+          <span style="background:#FFD54F;color:#5b4300;border-radius:7px;padding:6px 10px;font-weight:700;font-size:.78rem;margin-left:auto">👩‍💼 Atendiéndola tú — bot en pausa</span>
+          <button type="button" onclick="accion('devolver')" style="background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:7px;padding:7px 11px;font-weight:600;cursor:pointer;font-size:.8rem">🤖 Devolver al bot</button>
+        <?php else: ?>
+          <button type="button" onclick="accion('tomar')" style="background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:7px;padding:7px 11px;font-weight:600;cursor:pointer;font-size:.8rem;margin-left:auto">👩‍💼 Atender yo</button>
+        <?php endif; ?>
+      <?php endif; ?>
       <?php $selOculto = isset($ocultos[$sel]); ?>
-      <form method="post" action="?wa=<?php echo h($sel); ?><?php echo $qd; ?>" style="margin-left:auto"
+      <form method="post" action="?wa=<?php echo h($sel); ?><?php echo $qd; ?>" style="<?php echo ($vista==='cli' && !isset($ASE[$sel]))?'':'margin-left:auto'; ?>"
             onsubmit="return confirm('<?php echo $selOculto ? '¿Restaurar este chat a la lista?' : '¿Ocultar este chat de la lista? No se borra nada: los mensajes y reportes quedan guardados y puedes restaurarlo desde 🗂️ Ocultos.'; ?>');">
         <input type="hidden" name="wa" value="<?php echo h($sel); ?>">
         <input type="hidden" name="acc" value="<?php echo $selOculto?'restaurar':'ocultar'; ?>">
@@ -221,11 +249,21 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
         $esSistema = ($mh==='') && preg_match('/^\(.+\)$/u', trim($entTxt));
         if(!$esSistema && (trim($entTxt)!=='' || $mh!=='')): ?>
           <div class="row in"><div class="bub"><?php echo $mh; if(trim($entTxt)!=='') echo nl($entTxt); ?><span class="tm"><?php echo hora($m['creado_en']); ?></span></div></div>
-        <?php endif; if(trim($m['salida'])!==''): ?>
-          <div class="row out"><div class="bub"><div class="who">🤖 Bot</div><?php echo nl($m['salida']); ?><span class="tm"><?php echo hora($m['creado_en']); ?></span></div></div>
+        <?php endif; if(trim($m['salida'])!==''): $esPanel = ($m['etapa']==='panel'); ?>
+          <div class="row out"><div class="bub<?php echo $esPanel?' pan':''; ?>"><div class="who"><?php echo $esPanel?'👩‍💼 Ardisa (panel)':'🤖 Bot'; ?></div><?php echo nl($m['salida']); ?><span class="tm"><?php echo hora($m['creado_en']); ?></span></div></div>
         <?php endif; endforeach; ?>
       <?php if(!$msgs): ?><div class="empty">Sin mensajes.</div><?php endif; ?>
     </div>
+    <?php if($vista==='cli' && !isset($ASE[$sel])): ?>
+    <div class="composer">
+      <?php if($ventanaOk): ?>
+        <textarea id="cmp" rows="1" maxlength="3500" placeholder="Escribe una respuesta al cliente… (Enter envía, Shift+Enter salto)"></textarea>
+        <button id="cmpbtn" type="button" onclick="enviar()">➤</button>
+      <?php else: ?>
+        <div class="cerrada">🔒 Ventana de 24 h cerrada: WhatsApp solo permite responder si el cliente escribió hace menos de 24 horas.</div>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
     <?php else: ?>
       <div class="empty">Selecciona una conversación 👈</div>
     <?php endif; ?>
@@ -234,5 +272,33 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
 <script>
   // baja el scroll al último mensaje al abrir
   var m=document.querySelector('.msgs'); if(m){ m.scrollTop=m.scrollHeight; }
+  var WA = <?php echo json_encode($sel); ?>;
+  var cmp = document.getElementById('cmp'), cmpbtn = document.getElementById('cmpbtn');
+  function post(datos, cb){
+    var fd = new FormData(); for (var k in datos) fd.append(k, datos[k]);
+    fetch('enviar.php', {method:'POST', body:fd}).then(function(r){ return r.json(); })
+      .then(cb).catch(function(){ cb({ok:false, err:'Sin conexión con el servidor'}); });
+  }
+  function accion(acc){
+    if (acc==='devolver' && !confirm('¿Devolverle la conversación al bot?')) return;
+    post({acc:acc, wa:WA}, function(j){ if(j.ok) location.reload(); else alert(j.err||'No se pudo'); });
+  }
+  function enviar(){
+    if (!cmp || !cmp.value.trim()) return;
+    cmpbtn.disabled = true;
+    post({acc:'enviar', wa:WA, text:cmp.value.trim()}, function(j){
+      cmpbtn.disabled = false;
+      if (j.ok) { cmp.value=''; location.reload(); }
+      else alert(j.err || 'No se pudo enviar');
+    });
+  }
+  if (cmp) cmp.addEventListener('keydown', function(e){
+    if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
+  });
+  // Recarga sola cada 15s… pero NUNCA mientras escribes (el meta-refresh viejo borraba el borrador).
+  setInterval(function(){
+    var escribiendo = cmp && (cmp.value.trim() !== '' || document.activeElement === cmp);
+    if (!escribiendo) location.reload();
+  }, 15000);
 </script>
 </body></html>

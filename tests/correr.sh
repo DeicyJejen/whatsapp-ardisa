@@ -3,7 +3,7 @@
 # Genera cerebro.js desde build_f1.py (fuente unica de verdad) y ejecuta cada test_*.js.
 set -e
 cd "$(dirname "$0")/.."
-VERIFY_TOKEN=ardisa2026 python3 -c "import build_f1; open('tests/cerebro.js','w').write(build_f1.CODE_CEREBRO)" >/dev/null
+VERIFY_TOKEN=ardisa2026 python3 -c "import build_f1; open('tests/cerebro.js','w').write(build_f1.CODE_CEREBRO); open('tests/n_inactivos.js','w').write(build_f1.CODE_INACTIVOS)" >/dev/null
 # extrae el codigo de los nodos sueltos que tambien se prueban
 python3 -c "
 import json
@@ -17,6 +17,6 @@ for t in tests/test_*.js; do
   echo "=== $t ==="
   node "$t" || fallo=1
 done
-rm -f tests/cerebro.js tests/n_armar.js tests/n_confirmar.js tests/n_prepara.js tests/n_finalizar.js tests/n_redirigir.js tests/n_entregar.js
+rm -f tests/cerebro.js tests/n_inactivos.js tests/n_armar.js tests/n_confirmar.js tests/n_prepara.js tests/n_finalizar.js tests/n_redirigir.js tests/n_entregar.js
 [ $fallo -eq 0 ] && echo "TODAS LAS PRUEBAS PASAN" || echo "HAY PRUEBAS FALLANDO"
 exit $fallo

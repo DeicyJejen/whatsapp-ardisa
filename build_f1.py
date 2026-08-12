@@ -1517,6 +1517,19 @@ if(es_media && st && ['marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd
   if(st.lastMediaAck && (NOW-st.lastMediaAck)<25000){ if(S[wa]) S[wa].t=NOW; return [{json:{etapa:'media_silencio',wa_id:wa,wpp_body:null,aviso_body:null,hay_aviso:false}}]; }   // 2ª+ imagen en <25s -> se guarda pero NO repite respuesta
   st.lastMediaAck=NOW;
 }
+// === CHAT HÍBRIDO (2026-08-12): un humano atiende desde el panel -> el bot se calla y solo escucha ===
+// La marca viva (tabla `humano`, 30 min renovables con cada respuesta del panel) significa que Deicy está
+// conversando con este cliente por el MISMO número. El bot: registra lo que llegue (texto y adjuntos, para
+// verlos en el panel), congela sus recordatorios de inactividad (st.humano) y NO contesta ni avisa a nadie.
+// Si la BD no responde, humano_on llega 0 y el bot atiende normal (mejor que dejar mudo al cliente).
+if(Number(PEND.humano_on||0)>0 && !ASESORES[wa] && CLIENTES_PRUEBA.indexOf(wa)<0){
+  if(st){ st.t=NOW; st.humano=NOW; delete st.recordado; }
+  const _mtH = (es_media && d.media_id) ? (' ⟦m:'+d.media_id+':'+(d.mtype||'')+'⟧') : '';
+  const _enH = (texto || (id?('▶ '+id):'') || (es_media?('📎 '+(d.mtype||'archivo')):'')) + _mtH;
+  return [{json:{etapa:'humano_panel', wa_id:wa, wpp_body:null, aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null,
+    chat:{creado_en:fechaCol(), wa_id:wa, nombre:((st&&st.nombre)||d.profileName||''), entrada:[...String(_enH)].slice(0,300).join(''), salida:'', etapa:'humano_panel'},
+    consent_log:null, pend_cierre:false, pend_token:0, ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
+}
 // === FILTRO PROVEEDORES / SPAM: números que NO son de Colombia (57...), o mensajes de PROVEEDOR ofreciendo -> esta es la línea
 // COMERCIAL de atención a CLIENTES; se responde el aviso y NO se pasa a los asesores (no les hacemos perder tiempo). ===
 // === CARRIL PEGAJOSO DEL PROVEEDOR (2026-08-11) ===
@@ -2671,6 +2684,10 @@ _PEND_SQL = ("SELECT "
     # sí existe ~1-3s después. Ambos muros (texto y foto) llevan la URL de la política; los empujones suaves no.
     "(SELECT COUNT(*) FROM mensajes WHERE wa_id=$9 AND creado_en >= (NOW() - INTERVAL 45 SECOND) "
       "AND salida LIKE \'%politica-de-datos-personales%\') AS muro_45s, "
+    # === CHAT HÍBRIDO (2026-08-12, pedido Deicy tras ver Wizard Bot): ¿un humano atiende desde el panel? ===
+    # La tabla `humano` la escribe el panel (botón "Atender yo" o al responder). Mientras hasta > NOW(),
+    # el Cerebro se calla: registra lo que llegue y no contesta ni avisa.
+    "(SELECT CASE WHEN hasta > NOW() THEN 1 ELSE 0 END FROM humano WHERE telefono=$10 LIMIT 1) AS humano_on, "
     # === FASE 2 · CONFIG EN LA BD (2026-08-06): interruptores SIN desplegar. `usar_cotiza` prende el piloto
     # de cotización SAP (solo números demo), y la URL/token del MCP viven en la BD (rotables con un UPDATE).
     "(SELECT valor FROM config WHERE clave='usar_cotiza' LIMIT 1) AS cfg_cotiza, "
@@ -2684,7 +2701,7 @@ _PEND_SQL = ("SELECT "
     "(SELECT valor FROM config WHERE clave='mcp_precio_tool' LIMIT 1) AS cfg_precio_tool")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -2709,6 +2726,7 @@ return [{ json: Object.assign({}, d, {
   rep_pend_det: p.rep_pend_det || '',
   cons_si:      Number(p.cons_si || 0),  // ¿ya autorizó HOY según la BD? (a prueba de carreras de staticData)
   muro_45s:     Number(p.muro_45s|| 0),  // ¿muro de datos enviado hace <45s? (la BD ve lo que staticData aún no)
+  humano_on:    Number(p.humano_on|| 0),  // chat híbrido: 1 = un humano atiende desde el panel (el bot se calla)
   adj:          String(p.adj || ''),     // "mediaid:tipo,mediaid:tipo" de los últimos 45 min (a prueba de carreras)
   alr_n:        Number(p.alr_n   || 0),  // alertas de los últimos 7 días (las escribe vigilante.py)
   alr_det:      p.alr_det ? String(p.alr_det) : ''
@@ -3252,6 +3270,7 @@ if(store.pendCierre){
 for(const wa in S){
   const st=S[wa]; if(!st||!st.t) continue;
   if(st.dormido){ if((NOW-st.dormido)>3*3600000) delete S[wa]; continue; }   // sesión cerrada por inactividad pero conservada: no la molestamos; se limpia sola a las 3h
+  if(st.humano && (NOW-st.humano)<45*60*1000) continue;   // chat híbrido: un humano atiende desde el panel — ni recordatorio ni cierre mientras tanto
   if(st.paso==='cerrado'||st.paso==='porCerrar') continue;
   if(st.declined) continue;   // el cliente dijo "No autorizo" -> no lo molestamos con recordatorios
   if(store.done && store.done[wa] && (NOW-(store.done[wa].t||0))<3*3600000) continue;   // ya tiene lead cerrado -> NO recordatorio (evita el "¿sigues en línea?" que reiniciaba y duplicaba)
