@@ -5,8 +5,9 @@
 # Los comentarios del código son la mitad de la enseñanza: cada uno cuenta el caso real que lo motivó.
 # Uso:  python3 gen_anexo_tecnico_pdf.py   ->  docs/Anexo-Tecnico-78-Nodos.pdf
 import json, html, subprocess, datetime
+import marca as _marca
 
-VERDE = "#1e7a3c"; AMARILLO = "#f5a800"
+VERDE = "#009e8f"; AMARILLO = "#f0c000"
 REDACTAR = ["ardisa2026"]   # el verify token no viaja en un PDF (aunque el PDF sea interno)
 
 w = json.load(open("workflow-bot-f1.json"))
@@ -62,7 +63,7 @@ for i, n in enumerate(nodes, 1):
 hoy = datetime.date.today().strftime("%d/%m/%Y")
 cuerpo = """
 <div class="portada">
-  <p class="kicker">GRUPO ARDISA · ANEXO TÉCNICO</p>
+  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · ANEXO TÉCNICO</p>
   <h1 class="titulo">Los 78 nodos<br>con su configuración completa</h1>
   <p class="sub">Todo el código, todos los parámetros, todas las conexiones — extraído del workflow en vivo.<br>
   Compañero del <i>Manual del Proyecto</i> y del curso <code>docs/CURSO-BOT-DESDE-CERO.md</code>.</p>
@@ -99,7 +100,7 @@ code { background: #f0f0f0; padding: 1px 3px; border-radius: 3px; }
 """ % (AMARILLO, VERDE, VERDE, AMARILLO, VERDE, VERDE, VERDE)
 
 doc = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%s</style></head><body>%s</body></html>" % (css, cuerpo)
-open("/tmp/anexo_tecnico.html", "w").write(doc)
+open("/tmp/anexo_tecnico.html", "w").write(doc.replace("LOGO_DATAURI", _marca.logo_datauri()))
 subprocess.run(["wkhtmltopdf", "-q", "--enable-local-file-access",
                 "/tmp/anexo_tecnico.html", "docs/Anexo-Tecnico-78-Nodos.pdf"], check=True)
 print("OK -> docs/Anexo-Tecnico-78-Nodos.pdf")

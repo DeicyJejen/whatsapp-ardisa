@@ -7,9 +7,10 @@
 # El anexo de los 78 nodos se toma de docs/NODOS-DEL-BOT.md (fuente única, no se duplica a mano).
 # Uso:  python3 gen_manual_pdf.py
 import subprocess, re, html, datetime
+import marca as _marca
 
-VERDE = "#1e7a3c"      # Ardisa
-AMARILLO = "#f5a800"   # Carpincentro
+VERDE = "#009e8f"      # Ardisa
+AMARILLO = "#f0c000"   # Carpincentro
 GRIS = "#4a4a4a"
 
 def md_a_html(md):
@@ -144,7 +145,7 @@ def construir():
 
     body = """
 <div class="portada">
-  <p class="kicker">GRUPO ARDISA · CARPINCENTRO</p>
+  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · CARPINCENTRO</p>
   <h1 class="titulo">El Bot de WhatsApp<br>de principio a fin</h1>
   <p class="sub">Manual completo del proyecto: cómo se construyó, cómo funciona,<br>
   y los nombres propios de cada cosa — para operarlo y para contarlo.</p>
@@ -273,7 +274,7 @@ por asesor."</p>
     """ % (GRIS, AMARILLO, VERDE, VERDE, AMARILLO, VERDE, VERDE, VERDE, VERDE, AMARILLO)
 
     html_doc = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%s</style></head><body>%s</body></html>" % (css, body)
-    open("/tmp/manual_bot.html", "w").write(html_doc)
+    open("/tmp/manual_bot.html", "w").write(html_doc.replace("LOGO_DATAURI", _marca.logo_datauri()))
     subprocess.run(["wkhtmltopdf", "-q", "--enable-local-file-access",
                     "--footer-center", "Manual del Bot WhatsApp Ardisa — pág. [page] de [topage]",
                     "--footer-font-size", "7", "--footer-spacing", "4",

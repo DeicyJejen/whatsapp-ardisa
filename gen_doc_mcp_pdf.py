@@ -5,17 +5,18 @@
 # clasificación y control de cambios. Fuente única: docs/DOC-CONEXION-MCP-SAP.md
 # Uso: python3 gen_doc_mcp_pdf.py
 import subprocess, datetime, sys
+import marca as _marca
 sys.path.insert(0, '.')
 from gen_manual_pdf import md_a_html
 
-VERDE = "#1e7a3c"; AMARILLO = "#f5a800"
+VERDE = "#009e8f"; AMARILLO = "#f0c000"
 hoy = datetime.date.today().strftime("%d/%m/%Y")
 
 contenido = md_a_html(open("docs/DOC-CONEXION-MCP-SAP.md").read())
 
 cuerpo = """
 <div class="portada">
-  <p class="kicker">GRUPO ARDISA · DOCUMENTACIÓN TÉCNICA</p>
+  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · DOCUMENTACIÓN TÉCNICA</p>
   <h1 class="titulo">Conexión del Bot de WhatsApp<br>al MCP de SAP Business One</h1>
   <p class="sub">Integración de cotización en tiempo real — arquitectura, seguridad y verificación</p>
   <table class="ficha">
@@ -66,7 +67,7 @@ p { margin: 6px 0; }
 """ % (AMARILLO, VERDE, VERDE, VERDE, AMARILLO, VERDE, VERDE, AMARILLO)
 
 doc = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%s</style></head><body>%s</body></html>" % (css, cuerpo)
-open("/tmp/doc_mcp_pdf.html", "w").write(doc)
+open("/tmp/doc_mcp_pdf.html", "w").write(doc.replace("LOGO_DATAURI", _marca.logo_datauri()))
 subprocess.run(["wkhtmltopdf", "-q", "--enable-local-file-access",
                 "/tmp/doc_mcp_pdf.html", "docs/Doc-Conexion-MCP-SAP.pdf"], check=True)
 print("OK -> docs/Doc-Conexion-MCP-SAP.pdf")

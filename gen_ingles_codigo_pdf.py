@@ -4,8 +4,9 @@
 # que por eso no entiendo"). Las ~100 palabras que son el 90% de todo el código, con pronunciación
 # figurada y ejemplo REAL del proyecto. Uso: python3 gen_ingles_codigo_pdf.py
 import html, subprocess, datetime
+import marca as _marca
 
-VERDE = "#1e7a3c"; AMARILLO = "#f5a800"
+VERDE = "#009e8f"; AMARILLO = "#f0c000"
 
 def tabla(filas, cab=("Palabra", "Se pronuncia", "Significa", "En tu proyecto")):
     h = "<table><tr>" + "".join("<th>%s</th>" % c for c in cab) + "</tr>"
@@ -86,7 +87,7 @@ ERRORES = [
 hoy = datetime.date.today().strftime("%d/%m/%Y")
 cuerpo = """
 <div class="portada">
-  <p class="kicker">GRUPO ARDISA · GUÍA DE APRENDIZAJE</p>
+  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · GUÍA DE APRENDIZAJE</p>
   <h1 class="titulo">El Inglés del Código</h1>
   <p class="sub">Las ~100 palabras que son el 90%% de todo lo programado —<br>
   con pronunciación figurada y su ejemplo real en TU proyecto.</p>
@@ -147,7 +148,7 @@ p { margin: 6px 0; }
 """ % (AMARILLO, VERDE, VERDE, AMARILLO, VERDE)
 
 doc = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%s</style></head><body>%s</body></html>" % (css, cuerpo)
-open("/tmp/ingles_codigo.html", "w").write(doc)
+open("/tmp/ingles_codigo.html", "w").write(doc.replace("LOGO_DATAURI", _marca.logo_datauri()))
 subprocess.run(["wkhtmltopdf", "-q", "--enable-local-file-access",
                 "/tmp/ingles_codigo.html", "docs/Ingles-del-Codigo.pdf"], check=True)
 print("OK -> docs/Ingles-del-Codigo.pdf")
