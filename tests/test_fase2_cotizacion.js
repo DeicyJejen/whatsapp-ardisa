@@ -47,16 +47,13 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const r = correr({ datos: ev(DEMO,{ texto:'Cuánto vale la lámina duratex de 18mm?' }), sd, pend:CFG });
   chequear('Entra a cotización (hay_cot) en vez de cerrar', r.hay_cot===true && r.etapa==='cotizacion', 'etapa='+r.etapa);
   const req = r.cot_req||{};
-  chequear('El body va contra el servidor MCP de la BD con el token del bot',
-           req.mcp_servers && req.mcp_servers[0].url===CFG.cfg_mcp_url && req.mcp_servers[0].authorization_token===CFG.cfg_mcp_token,
-           JSON.stringify(req.mcp_servers||[]).slice(0,150));
-  const ts=(req.tools||[])[0]||{};
-  chequear('CANDADO: default_config apagado — el bot no ve cartera/ventas',
-           ts.default_config && ts.default_config.enabled===false, JSON.stringify(ts).slice(0,120));
-  // ⚠️ `configs` es un OBJETO {tool:{enabled}} — el API rechaza la lista con 400 (cazado en E2E 13-ago)
-  chequear('FORMATO API: configs es un objeto (no lista)',
-           ts.configs && !Array.isArray(ts.configs) && typeof ts.configs==='object', JSON.stringify(ts.configs).slice(0,120));
-  const nombres=Object.keys(ts.configs||{}).join(',');
+  // === MCP EN CASA (13-ago, decisión Deicy por auditoría): el token JAMÁS viaja a Anthropic ===
+  chequear('SEGURIDAD: el token del MCP NO aparece en el body que va a Anthropic',
+           !JSON.stringify(req).includes(CFG.cfg_mcp_token) && !req.mcp_servers,
+           JSON.stringify(Object.keys(req)));
+  chequear('Las herramientas se DECLARAN (tools con input_schema), sin conector remoto',
+           Array.isArray(req.tools) && req.tools.every(t=>t.name && t.input_schema), JSON.stringify(req.tools||[]).slice(0,120));
+  const nombres=(req.tools||[]).map(t=>t.name).join(',');
   chequear('Solo herramientas de mostrador en la lista blanca',
            /buscar_producto/.test(nombres) && /disponibilidad_ciudad/.test(nombres) && !/cartera|ventas|compras|contabilidad|recaudos/.test(nombres),
            nombres);
@@ -86,7 +83,7 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const CFG_P = Object.assign({}, CFG, { cfg_precio_tool:'consultar_precio' });
   const r = correr({ datos: ev(DEMO,{ texto:'Cuánto vale la lámina duratex de 18mm?' }), sd, pend:CFG_P });
   const req = r.cot_req||{};
-  const nombres=Object.keys((((req.tools||[])[0]||{}).configs)||{}).join(',');
+  const nombres=(req.tools||[]).map(t=>t.name).join(',');
   chequear('CON tool de precio: entra a la lista blanca con SU nombre exacto',
            /(^|,)consultar_precio(,|$)/.test(nombres), nombres);
   chequear('CON tool de precio: vuelven las reglas de "precio de referencia"',
