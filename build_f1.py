@@ -3425,8 +3425,21 @@ const _tplNudge = function(to, cuerpo){
   return {messaging_product:'whatsapp', to:to, type:'template', template:{name:'aviso_lead_btn', language:{code:'es'},
     components:[{type:'body', parameters:[_p('⚠️ Aviso del sistema (no es un cliente)'),_p('—'),_p('—'),_p('—'),_p('—'),_p(cuerpo)]}]}};
 };
+const _MON='573205662947';
+const _vencidos=[];   // lo que la poda de 7 días iba a BOTAR — se re-dirige a la línea de monitoreo (pedido Deicy 13-ago)
 for(const _dst in store.mediaPend){
-  let _q=(store.mediaPend[_dst]||[]).filter(function(x){return x&&x.m&&(NOW-(x.t||0))<7*24*3600000;});   // poda >7 días
+  const _cola=(store.mediaPend[_dst]||[]);
+  let _q=_cola.filter(function(x){return x&&x.m&&(NOW-(x.t||0))<7*24*3600000;});   // poda >7 días
+  // === PODA CON RESCATE (2026-08-13, caso Arq Omar González en la cola de Karime): antes, el adjunto que
+  // cumplía 7 días se borraba EN SILENCIO — si el asesor nunca abría su ventana (Karime: 1 interacción
+  // desde el 22-jul), el archivo del cliente moría sin que nadie lo supiera. Ahora se re-dirige a la línea
+  // de monitoreo (Deicy) con el reloj reiniciado (t=NOW), para que ella lo reenvíe a mano. Si el destino
+  // YA es la línea de monitoreo, ahí sí se descarta de verdad — reintentarle para siempre solo acumula, y
+  // el media_id queda en la tabla `mensajes` como último respaldo (~30 días de vida en Meta).
+  if(_dst!==_MON){ _cola.forEach(function(x){ if(x&&x.m&&(NOW-(x.t||0))>=7*24*3600000){
+    const _m=JSON.parse(JSON.stringify(x.m)); _m.to=_MON;
+    _vencidos.push({m:_m, cliente:(x.cliente||''), t:NOW});
+  }}); }
   if(!_q.length){ delete store.mediaPend[_dst]; continue; }
   if(!_wOpen(_dst)){
     store.mediaPend[_dst]=_q;
@@ -3444,6 +3457,16 @@ for(const _dst in store.mediaPend){
     chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjuntos en cola)', salida:'📎 Adjuntos diferidos entregados ('+_q.length+')', etapa:'media_diferida'}}});
   _q.forEach(function(x){ out.push({json:{msg:x.m, chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjunto en cola)', salida:'📎 Adjunto reenviado al abrirse la ventana del asesor', etapa:'media_diferida'}}}); });
   delete store.mediaPend[_dst];
+}
+// Los adjuntos vencidos se ENCOLAN para la línea de monitoreo (no se envían directo: si la ventana de
+// Deicy está cerrada fallarían con 131047 — la cola ya sabe esperar a que abra). Primero una nota que
+// explica qué son, luego los archivos. Salen en el siguiente tick si su ventana está abierta.
+if(_vencidos.length){
+  const _cls=_vencidos.map(function(x){return x.cliente;}).filter(function(c,i,a){return c&&a.indexOf(c)===i;}).slice(0,3).join(', ');
+  const _cM=(store.mediaPend[_MON]=store.mediaPend[_MON]||[]);
+  _cM.push({m:{messaging_product:'whatsapp', to:_MON, type:'text', text:{body:'⚠️ *Adjuntos rescatados de la cola* ('+_vencidos.length+'): llevaban 7 días esperando a que su asesor abriera la ventana. Cliente(s): '+(_cls||'?')+'. Van a continuación para que los reenvíes a mano 👇'}}, cliente:_cls, t:NOW});
+  _vencidos.forEach(function(x){ _cM.push(x); });
+  if(_cM.length>30) store.mediaPend[_MON]=_cM.slice(-30);
 }
 // migración puntual (2026-07-22): pendiente creado antes de que existiera el campo asesor_num (lead 73, Nicolas Cala
 // -> Natalia Amaris 573107577394). Sin esto su recordatorio cae al respaldo (Deicy). Retirar después de que se reporte.
