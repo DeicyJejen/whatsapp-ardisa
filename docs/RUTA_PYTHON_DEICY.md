@@ -43,3 +43,8 @@ mini-reporte HTML/PDF con los leads de la semana. Al aprobarlo: 🎓 diploma de 
 
 ---
 *Bitácora: arrancó el 13-ago-2026. Prerrequisito de cada sesión: traer las dudas anotadas.*
+
+## Transversal: el inglés del código 🇬🇧
+Cada módulo incluye su vocabulario en inglés (5 palabras/día del PDF *El Inglés del Código*, empezando
+por la tabla de ERRORES). Regla: toda palabra nueva se busca viva en el proyecto con `grep` y se lee
+la línea completa traduciendo en voz alta.
