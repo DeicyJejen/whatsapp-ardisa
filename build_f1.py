@@ -1039,6 +1039,27 @@ function ruteoIA(ia, rutTxt){   // devuelve {marca,grupo}; null = "no seguro -> 
   }
   return {marca, grupo};
 }
+// === FASE 2 · COTIZAR TAMBIÉN CUANDO EL PRODUCTO VINO DE ENTRADA (2026-08-13, demo de Deicy, lead #280) ===
+// El gate original solo interceptaba el paso "¿qué necesitas?" — pero la mayoría de clientes da el producto
+// en el PRIMER mensaje ("quiero cotizar 10 bultos de cemento") y el flujo cerraba directo al asesor sin
+// cotizar jamás. Este helper se llama en los cierres FELICES del formulario (finalizeIA / notas capturadas /
+// confirmGrupo); NUNCA en los de escape (pidió humano), adjuntos, inactividad o rescate. Si aplica, deja la
+// cotización armada (st.paso/cotHist/cot_req) y el retorno común la envía (hay_cot); si no, devuelve false
+// y el cierre sigue como siempre. Tras las vueltas de cotización, _cerrarCot cierra el lead igual que hoy.
+function intentaCotizar(){
+  try{
+    const _alc=String(PEND.cfg_cotiza_alcance||'').trim().toLowerCase();
+    if(!(COTIZA_ON() && (CLIENTES_PRUEBA.indexOf(wa)>=0 || _alc==='todos'))) return false;
+    if(!st || st.cotN || st.cotFallo || st.escape || st.pidioHumano) return false;   // ya cotizó/falló, o pidió humano
+    if(st.mediaId) return false;   // mandó foto/archivo: el asesor la ve, el MCP no — cierre normal
+    const _base=String(st.detalle||st.notas||st.iaProd||((ia&&ia.productos&&ia.productos.length)?ia.productos.join(', '):'')||'').trim();
+    if([..._base].length<3) return false;   // sin producto no hay qué cotizar
+    st.paso='cotizacion'; st.cotN=1; st.t=NOW;
+    st.cotHist=[{role:'user', content:[..._base].slice(0,400).join('')}];
+    cot_req=_cotReq(st); etapa='cotizacion'; wpp_body=null;
+    return true;
+  }catch(e){ return false; }
+}
 function finalizeIA(st){   // cierra un lead con marca+detalle; si es Ardisa sin grupo claro, PREGUNTA con 1 toque
   st.tiposol = st.tiposol || 'Cotización / Info';
   if(st.marca==='Ardisa' && !st.grupo){
@@ -1046,6 +1067,7 @@ function finalizeIA(st){   // cierra un lead con marca+detalle; si es Ardisa sin
     const _op = st.acuse ? (st.acuse+'\n\n') : ''; st.acuse='';
     wpp_body=grupoMenu(_op);
   } else {
+    if(intentaCotizar()) return;   // Fase 2: producto conocido + piloto activo -> cotiza ANTES de cerrar
     const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre';
   }
 }
@@ -2139,7 +2161,7 @@ if(preguntaHorario){
         if(R2 && R2.grupo) _g=R2.grupo; else if(st.notasGrupo) _g=st.notasGrupo;
         if(_g){   // clasificación CLARA -> cerramos con el asesor correcto
           st.grupo=_g; st.interes=_gInt(_g); delete st.notas;
-          const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre';
+          if(!intentaCotizar()){ const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
         } else {   // SEGURIDAD: no estamos seguros del grupo -> PREGUNTAMOS (1 toque), NUNCA adivinamos el asesor
           st.paso='confirmGrupo'; etapa='confirmGrupo';
           wpp_body=grupoMenu();
@@ -2152,7 +2174,7 @@ if(preguntaHorario){
     if(st.iaPend){ finalizeIA(st); }   // la IA ya tomó la solicitud al inicio -> cerramos (ruteo por ciudad/punto)
     else if(st.notas && [...st.notas].length>=6){   // el cliente YA dijo qué necesita -> no re-preguntamos; cerramos con eso
       st.detalle=st.notas; delete st.notas;
-      const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
+      if(!intentaCotizar()){ const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; } }
     else { st.paso='detalle'; etapa='detalle'; wpp_body=txt(wa,MSG_DETALLE); } }
 } else if(st.paso==='punto'){   // Carpincentro: el cliente elige el punto de venta más cercano
   const pts=puntosDe(st.ciudadId); const opts=pts.map((p,i)=>['PT_'+i,p.tienda,p.dir]);
@@ -2244,11 +2266,9 @@ if(preguntaHorario){
     // ALCANCE por BD (2026-08-13): 'demo' = solo CLIENTES_PRUEBA; 'todos' = clientes reales (EN VIVO).
     // usar_cotiza sigue siendo el interruptor maestro; bajar el alcance a 'demo' frena a los clientes
     // reales SIN apagar las demos de Deicy. Ninguno de los dos necesita deploy: son filas de `config`.
-    const _cotAlcance = String(PEND.cfg_cotiza_alcance||'').trim().toLowerCase();
-    if(!es_media && texto && (CLIENTES_PRUEBA.indexOf(wa)>=0 || _cotAlcance==='todos') && COTIZA_ON()){
-      st.paso='cotizacion'; st.cotN=1; st.t=NOW;
-      st.cotHist=[{role:'user', content:[...String(st.detalle||texto)].slice(0,400).join('')}];
-      cot_req=_cotReq(st); etapa='cotizacion';
+    // La regla completa (alcance, escape/pidió-humano, adjuntos, producto) vive en intentaCotizar():
+    // UNA sola regla para este gate y para los cierres felices del formulario (producto de entrada, #280).
+    if(!es_media && texto && intentaCotizar()){
       try{ armarRescate(S[wa]); }catch(e){}   // si abandona a mitad de cotización, el cron entrega el cierre igual
       return [{json:{etapa,wa_id:wa,wpp_body:null,aviso_body:null,aviso_medias:null,hay_aviso:false,hay_media:false,lead:null,chat:{creado_en:fechaCol(), wa_id:wa, nombre:(st.nombre||''), entrada:[...String(texto)].slice(0,300).join(''), salida:'(cotizando con SAP...)', etapa:'cotizacion'},consent_log:null,pend_cierre:false,pend_token:0,cot_req:cot_req,hay_cot:true,ses_tel:wa,ses_out:JSON.stringify(S[wa]||null)}}];
     }
@@ -2336,7 +2356,7 @@ if(preguntaHorario){
     wpp_body=grupoMenu(); }
   else { st.grupo=(g[0]==='GRP_CONS')?'CONSTRUCCION':(g[0]==='GRP_MOBIL'?'MOBILIARIO':'ACABADOS'); st.interes=_gInt(st.grupo);
     if(!st.tiposol) st.tiposol='Cotización / Info';
-    const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
+    if(!intentaCotizar()){ const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; } }
 } else if(st.paso==='cerrado'){
   // Ya cerró una solicitud y escribe de nuevo. CUATRO casos:
   //  (a) CORTESÍA (gracias/chao/listo) -> respondemos amable y NO reiniciamos el flujo.
@@ -2510,6 +2530,7 @@ try{
   if(store.rescate) for(const _k in store.rescate){ if((NOW-(store.rescate[_k].t||0)) > 6*3600000) delete store.rescate[_k]; }   // poda
 }catch(e){}
 return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token,
+  cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
   ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
 """
 

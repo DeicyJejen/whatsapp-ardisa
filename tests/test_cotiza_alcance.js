@@ -74,5 +74,34 @@ for (const alc of ['', 'demo']) {
            !r.hay_cot && r.etapa === 'cierre', 'etapa='+r.etapa);
 }
 
+// ══ 6. CASO DEICY (13-ago, lead #280): producto en el PRIMER mensaje -> igual cotiza ══
+// Su demo real: "quiero cotizar 10 bultos de cemento" de entrada -> nombre -> ciudad -> perfil -> y el bot
+// cerró directo al asesor SIN cotizar, porque el gate solo miraba el paso "¿qué necesitas?". Ahora los
+// cierres felices del formulario pasan por intentaCotizar() y la cotización dispara igual.
+{
+  const sd = base(); sd.ses = {}; sd.demoAdmin = { [DEMO]: Date.now() };
+  const IA = { en_alcance:true, marca:'Ardisa', productos:['cemento'], confianza:'alta',
+               resumen:'cotización de cemento', acuse:'¡Con gusto te ayudamos con el cemento!' };
+  const paso = (o, conIA) => correr({ datos: Object.assign({ wa_id:DEMO, profileName:'Deicy', texto:'', mtype:'',
+    media_id:'', opcion_id:'', opcion_txt:'', es_media:false, ia:(conIA?IA:null) }, o), sd, pend:CFG_BASE });
+  paso({ texto:'quiero cotizar 10 bultos de cemento' }, true);   // producto de ENTRADA
+  paso({ texto:'deicy jejen' });                                  // nombre
+  paso({ texto:'Bucaramanga', opcion_id:'BUCARAMANGA' });         // ciudad
+  const r = paso({ texto:'🏠 Cliente final', opcion_id:'OAR_FINAL' });   // perfil -> aquí cerraba directo
+  chequear('CASO DEICY: con el producto de entrada, el perfil dispara la cotización (no cierra directo)',
+           r.hay_cot === true && r.etapa === 'cotizacion', 'etapa='+r.etapa+' hay_cot='+r.hay_cot);
+  chequear('y la consulta lleva lo que el cliente pidió', JSON.stringify((r.cot_req||{}).messages||[]).includes('cemento'),
+           JSON.stringify((r.cot_req||{}).messages||[]).slice(0,120));
+  chequear('sin lead todavía (el lead sale al final de la cotización, como está diseñado)',
+           !r.lead && (sd.leads||[]).length === 0, 'leads='+(sd.leads||[]).length);
+}
+
+// ══ 7. El que PIDE HUMANO no recibe cotización de bot (cierra al asesor como siempre) ══
+{
+  const sd = base(); sd.ses[DEMO] = Object.assign(sesion(), { escape:true, pidioHumano:true });
+  const r = correr({ datos: ev(DEMO), sd, pend:CFG_BASE });
+  chequear('pidió humano: NO cotiza (cierra al asesor)', !r.hay_cot, 'etapa='+r.etapa+' hay_cot='+r.hay_cot);
+}
+
 console.log(ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);
