@@ -53,7 +53,10 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const ts=(req.tools||[])[0]||{};
   chequear('CANDADO: default_config apagado — el bot no ve cartera/ventas',
            ts.default_config && ts.default_config.enabled===false, JSON.stringify(ts).slice(0,120));
-  const nombres=(ts.configs||[]).map(c=>c.name).join(',');
+  // ⚠️ `configs` es un OBJETO {tool:{enabled}} — el API rechaza la lista con 400 (cazado en E2E 13-ago)
+  chequear('FORMATO API: configs es un objeto (no lista)',
+           ts.configs && !Array.isArray(ts.configs) && typeof ts.configs==='object', JSON.stringify(ts.configs).slice(0,120));
+  const nombres=Object.keys(ts.configs||{}).join(',');
   chequear('Solo herramientas de mostrador en la lista blanca',
            /buscar_producto/.test(nombres) && /disponibilidad_ciudad/.test(nombres) && !/cartera|ventas|compras|contabilidad|recaudos/.test(nombres),
            nombres);
@@ -83,7 +86,7 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const CFG_P = Object.assign({}, CFG, { cfg_precio_tool:'consultar_precio' });
   const r = correr({ datos: ev(DEMO,{ texto:'Cuánto vale la lámina duratex de 18mm?' }), sd, pend:CFG_P });
   const req = r.cot_req||{};
-  const nombres=(((req.tools||[])[0]||{}).configs||[]).map(c=>c.name).join(',');
+  const nombres=Object.keys((((req.tools||[])[0]||{}).configs)||{}).join(',');
   chequear('CON tool de precio: entra a la lista blanca con SU nombre exacto',
            /(^|,)consultar_precio(,|$)/.test(nombres), nombres);
   chequear('CON tool de precio: vuelven las reglas de "precio de referencia"',

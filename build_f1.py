@@ -919,9 +919,13 @@ function _cotReq(stC){
   const _srv={type:'url', url:String(PEND.cfg_mcp_url||''), name:'sap'};
   if(PEND.cfg_mcp_token) _srv.authorization_token=String(PEND.cfg_mcp_token);
   // Lista blanca: solo mostrador. La de precio entra SOLO si la BD dice cómo se llama de verdad.
-  const _cfgs=[{name:'buscar_producto',enabled:true},{name:'disponibilidad',enabled:true},
-               {name:'disponibilidad_ciudad',enabled:true}];
-  if(_hayPrecio) _cfgs.push({name:_toolPrecio,enabled:true});
+  // ⚠️ FORMATO (2026-08-13, cazado por la prueba E2E real, error "configs: Input should be an object"):
+  // en el MCP connector del API de Anthropic `configs` es un OBJETO con el nombre de la tool como clave
+  // ({buscar_producto:{enabled:true}}), NO una lista de {name,enabled} — la lista es el formato de OTRO
+  // producto (Managed Agents) y el API la rechaza con 400. Con la lista, TODA cotización habría caído en
+  // silencio al asesor (cotiza_fallo) y la Fase 2 habría nacido muerta sin que nadie viera un error.
+  const _cfgs={buscar_producto:{enabled:true}, disponibilidad:{enabled:true}, disponibilidad_ciudad:{enabled:true}};
+  if(_hayPrecio) _cfgs[_toolPrecio]={enabled:true};
   return { model:'claude-sonnet-5', max_tokens:700, system:_sys,
     mcp_servers:[_srv],
     tools:[{type:'mcp_toolset', mcp_server_name:'sap', default_config:{enabled:false}, configs:_cfgs}],
