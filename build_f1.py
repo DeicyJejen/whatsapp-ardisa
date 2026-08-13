@@ -905,6 +905,9 @@ function _cotReq(stC){
       : '(1) Usa las herramientas para identificar el producto y consultar su disponibilidad en la ciudad del cliente. ')
     +'(1b) Si VARIAS referencias o marcas encajan con lo pedido, nombra hasta 3 opciones diciendo la MARCA de '
     +'cada una y si hay disponibilidad, y pregunta cuál le interesa — no escojas una sola por tu cuenta. '
+    +'(1c) Di siempre CÓMO SE VENDE cada producto según los datos de las herramientas: la unidad de venta y su '
+    +'contenido si aparece (bulto de 42.5kg, caja que cubre X m2, galón, lámina, unidad...), para que el cliente '
+    +'sepa qué está pidiendo. '
     +'(2) SOLO afirma datos que devuelvan las herramientas; PROHIBIDO inventar precios, referencias o inventario. '
     +(_hayPrecio
       ? '(3) Si el producto no aparece, el precio no está disponible o una herramienta falla, responde únicamente: [ASESOR] '
