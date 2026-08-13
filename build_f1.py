@@ -910,8 +910,11 @@ function _cotReq(stC){
     +'sepa qué está pidiendo. '
     +'(2) SOLO afirma datos que devuelvan las herramientas; PROHIBIDO inventar precios, referencias o inventario. '
     +(_hayPrecio
-      ? '(3) Si el producto no aparece, el precio no está disponible o una herramienta falla, responde únicamente: [ASESOR] '
-        +'(4) Todo precio se entrega con la frase "precio de referencia — tu asesor te lo confirma". '
+      ? '(3) Si el producto NO aparece o una herramienta falla, responde únicamente: [ASESOR] '
+        +'(3b) Si el producto existe pero su precio NO está en la lista (pasa con algunos artículos), NO escales: '
+        +'responde su disponibilidad con naturalidad y di que tu asesor le confirma el valor. PROHIBIDO inventar o estimar. '
+        +'(4) Todo precio se entrega con la frase "precio de referencia — tu asesor te lo confirma", diciendo a qué '
+        +'unidad de venta aplica (la caja de X m2, el galón, la unidad...). '
       : '(3) Si el producto no aparece o una herramienta falla, responde únicamente: [ASESOR] '
         +'(4) NO tienes precios y NO debes darlos, estimarlos ni sugerir rangos. Si el cliente pregunta cuánto '
         +'cuesta, dile con naturalidad que su asesor le confirma el valor y las condiciones, y sigue ayudándole '
