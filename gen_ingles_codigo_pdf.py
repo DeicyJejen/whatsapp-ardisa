@@ -6,7 +6,7 @@
 import html, subprocess, datetime
 import marca as _marca
 
-VERDE = "#009e8f"; AMARILLO = "#f0c000"
+VERDE = "#128B81"; AMARILLO = "#FEC604"
 
 def tabla(filas, cab=("Palabra", "Se pronuncia", "Significa", "En tu proyecto")):
     h = "<table><tr>" + "".join("<th>%s</th>" % c for c in cab) + "</tr>"

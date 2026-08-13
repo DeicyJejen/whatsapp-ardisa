@@ -9,8 +9,8 @@
 import subprocess, re, html, datetime
 import marca as _marca
 
-VERDE = "#009e8f"      # Ardisa
-AMARILLO = "#f0c000"   # Carpincentro
+VERDE = "#128B81"      # Ardisa
+AMARILLO = "#FEC604"   # Carpincentro
 GRIS = "#4a4a4a"
 
 def md_a_html(md):

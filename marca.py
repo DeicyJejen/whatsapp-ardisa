@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # IDENTIDAD DE MARCA — fuente única para todos los generadores de documentos.
-# Colores extraídos del imagotipo OFICIAL (oficina/IMAGOTIPOS-GRUPOARDISA-01-V1-(3).jpg, 13-ago-2026).
+# Paleta OFICIAL del Manual de Identidad Visual 2025 (docs: "paleta de color ardisa.pdf", entregada por Deicy 13-ago).
 import base64
 
-TURQUESA = "#009e8f"        # la flecha del imagotipo (tono principal)
-TURQUESA_CLARO = "#59c5b6"  # la flecha (tono claro)
-MARINO = "#1d2951"          # el azul del logotipo "grupoardisa"
-AMARILLO = "#f0c000"        # Carpincentro
+TURQUESA = "#128B81"        # Verde Menta 2 (primario oscuro del manual)
+TURQUESA_CLARO = "#55B3A4"  # Verde Menta 1 (primario claro del manual)
+MARINO = "#1E2B4F"          # Azul Oscuro (primario del manual)
+AMARILLO = "#FEC604"        # Amarillo Mostaza (acento principal del manual)
 
 def logo_datauri():
     """El imagotipo oficial embebido (para portadas de PDF sin depender de rutas)."""

@@ -6,7 +6,7 @@
 import re, html, subprocess, datetime
 import marca as _marca
 
-VERDE = "#009e8f"; AMARILLO = "#f0c000"
+VERDE = "#128B81"; AMARILLO = "#FEC604"
 
 def snippet(archivo, desde, hasta_lineas):
     """Extrae un fragmento REAL de un script del proyecto (desde la línea que contiene `desde`)."""

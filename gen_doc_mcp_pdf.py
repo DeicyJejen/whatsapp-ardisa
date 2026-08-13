@@ -9,7 +9,7 @@ import marca as _marca
 sys.path.insert(0, '.')
 from gen_manual_pdf import md_a_html
 
-VERDE = "#009e8f"; AMARILLO = "#f0c000"
+VERDE = "#128B81"; AMARILLO = "#FEC604"
 hoy = datetime.date.today().strftime("%d/%m/%Y")
 
 contenido = md_a_html(open("docs/DOC-CONEXION-MCP-SAP.md").read())

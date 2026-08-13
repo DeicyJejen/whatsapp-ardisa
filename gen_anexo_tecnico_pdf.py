@@ -7,7 +7,7 @@
 import json, html, subprocess, datetime
 import marca as _marca
 
-VERDE = "#009e8f"; AMARILLO = "#f0c000"
+VERDE = "#128B81"; AMARILLO = "#FEC604"
 REDACTAR = ["ardisa2026"]   # el verify token no viaja en un PDF (aunque el PDF sea interno)
 
 w = json.load(open("workflow-bot-f1.json"))
