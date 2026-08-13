@@ -17,6 +17,12 @@ for t in tests/test_*.js; do
   echo "=== $t ==="
   node "$t" || fallo=1
 done
+# pruebas en Python (reglas puras del vigilante, etc.)
+for t in tests/test_*.py; do
+  [ -e "$t" ] || continue
+  echo "=== $t ==="
+  python3 "$t" || fallo=1
+done
 rm -f tests/cerebro.js tests/n_inactivos.js tests/n_armar.js tests/n_confirmar.js tests/n_prepara.js tests/n_finalizar.js tests/n_redirigir.js tests/n_entregar.js
 [ $fallo -eq 0 ] && echo "TODAS LAS PRUEBAS PASAN" || echo "HAY PRUEBAS FALLANDO"
 exit $fallo

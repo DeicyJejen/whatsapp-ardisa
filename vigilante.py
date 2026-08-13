@@ -17,6 +17,7 @@
 #       python3 vigilante.py --seco     -> solo muestra en pantalla, no guarda ni envía
 import subprocess, os, sys, ssl, smtplib, datetime, base64, json
 from email.message import EmailMessage
+from vigilante_reglas import clasifica_perdido   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
 
 BASE      = "/home/ubuntu/whatsapp-ardisa"
 KEY_N8N   = "/home/ubuntu/.config/ardisa/n8n_api_key"
@@ -74,10 +75,16 @@ def anota(tipo, sev, clave, detalle):
     hallazgos.append((tipo, sev, str(clave)[:120], detalle))
 
 # ── Excluir a quien NO es cliente: asesores, la línea de monitoreo y los números de prueba ──
-NO_CLIENTE = ("AND m.wa_id <> '573205662947' AND m.wa_id NOT LIKE '5799999%' "
+# La lista de etapas es intercambiable (@ETAPAS@): el chequeo de CLIENTE PERDIDO necesita VER las filas
+# 'proveedor' — si se ocultan, el recorrido sale MENTIROSO: en el caso "Laconic ceramic" (13-ago) Deicy vio
+# "recorrido: info" sin poder saber que el bot ya le había contestado 3 veces como proveedor. Los demás
+# chequeos las siguen excluyendo como siempre.
+_NO_CLIENTE_BASE = ("AND m.wa_id <> '573205662947' AND m.wa_id NOT LIKE '5799999%' "
               "AND m.wa_id COLLATE utf8mb4_unicode_ci NOT IN (SELECT DISTINCT asesor_tel COLLATE utf8mb4_unicode_ci FROM leads WHERE asesor_tel IS NOT NULL AND asesor_tel<>'') "
               "AND m.etapa NOT LIKE 'seg\\_%' AND m.etapa NOT LIKE 'admin\\_%' "
-              "AND m.etapa NOT IN ('asesor_activo','noop','proveedor')")
+              "AND m.etapa NOT IN (@ETAPAS@)")
+NO_CLIENTE         = _NO_CLIENTE_BASE.replace("@ETAPAS@", "'asesor_activo','noop','proveedor'")
+NO_CLIENTE_VE_PROV = _NO_CLIENTE_BASE.replace("@ETAPAS@", "'asesor_activo','noop'")
 
 # ═══ 1. CARRERA DEL CONSENTIMIENTO ═══════════════════════════════════════════
 # El cliente autoriza y segundos después el bot se lo vuelve a pedir (staticData pisado por
@@ -121,22 +128,35 @@ for tel, nom, cuando, seg, quedo in q("""
 # habría enterado a tiempo. Ahora la vara es el SILENCIO (20 min sin escribir), con o sin cierre, y
 # basta UN mensaje si trae contenido real (>=25 caracteres). Deicy lo ve en su panel y decide a quién
 # pasarlo: el bot no adivina, la persona sí sabe.
+# 2026-08-13 (caso "Laconic ceramic", fábrica de cerámica de la India): tres defectos hacían que un
+# PROVEEDOR de spam extranjero se viera como cliente perdido URGENTE (5 de las 15 alertas en 10 días):
+#   (a) el recorrido escondía las filas 'proveedor' (aquí se usa NO_CLIENTE_VE_PROV para verlas);
+#   (b) el "PIDIÓ:" se cortaba en el primer renglón ("Hola.") porque el separador del GROUP_CONCAT era el
+#       MISMO salto de línea que traen los mensajes multilínea — el pitch de venta ("stock premium a
+#       3,80 $") quedaba invisible y no había cómo juzgar la alerta; ahora cada mensaje se aplana a una
+#       línea ANTES de concatenar y el separador vuelve a ser inequívoco;
+#   (c) los adjuntos ("📎 image ⟦m:...⟧" mide 34 caracteres) se podían colar como "PIDIÓ".
+# La severidad la decide vigilante_reglas.clasifica_perdido: atendido-a-propósito o número extranjero
+# baja a severidad 2 (panel + 🟡 en WhatsApp, sin correo urgente); el colombiano varado sigue en 1.
 for wa, nom, n, ini, ult, pedido in q("""
     SELECT m.wa_id, COALESCE(MAX(m.nombre),''), SUM(m.entrada<>'(inactividad)'),
            DATE_FORMAT(MIN(m.creado_en),'%d/%m %H:%i'),
            GROUP_CONCAT(DISTINCT LEFT(m.etapa,18) ORDER BY m.creado_en SEPARATOR '>'),
-           COALESCE(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN CHAR_LENGTH(m.entrada)>=25 THEN m.entrada END
+           COALESCE(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN CHAR_LENGTH(m.entrada)>=25 AND m.entrada NOT LIKE '📎%'
+                    THEN REPLACE(REPLACE(m.entrada, CHAR(13), ' '), CHAR(10), ' ') END
                     ORDER BY CHAR_LENGTH(m.entrada) DESC SEPARATOR '\\n'), '\\n', 1), '')
     FROM mensajes m
-    WHERE m.creado_en >= NOW() - INTERVAL 2 DAY """ + NO_CLIENTE + """
+    WHERE m.creado_en >= NOW() - INTERVAL 2 DAY """ + NO_CLIENTE_VE_PROV + """
       AND NOT EXISTS (SELECT 1 FROM leads l
                       WHERE l.telefono COLLATE utf8mb4_unicode_ci = m.wa_id COLLATE utf8mb4_unicode_ci)
     GROUP BY m.wa_id
     HAVING MAX(m.creado_en) < NOW() - INTERVAL 20 MINUTE
        AND (SUM(m.entrada<>'(inactividad)')>=2 OR MAX(CHAR_LENGTH(m.entrada))>=25)"""):
-    anota("cliente_perdido", 1, wa+"|"+ini,
-          "%s (%s) escribió %s veces desde el %s y NO quedó registrado — recorrido: %s%s"
-          % (nom or wa, wa, n, ini, ult, ("  ·  PIDIÓ: "+pedido[:120]) if pedido else ""))
+    sev, nota = clasifica_perdido(wa, ult)
+    anota("cliente_perdido", sev, wa+"|"+ini,
+          "%s (%s) escribió %s %s desde el %s y NO quedó registrado — recorrido: %s%s%s"
+          % (nom or wa, wa, n, ("vez" if str(n) == "1" else "veces"), ini, ult,
+             ("  ·  PIDIÓ: "+pedido[:160]) if pedido else "", nota))
 
 # ═══ 2c. ¿LA TABLA `sesiones` DEJÓ DE LLENARSE? ══════════════════════════════
 # 2026-08-10: el nodo que guarda la sesión por cliente (la cura de la carrera del staticData, caso
@@ -246,6 +266,12 @@ for asesor, n, viejo in q("""
 # escribe, la cola envejece EN SILENCIO: se hallaron 6 adjuntos de 4 clientes esperando a Karime hasta 167
 # HORAS. Nadie lo veía: ni el panel ni este vigilante. Se lee el staticData EN SITIO (sqlite immutable, sin
 # copiar la BD de 3GB — orden de Deicy 05-ago) y se alerta por asesor si algo lleva >6h esperando.
+# 2026-08-13 (caso Karime, 2ª ronda): el bot YA se destraba solo — manda al asesor 1 plantilla de destrabe
+# al día (media_nudge, desde el 12-ago). Si la cola SIGUE atascada es porque el asesor no responde NI a la
+# plantilla (Karime: 1 sola interacción desde el 22-jul, 1 de 79 leads reportados). La alerta ahora dice
+# cuántos empujones se le han mandado y cuándo la poda de 7 días descartará lo más viejo: con eso Deicy
+# sabe que lo que falta no es tecnología sino una LLAMADA. Los archivos podados no se pierden del todo:
+# el media_id queda en la tabla `mensajes` y se puede reenviar a mano (~30 días de vida en Meta).
 try:
     import sqlite3
     _con = sqlite3.connect("file:/opt/n8n/data/database.sqlite?immutable=1", uri=True)
@@ -261,12 +287,23 @@ try:
         _clientes = sorted(set((i.get("cliente") or "?") for i in _viejos))
         _asesor = q("SELECT asesor FROM leads WHERE asesor_tel='%s' ORDER BY id DESC LIMIT 1" % esc(_dst))
         _nom = _asesor[0][0] if _asesor else _dst
+        # ¿ya se le mandó la plantilla de destrabe? (las deja registradas el bot con etapa media_nudge)
+        _nud = q("SELECT COUNT(*), COALESCE(DATE_FORMAT(MAX(creado_en),'%d/%m %H:%i'),'') FROM mensajes "
+                 "WHERE wa_id='" + esc(_dst) + "' AND etapa='media_nudge'")
+        _n_nud = int(_nud[0][0]) if _nud else 0
+        # la poda del bot descarta de la cola lo que cumpla 7 días: avisar la fecha ANTES de que pase
+        _poda = datetime.datetime.fromtimestamp(
+            min(int(i.get("t", _ms)) for i in _viejos) / 1000) + datetime.timedelta(days=7)
         # clave por asesor+día: si mañana sigue atascada, vuelve a avisar (a diferencia de un bug puntual,
         # esta situación HAY que repetirla hasta que alguien la destrabe)
         anota("cola_adjuntos", 1 if _hrs >= 24 else 2, _dst + "|" + AHORA.strftime("%Y-%m-%d"),
               "%d adjunto(s) de %d cliente(s) llevan hasta %d horas esperando a %s (+%s): su ventana de 24h "
-              "está cerrada. Destrabe: que el asesor le escriba cualquier cosa al bot y la cola sale sola "
-              "en <2 min. Clientes: %s" % (len(_viejos), len(_clientes), _hrs, _nom, _dst, ", ".join(_clientes)[:150]))
+              "está cerrada.%s Cualquier mensaje del asesor al bot libera la cola en <2 min. ⚠️ Lo más "
+              "viejo se descarta de la cola el %s (recuperable a mano). Clientes: %s"
+              % (len(_viejos), len(_clientes), _hrs, _nom, _dst,
+                 ((" El bot ya le envió %d plantilla(s) de destrabe (última el %s) y NO ha respondido — "
+                   "toca llamarlo directamente.") % (_n_nud, _nud[0][1])) if _n_nud else "",
+                 _poda.strftime("%d/%m %H:%M"), ", ".join(_clientes)[:100]))
 except Exception as e:
     anota("cola_adjuntos", 2, "ilegible|" + AHORA.strftime("%Y-%m-%d"),
           "No se pudo revisar la cola de adjuntos (staticData): %s" % e)
