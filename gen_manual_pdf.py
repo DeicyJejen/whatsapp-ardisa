@@ -249,19 +249,19 @@ por asesor."</p>
     css = """
     @page { size: A4; margin: 18mm 16mm; }
     * { box-sizing: border-box; }
-    body { font-family: 'DejaVu Sans', 'Segoe UI', Arial, sans-serif; color: %s; font-size: 10.5px; line-height: 1.5; }
+    body { font-family: 'DejaVu Sans', 'Segoe UI', Arial, sans-serif; color: %s; font-size: 13px; line-height: 1.55; }
     .portada { text-align: center; padding-top: 220px; page-break-after: always; }
     .kicker { color: %s; font-weight: bold; letter-spacing: 3px; font-size: 12px; }
     .titulo { font-size: 40px; color: %s; margin: 12px 0; line-height: 1.15; }
     .sub { font-size: 13px; color: #666; }
     .autor { margin-top: 80px; font-size: 12px; color: #666; }
-    h1 { color: %s; font-size: 20px; border-bottom: 3px solid %s; padding-bottom: 4px; margin-top: 26px; page-break-after: avoid; }
-    h2 { color: %s; font-size: 14px; margin-top: 18px; page-break-after: avoid; }
-    h3 { font-size: 12px; margin: 0 0 4px 0; color: %s; }
+    h1 { color: %s; font-size: 24px; border-bottom: 3px solid %s; padding-bottom: 4px; margin-top: 26px; page-break-after: avoid; }
+    h2 { color: %s; font-size: 17px; margin-top: 18px; page-break-after: avoid; }
+    h3 { font-size: 14.5px; margin: 0 0 4px 0; color: %s; }
     table { border-collapse: collapse; width: 100%%; margin: 8px 0; page-break-inside: avoid; }
-    th { background: %s; color: white; text-align: left; padding: 5px 7px; font-size: 10px; }
+    th { background: %s; color: white; text-align: left; padding: 6px 8px; font-size: 12px; }
     td { border: 1px solid #ddd; padding: 4px 7px; vertical-align: top; }
-    code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-family: 'DejaVu Sans Mono', monospace; font-size: 9.5px; }
+    code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-family: 'DejaVu Sans Mono', monospace; font-size: 11.5px; }
     .term { border-left: 4px solid %s; background: #fafaf7; padding: 7px 10px; margin: 8px 0; page-break-inside: avoid; }
     .term p { margin: 3px 0; }
     .frase { color: #7a5c00; }

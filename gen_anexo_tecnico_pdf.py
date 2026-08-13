@@ -78,17 +78,17 @@ cuerpo = """
 
 css = """
 @page { size: A4; margin: 14mm 12mm; }
-body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; font-size: 10px; line-height: 1.45; }
+body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; font-size: 12.5px; line-height: 1.5; }
 .portada { text-align: center; padding-top: 200px; page-break-after: always; }
 .kicker { color: %s; font-weight: bold; letter-spacing: 3px; font-size: 12px; }
 .titulo { font-size: 34px; color: %s; line-height: 1.15; }
 .sub { color: #666; font-size: 12px; } .autor { margin-top: 50px; color: #666; font-size: 12px; }
 h1 { color: %s; font-size: 18px; border-bottom: 3px solid %s; padding-bottom: 4px; }
-h2 { color: white; background: %s; font-size: 12px; padding: 5px 8px; border-radius: 4px; margin: 14px 0 4px 0; page-break-after: avoid; }
+h2 { color: white; background: %s; font-size: 14.5px; padding: 5px 8px; border-radius: 4px; margin: 14px 0 4px 0; page-break-after: avoid; }
 .meta { margin: 2px 0 6px 0; }
 .sec { font-weight: bold; color: %s; margin: 6px 0 2px 0; }
 pre { background: #f7f7f2; border: 1px solid #e0e0d8; border-radius: 4px; padding: 6px 8px;
-      font-family: 'DejaVu Sans Mono', monospace; font-size: 7.3px; line-height: 1.35;
+      font-family: 'DejaVu Sans Mono', monospace; font-size: 9.8px; line-height: 1.4;
       white-space: pre-wrap; word-wrap: break-word; }
 pre.cfg { background: #f0f6f1; }
 table.idx { border-collapse: collapse; width: 100%%; font-size: 9px; }
