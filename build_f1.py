@@ -2236,8 +2236,12 @@ if(preguntaHorario){
     let mediaNota='', rutTxt='';
     if(es_media){ const nm=MTYPE_ES[d.mtype]||'un archivo'; const cap=(d.media_caption||'').trim(); const _res=(d.mtype==='image')?resumenIA(ia):''; if(_res) st.imgDesc=[...(_res)].slice(0,600).join(''); st.detalle = cap ? ('"'+[...cap].slice(0,200).join('')+'"') : ''; st.mediaId=d.media_id||''; st.mediaType=d.mtype||''; rutTxt=(((ia&&ia.productos)?ia.productos.join(' '):'')+' '+_res+' '+cap).toLowerCase(); mediaNota = st.mediaId ? ((st.mediaCount>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+st.mediaCount+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: https://wa.me/'+wa) : ('\n📎 *Adjunto:* el cliente envió '+nm+' — te lo reenvío enseguida. 👇')) : ('\n📷 *El cliente adjuntó '+nm+'* — ábrela en el chat: https://wa.me/'+wa); }
     else { const _nt=[...texto].slice(0,1200).join(''); st.detalle = (st.detalle && st.detalle.length>1) ? [...(st.detalle+' '+_nt)].slice(0,1600).join('') : _nt; rutTxt=st.detalle.toLowerCase(); }
-    // === FASE 2 · PILOTO: en vez de cerrar directo, el bot COTIZA (solo números demo + usar_cotiza='si') ===
-    if(!es_media && texto && CLIENTES_PRUEBA.indexOf(wa)>=0 && COTIZA_ON()){
+    // === FASE 2 · PILOTO: en vez de cerrar directo, el bot COTIZA (usar_cotiza='si' en la BD) ===
+    // ALCANCE por BD (2026-08-13): 'demo' = solo CLIENTES_PRUEBA; 'todos' = clientes reales (EN VIVO).
+    // usar_cotiza sigue siendo el interruptor maestro; bajar el alcance a 'demo' frena a los clientes
+    // reales SIN apagar las demos de Deicy. Ninguno de los dos necesita deploy: son filas de `config`.
+    const _cotAlcance = String(PEND.cfg_cotiza_alcance||'').trim().toLowerCase();
+    if(!es_media && texto && (CLIENTES_PRUEBA.indexOf(wa)>=0 || _cotAlcance==='todos') && COTIZA_ON()){
       st.paso='cotizacion'; st.cotN=1; st.t=NOW;
       st.cotHist=[{role:'user', content:[...String(st.detalle||texto)].slice(0,400).join('')}];
       cot_req=_cotReq(st); etapa='cotizacion';
@@ -2760,7 +2764,12 @@ _PEND_SQL = ("SELECT "
     # Cuando exista, se pone aquí su nombre exacto y el bot empieza a cotizar SIN redesplegar. Guardar el
     # nombre (y no un si/no) evita la trampa de siempre: que la lista blanca diga 'precio' y la tool se
     # llame 'consultar_precio', y el bot la ignore en silencio.
-    "(SELECT valor FROM config WHERE clave='mcp_precio_tool' LIMIT 1) AS cfg_precio_tool")
+    "(SELECT valor FROM config WHERE clave='mcp_precio_tool' LIMIT 1) AS cfg_precio_tool, "
+    # 2026-08-13 (pedido Deicy: "salir en vivo cuando ya lo tengas perfecto" SIN redesplegar): el ALCANCE
+    # del piloto vive en la BD. 'demo' = solo CLIENTES_PRUEBA (como siempre); 'todos' = cualquier cliente
+    # entra a cotización. Salir en vivo (o retroceder si algo sale mal) es un UPDATE de esta fila, no un
+    # deploy — el freno de mano queda a un SQL de distancia, igual que usar_cotiza.
+    "(SELECT valor FROM config WHERE clave='cotiza_alcance' LIMIT 1) AS cfg_cotiza_alcance")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
      "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
@@ -2782,6 +2791,7 @@ return [{ json: Object.assign({}, d, {
   cfg_mcp_url:  p.cfg_mcp_url  ? String(p.cfg_mcp_url) : '',
   cfg_mcp_token:p.cfg_mcp_token? String(p.cfg_mcp_token): '',
   cfg_precio_tool: p.cfg_precio_tool ? String(p.cfg_precio_tool).trim() : '',
+  cfg_cotiza_alcance: p.cfg_cotiza_alcance ? String(p.cfg_cotiza_alcance) : '',   // 'demo' | 'todos' (en vivo)
   rep_hoy:      p.rep_hoy      || 0,
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',

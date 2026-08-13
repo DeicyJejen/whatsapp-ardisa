@@ -227,7 +227,7 @@ for wa, nom, txt_, cuando in q("""
 
 # ═══ 4. TAREAS AUTOMÁTICAS QUE FALLARON ══════════════════════════════════════
 # Un cron que se cae en silencio es peor que uno que no existe: se cree que está funcionando.
-for log in ("cron_reporte.log", "cron_seguimiento.log", "cron_duplicados.log", "cron_backup.log", "cron_vigilante.log"):
+for log in ("cron_reporte.log", "cron_seguimiento.log", "cron_duplicados.log", "cron_backup.log", "cron_vigilante.log", "cron_mcp_token.log"):
     ruta = BASE + "/reportes/" + log
     if not os.path.exists(ruta): continue
     if (AHORA - datetime.datetime.fromtimestamp(os.path.getmtime(ruta))).days > 2: continue
@@ -354,6 +354,30 @@ try:
                   "recibe varios. Puede estar caído o desconectado de WhatsApp: revísalo.")
 except Exception as e:
     print("check bot_mudo falló: %s" % e)
+
+# ═══ 10. SALUD DE LA COTIZACIÓN SAP (Fase 2, 2026-08-13) ═══
+# El diseño de la Fase 2 degrada con gracia: si el MCP falla, el cliente recibe un mensaje neutro y pasa al
+# asesor (etapa cotiza_fallo) — o sea que NADIE nota cuando la cotización se muere; se vería como si los
+# clientes "prefirieran al asesor". Este chequeo hace visible esa degradación: token vacío con el piloto
+# encendido = todo va a fallar (sev 1); fallos reales en 24h = contarlos (sev 2, sev 1 si son 3+).
+try:
+    _cfg = dict(q("SELECT clave, valor FROM config WHERE clave IN ('usar_cotiza','mcp_sap_token')"))
+    if str(_cfg.get("usar_cotiza", "")).strip().lower() == "si":
+        if not str(_cfg.get("mcp_sap_token", "")).strip():
+            anota("cotiza_config", 1, "token|" + AHORA.strftime("%Y-%m-%d"),
+                  "La cotización SAP está ENCENDIDA (usar_cotiza=si) pero el token del MCP está VACÍO en la "
+                  "BD: toda consulta va a caer al asesor. Corre `python3 mcp_token_login.py` o revisa "
+                  "reportes/cron_mcp_token.log (refrescador).")
+        _f = q("SELECT COUNT(*), COALESCE(MAX(DATE_FORMAT(creado_en,'%d/%m %H:%i')),'') FROM mensajes "
+               "WHERE etapa='cotiza_fallo' AND creado_en >= NOW() - INTERVAL 1 DAY")
+        _nf = int(_f[0][0]) if _f else 0
+        if _nf:
+            anota("cotiza_fallos", 1 if _nf >= 3 else 2, "fallos|" + AHORA.strftime("%Y-%m-%d"),
+                  "%d consulta(s) de cotización SAP fallaron en las últimas 24h (última: %s). El cliente no "
+                  "se pierde (recibe el mensaje neutro y pasa al asesor), pero la Fase 2 está degradada: "
+                  "revisa el servidor MCP y reportes/cron_mcp_token.log." % (_nf, _f[0][1]))
+except Exception as e:
+    print("check cotiza falló: %s" % e)
 
 # ── Guardar (idempotente) y avisar solo lo NUEVO y GRAVE ─────────────────────
 if SECO:
