@@ -131,7 +131,7 @@ y se la pasa a <code>wkhtmltopdf</code>, que la "imprime" a PDF. Mismo patrón: 
 
 css = """
 @page { size: A4; margin: 16mm 14mm; }
-body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; font-size: 13px; line-height: 1.55; }
+body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; font-size: 15px; line-height: 1.6; }
 .portada { text-align: center; padding-top: 210px; page-break-after: always; }
 .kicker { color: %s; font-weight: bold; letter-spacing: 3px; font-size: 12px; }
 .titulo { font-size: 36px; color: %s; line-height: 1.15; }
@@ -141,9 +141,9 @@ h2 { color: %s; font-size: 16px; page-break-after: avoid; }
 h3 { margin: 0 0 4px 0; font-size: 14px; }
 table { border-collapse: collapse; width: 100%%; margin: 8px 0; }
 th { background: %s; color: white; text-align: left; padding: 6px 8px; font-size: 12px; }
-td { border: 1px solid #ddd; padding: 5px 8px; vertical-align: top; font-size: 11.5px; }
+td { border: 1px solid #ddd; padding: 5px 8px; vertical-align: top; font-size: 13.5px; }
 pre { background: #f7f7f2; border: 1px solid #e0e0d8; border-radius: 4px; padding: 8px 10px;
-      font-family: 'DejaVu Sans Mono', monospace; font-size: 10.5px; line-height: 1.45;
+      font-family: 'DejaVu Sans Mono', monospace; font-size: 12.5px; line-height: 1.5;
       white-space: pre-wrap; word-wrap: break-word; page-break-inside: avoid; }
 pre.sh { background: #1e2a1e; color: #d8f0d8; border: none; }
 .sec { font-weight: bold; color: %s; margin: 8px 0 2px 0; }

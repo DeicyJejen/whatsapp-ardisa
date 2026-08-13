@@ -129,7 +129,7 @@ por palabra con la tabla 4. El 90%% de las veces el error te está diciendo la s
 
 css = """
 @page { size: A4; margin: 16mm 14mm; }
-body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; font-size: 13px; line-height: 1.55; }
+body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; font-size: 15px; line-height: 1.6; }
 .portada { text-align: center; padding-top: 220px; page-break-after: always; }
 .kicker { color: %s; font-weight: bold; letter-spacing: 3px; font-size: 12px; }
 .titulo { font-size: 40px; color: %s; }
@@ -137,9 +137,9 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; font-size: 13
 h1 { color: %s; font-size: 21px; border-bottom: 3px solid %s; padding-bottom: 4px; margin-top: 24px; page-break-after: avoid; }
 table { border-collapse: collapse; width: 100%%; margin: 8px 0; }
 th { background: %s; color: white; text-align: left; padding: 6px 8px; font-size: 12px; }
-td { border: 1px solid #ddd; padding: 5px 8px; vertical-align: top; font-size: 11.5px; }
+td { border: 1px solid #ddd; padding: 5px 8px; vertical-align: top; font-size: 13.5px; }
 td:nth-child(2) { color: #a05a00; font-style: italic; white-space: nowrap; }
-code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
 pre { background: #f7f7f2; border: 1px solid #e0e0d8; border-radius: 4px; padding: 8px 10px;
       font-family: 'DejaVu Sans Mono', monospace; font-size: 10.5px; white-space: pre-wrap; }
 .li { margin: 5px 0 5px 10px; }
