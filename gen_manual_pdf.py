@@ -226,8 +226,9 @@ diferencia: no lo estudiaste, lo OPERASTE), y una frase lista para decir en una 
 <h2>Hito 7 — Fase 2: cotización contra SAP (agosto 2026)</h2>
 <p class="li">1. El equipo SAP publicó el servidor <b>MCP</b> (<code>mcp.ardisa.com</code>, 19 herramientas de solo lectura sobre HANA).</p>
 <p class="li">2. Acceso por <b>OAuth</b> delegado en Microsoft 365: registro dinámico del cliente + autorización única de Deicy + <b>refresh token</b> renovado por cron — el token vive en la BD y rota en caliente.</p>
-<p class="li">3. El bot cotiza <b>disponibilidad real por ciudad</b> con lista blanca de 3 herramientas; dice marcas y unidades de venta; el PRECIO va al asesor hasta que SAP publique su herramienta (la activación será un UPDATE, sin deploy).</p>
-<p class="li">4. Piloto con <b>feature flags</b>: <code>usar_cotiza</code> (maestro) y <code>cotiza_alcance</code> (demo → todos). Probado end-to-end contra SAP real antes de la primera demo.</p>
+<p class="li">3. <b>Arquitectura "token en casa"</b> (requisito de auditoría): la IA NO recibe credenciales — solo declara qué herramienta necesita y n8n la ejecuta contra el MCP dentro de nuestra infraestructura (hasta 3 vueltas: búsqueda → disponibilidad+precio en paralelo → redacción). Fijado con prueba automática que bloquea despliegues violatorios.</p>
+<p class="li">4. El bot cotiza <b>disponibilidad real por ciudad, marcas, unidades de venta y PRECIO con IVA</b> (tool `precio_articulo`: cascada precio especial → lista del cliente → lista general; todo precio sale como "precio de referencia — tu asesor te lo confirma"). Documento formal: <code>DOC-BOT-MCP-001</code>.</p>
+<p class="li">5. Piloto con <b>feature flags</b>: <code>usar_cotiza</code> (maestro) y <code>cotiza_alcance</code> (demo → todos). Probado end-to-end contra SAP real antes de la primera demo.</p>
 
 <h1>4. Anexo — Los 78 nodos, uno a uno</h1>
 %s
