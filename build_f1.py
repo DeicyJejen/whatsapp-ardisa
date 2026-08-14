@@ -158,9 +158,16 @@ const wa = d.wa_id;
 // 14-ago (BSUID): cliente con número OCULTO de WhatsApp — no hay teléfono, solo el código privado.
 // El asesor NO puede escribirle por fuera: la única vía es la línea del bot. Las tarjetas lo dicen claro.
 const TEL_PRIV = /^[A-Z][A-Z]\./.test(String(wa||''));
-const USRW = String(d.usuario_wa||'');
-const waDisp = TEL_PRIV ? ('🔒 número privado'+(USRW?(' (@'+USRW+')'):'')+' — solo se le puede responder por la línea del bot (316); avisa a Deicy para coordinar la respuesta') : ('+'+wa);
-const waLink = TEL_PRIV ? '(número privado — sin enlace directo)' : ('wa.me/'+wa);
+// El @usuario público del cliente: viene en contacts[].profile.username; se guarda en la sesión por si
+// el cierre llega por una vía sin contacts (cron/rescate). Con @usuario SÍ hay enlace: wa.me/<usuario>
+// (enlace oficial de WhatsApp por username) — el asesor le escribe normal y el número sigue oculto.
+const USRW = String(d.usuario_wa|| (S[wa]&&S[wa].userWa) ||'');
+if(TEL_PRIV && d.usuario_wa && S[wa]) S[wa].userWa = String(d.usuario_wa);
+const waDisp = TEL_PRIV ? (USRW ? ('@'+USRW+' (número oculto — escríbele por su usuario)')
+                                : '🔒 número privado sin @usuario — solo se le puede responder por la línea del bot (316); avisa a Deicy')
+                        : ('+'+wa);
+const waLink = TEL_PRIV ? (USRW ? ('wa.me/'+USRW) : '(número privado — sin enlace directo)') : ('wa.me/'+wa);
+const waLinkFull = TEL_PRIV ? (USRW ? ('https://wa.me/'+USRW) : '(número privado — usa la línea del bot)') : (''+waLinkFull);
 const id = d.opcion_id || '';
 const texto = (d.texto || '').trim();
 const msg_id = d.msg_id || '';
@@ -513,7 +520,7 @@ function cerrarLead(st,opts){
   }
   let mediaNota=opts.mediaNota||'';
   // si el cliente adjuntó una foto/audio y no se pasó nota explícita, avisamos al asesor que se lo reenviamos
-  if(!mediaNota && (st.mediaId||ADJ_BD.length) && (st.mediaType||(ADJ_BD[0]&&ADJ_BD[0].tipo))){ const _tp=st.mediaType||(ADJ_BD[0]&&ADJ_BD[0].tipo)||''; const _nm=MTYPE_ES[_tp]||'un archivo'; const _c=Math.max(st.mediaCount||0, ADJ_BD.length, 1); mediaNota = (_c>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+_c+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: https://wa.me/'+wa) : ('\n📎 *Adjunto:* el cliente envió '+_nm+' — te lo reenvío enseguida. 👇'); }
+  if(!mediaNota && (st.mediaId||ADJ_BD.length) && (st.mediaType||(ADJ_BD[0]&&ADJ_BD[0].tipo))){ const _tp=st.mediaType||(ADJ_BD[0]&&ADJ_BD[0].tipo)||''; const _nm=MTYPE_ES[_tp]||'un archivo'; const _c=Math.max(st.mediaCount||0, ADJ_BD.length, 1); mediaNota = (_c>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+_c+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: '+waLinkFull) : ('\n📎 *Adjunto:* el cliente envió '+_nm+' — te lo reenvío enseguida. 👇'); }
   const humanoNota = st.pidioHumano ? '\n🗣️ *El cliente pidió hablar con un asesor*' : '';
   // Texto de respaldo del Detalle cuando el cliente NO escribió (solo mandó adjunto): que el asesor sepa QUÉ hacer con él.
   const _detFallback = st.mediaType==='document' ? 'el cliente adjuntó un *documento* con su solicitud — *ábrelo para verla* 👇'
@@ -753,7 +760,7 @@ function cerrarLead(st,opts){
     '🧑‍💼 *Perfil:* '+(st.ocupacion||'—')+'\n'+
     '💬 *Solicitud:* '+(st.tiposol||'Hablar con un asesor')+'\n'+
     '📝 *Detalle:* '+_detShown+(st.imgDesc?('\n🖼️ *En la imagen (IA):* '+st.imgDesc):'')+notaHorario+mediaNota+humanoNota+'\n\n'+
-    '📲 *Escríbele directamente:* https://wa.me/'+wa+notaPrueba;
+    '📲 *Escríbele directamente:* '+waLinkFull+notaPrueba;
   // Solicitud para la PLANTILLA (en una sola línea, con producto + imagen + notas): así el asesor ve todo aunque no reenvíe la foto.
   // La PLANTILLA (ventana cerrada) la corta Meta a 700: si el pedido es largo, el corte se lo llevaba
   // TODO lo de atrás — incluido el enlace al chat. Se recorta el DETALLE, no la metadata (2026-08-06).
@@ -2299,7 +2306,7 @@ if(preguntaHorario){
   }
   else {
     let mediaNota='', rutTxt='';
-    if(es_media){ const nm=MTYPE_ES[d.mtype]||'un archivo'; const cap=(d.media_caption||'').trim(); const _res=(d.mtype==='image')?resumenIA(ia):''; if(_res) st.imgDesc=[...(_res)].slice(0,600).join(''); st.detalle = cap ? ('"'+[...cap].slice(0,200).join('')+'"') : ''; st.mediaId=d.media_id||''; st.mediaType=d.mtype||''; rutTxt=(((ia&&ia.productos)?ia.productos.join(' '):'')+' '+_res+' '+cap).toLowerCase(); mediaNota = st.mediaId ? ((st.mediaCount>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+st.mediaCount+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: https://wa.me/'+wa) : ('\n📎 *Adjunto:* el cliente envió '+nm+' — te lo reenvío enseguida. 👇')) : ('\n📷 *El cliente adjuntó '+nm+'* — ábrela en el chat: https://wa.me/'+wa); }
+    if(es_media){ const nm=MTYPE_ES[d.mtype]||'un archivo'; const cap=(d.media_caption||'').trim(); const _res=(d.mtype==='image')?resumenIA(ia):''; if(_res) st.imgDesc=[...(_res)].slice(0,600).join(''); st.detalle = cap ? ('"'+[...cap].slice(0,200).join('')+'"') : ''; st.mediaId=d.media_id||''; st.mediaType=d.mtype||''; rutTxt=(((ia&&ia.productos)?ia.productos.join(' '):'')+' '+_res+' '+cap).toLowerCase(); mediaNota = st.mediaId ? ((st.mediaCount>1) ? ('\n📎 *Adjuntos:* el cliente envió *'+st.mediaCount+' archivos* (fotos/videos) — te reenvío uno y *el resto ábrelos en el chat con él*: '+waLinkFull) : ('\n📎 *Adjunto:* el cliente envió '+nm+' — te lo reenvío enseguida. 👇')) : ('\n📷 *El cliente adjuntó '+nm+'* — ábrela en el chat: '+waLinkFull); }
     else { const _nt=[...texto].slice(0,1200).join(''); st.detalle = (st.detalle && st.detalle.length>1) ? [...(st.detalle+' '+_nt)].slice(0,1600).join('') : _nt; rutTxt=st.detalle.toLowerCase(); }
     // === FASE 2 · PILOTO: en vez de cerrar directo, el bot COTIZA (usar_cotiza='si' en la BD) ===
     // ALCANCE por BD (2026-08-13): 'demo' = solo CLIENTES_PRUEBA; 'todos' = clientes reales (EN VIVO).
@@ -2524,7 +2531,7 @@ if(preguntaHorario){
         '📱 *WhatsApp:* '+waDisp+'\n'+
         '💬 El cliente volvió a escribir (aún sin ser atendido).\n'+
         '📝 *Solicitud:* '+(st.detalle||'—')+'\n\n'+
-        '📲 *Escríbele:* https://wa.me/'+wa+
+        '📲 *Escríbele:* '+waLinkFull+
         (MODO_PRUEBA?('\n\n🧪 _MODO PRUEBA: en producción este recordatorio iría al asesor asignado._'):''));
     }
   }
