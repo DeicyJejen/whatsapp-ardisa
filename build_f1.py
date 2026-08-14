@@ -536,7 +536,10 @@ function cerrarLead(st,opts){
     // (regla Deicy: lo que el cliente agrega se le confirma — caso Oscar "si melamina" 14-ago)
     const _ack2 = (!es_media && !id && texto && [...String(texto).trim()].length>=3)
       ? '¡Listo! Eso queda en tu solicitud ✅\n\n' : '';
-    return {wpp_body: txt(wa,_ack2+'¡Perfecto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 📱 Para que tu asesor te pueda llamar o escribir más fácil, ¿nos compartes un *número de contacto*?\n\nSi prefieres que sigamos por este mismo chat, dime *"por aquí"*. 🤝'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
+    // 14-ago v2 (Deicy, caso Dina): NADA de "seguimos por este chat" — el asesor escribe desde SU
+    // número (o al @usuario del cliente); la promesa de "por aquí" era falsa con el híbrido apagado.
+    return {wpp_body: txt(wa,_ack2+'¡Perfecto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 📱 ¿A qué *número* te puede llamar o escribir tu asesor?'
+      +(USRW?('\n\nSi lo prefieres, también puede escribirte directo a tu usuario de WhatsApp (*@'+USRW+'*) — respóndenos *"a mi usuario"*. 🤝'):'')), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
   }
   let mediaNota=opts.mediaNota||'';
   // si el cliente adjuntó una foto/audio y no se pasó nota explícita, avisamos al asesor que se lo reenviamos
