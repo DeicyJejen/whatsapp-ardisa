@@ -167,7 +167,7 @@ const waDisp = TEL_PRIV ? (USRW ? ('@'+USRW+' (número oculto — escríbele por
                                 : '🔒 número privado sin @usuario — solo se le puede responder por la línea del bot (316); avisa a Deicy')
                         : ('+'+wa);
 const waLink = TEL_PRIV ? (USRW ? ('wa.me/'+USRW) : '(número privado — sin enlace directo)') : ('wa.me/'+wa);
-const waLinkFull = TEL_PRIV ? (USRW ? ('https://wa.me/'+USRW) : '(número privado — usa la línea del bot)') : (''+waLinkFull);
+const waLinkFull = TEL_PRIV ? (USRW ? ('https://wa.me/'+USRW) : '(número privado — usa la línea del bot)') : ('https://wa.me/'+wa);
 const id = d.opcion_id || '';
 const texto = (d.texto || '').trim();
 const msg_id = d.msg_id || '';
