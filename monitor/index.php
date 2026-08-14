@@ -67,7 +67,10 @@ function hora($t){ return date('g:i a', strtotime($t)); }
 function dia($t){ $d=date('Y-m-d',strtotime($t)); $hoy=date('Y-m-d'); if($d===$hoy) return 'Hoy'; if($d===date('Y-m-d',strtotime('-1 day'))) return 'Ayer'; return date('d/m/Y',strtotime($t)); }
 
 $explicit = isset($_GET['wa']);
-$sel = $explicit ? preg_replace('/[^0-9]/','',$_GET['wa']) : '';
+// 14-ago: los clientes con número oculto tienen id tipo "CO.1352..." — el filtro solo-dígitos les
+// mutilaba el id (quedaba 1352... sin letras), la consulta no encontraba nada y el chat salía
+// "Sin mensajes" con un teléfono falso en el encabezado (pantallazo Deicy 11:02)
+$sel = $explicit ? preg_replace('/[^0-9A-Za-z.]/','',$_GET['wa']) : '';
 
 // Filtro por día (por defecto HOY, para no mezclar ayer y hoy)
 $dayf = isset($_GET['d']) ? $_GET['d'] : 'hoy';
