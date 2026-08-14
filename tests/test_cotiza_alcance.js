@@ -90,8 +90,8 @@ for (const alc of ['', 'demo']) {
   const r = paso({ texto:'🏠 Cliente final', opcion_id:'OAR_FINAL' });   // perfil -> aquí cerraba directo
   chequear('CASO DEICY: con el producto de entrada, el perfil dispara la cotización (no cierra directo)',
            r.hay_cot === true && r.etapa === 'cotizacion', 'etapa='+r.etapa+' hay_cot='+r.hay_cot);
-  chequear('y sale el acuse inmediato ("ya te confirmo...") mientras SAP responde',
-           /confirmo disponibilidad/i.test(JSON.stringify(r.wpp_body||'')), JSON.stringify(r.wpp_body||'').slice(0,100));
+  chequear('y sale el acuse inmediato ("consultando disponibilidad y precios") mientras SAP responde',
+           /consultando .*disponibilidad y precios/i.test(JSON.stringify(r.wpp_body||'')), JSON.stringify(r.wpp_body||'').slice(0,100));
   chequear('y la consulta lleva lo que el cliente pidió', JSON.stringify((r.cot_req||{}).messages||[]).includes('cemento'),
            JSON.stringify((r.cot_req||{}).messages||[]).slice(0,120));
   chequear('sin lead todavía (el lead sale al final de la cotización, como está diseñado)',
