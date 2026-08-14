@@ -19,11 +19,18 @@ DOCS = [
 EXTRA_CSS = """
 <style>
 /* versión de lectura en línea: letra grande y ancho cómodo (los PDF conservan su propio CSS) */
-body { font-size: 18px !important; max-width: 980px; margin: 0 auto; padding: 12px 18px; }
+body { font-size: 18px !important; max-width: 980px; margin: 0 auto; padding: 52px 18px 12px; }
 pre { font-size: 14px !important; }
 .portada { padding-top: 40px !important; page-break-after: avoid; }
+/* botón fijo de regreso a la biblioteca (pedido Deicy 14-ago) */
+.volver-bib { position: fixed; top: 10px; left: 12px; z-index: 999; background: #128B81; color: #fff !important;
+  text-decoration: none; font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 15px; font-weight: bold;
+  padding: 8px 14px; border-radius: 999px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.volver-bib:hover { background: #0d6b63; }
 </style>
 """
+
+BOTON_VOLVER = '<a class="volver-bib" href="biblioteca.html">← Volver a la biblioteca</a>'
 
 out_dir = "/tmp/biblioteca_online"
 os.makedirs(out_dir, exist_ok=True)
@@ -35,6 +42,7 @@ for src, dst, titulo in DOCS:
     h = open(src).read()
     h = re.sub(r"<head>", "<head><title>%s</title><meta name='viewport' content='width=device-width, initial-scale=1'>" % titulo, h, count=1)
     h = h.replace("</head>", EXTRA_CSS + "</head>", 1)
+    h = re.sub(r"<body>", "<body>" + BOTON_VOLVER, h, count=1)
     open(os.path.join(out_dir, dst), "w").write(h)
     hechos += 1
     print("OK ->", os.path.join(out_dir, dst))
