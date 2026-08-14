@@ -59,6 +59,10 @@ Cliente (WhatsApp) → n8n (Cerebro decide cotizar)
 
 - Hasta **3 vueltas** de herramientas por consulta (búsqueda → disponibilidad + precio en paralelo →
   redacción); si se excede, el bot deriva al asesor humano.
+- **Listas de varios productos** (v1.1, 14-ago): el modelo hace TODAS las búsquedas **en paralelo** en la
+  primera vuelta (una llamada por producto) y consulta disponibilidad + precio de todos en la segunda —
+  una lista de obra fotografiada (visión de la IA) se cotiza completa en las mismas 3 vueltas, con
+  respuesta en formato lista (un renglón por producto).
 - Protocolo: JSON-RPC del estándar MCP con sesión (`initialize` → `tools/call` con `mcp-session-id`).
 - A Anthropic viajan únicamente la pregunta del cliente y los resultados de las consultas.
 
@@ -81,7 +85,10 @@ Reglas estrictas en el prompt del sistema, verificadas con pruebas: prohibido in
 referencias o inventario; sin cantidades exactas de stock; todo precio se entrega como *"precio de
 referencia — tu asesor te lo confirma"* con su unidad de venta; producto inexistente o falla técnica
 → derivación silenciosa al asesor (el cliente nunca ve el error interno); el texto del cliente se
-trata como contenido, no como instrucciones (anti prompt-injection).
+trata como contenido, no como instrucciones (anti prompt-injection). Desde v1.1 la derivación nombra a la
+asesora asignada (*"tu solicitud quedó registrada y será atendida por..."*) y la intención de compra
+("me interesa el de 25kg, cotízame 20") pasa directo al humano con la nota "EL CLIENTE CONFIRMÓ QUE
+QUIERE COMPRAR" — el bot cotiza, el asesor vende.
 
 ## 4. Seguridad (resumen para auditoría)
 
@@ -105,6 +112,13 @@ trata como contenido, no como instrucciones (anti prompt-injection).
   instrucciones, negativa a revelar cantidades exactas o sistemas internos.
 - Despliegue con protocolo de candado: build validado → suite → ventana sin tráfico → snapshot de
   reversa → verificación automática post-deploy (lo desplegado == lo probado).
+- **Incidente y endurecimiento (14-ago, v1.1):** en la primera demo en producción los 4 nodos HTTP del
+  circuito fallaron con "invalid syntax": el motor de expresiones de n8n corta cada `{{ ... }}` en el
+  primer `}}`, y los cuerpos JSON anidados quedaban truncados (falla invisible: `onError: continue`).
+  Se corrigió el mismo día y el build ganó un **guard permanente** que detecta expresiones cortadas y
+  aborta antes de generar el workflow — la clase entera de defecto quedó bloqueada. Lección registrada:
+  el arnés de pruebas ejercitaba el código de los nodos pero no las expresiones que evalúa n8n; la
+  verificación de nodos HTTP se hace ahora con workflows temporales contra el n8n real.
 
 ## 6. Pendientes (fuera del alcance de esta tarea)
 

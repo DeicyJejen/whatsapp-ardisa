@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# ANEXO TÉCNICO EN PDF: la configuración COMPLETA de los 78 nodos, incluido todo el código JavaScript
+# ANEXO TÉCNICO EN PDF: la configuración COMPLETA de TODOS los nodos (el conteo es dinámico), incluido todo el código JavaScript
 # (pedido Deicy 13-ago: "no veo qué configuración tiene cada nodo, algunos veo código — quiero aprender").
 # Los comentarios del código son la mitad de la enseñanza: cada uno cuenta el caso real que lo motivó.
 # Uso:  python3 gen_anexo_tecnico_pdf.py   ->  docs/Anexo-Tecnico-78-Nodos.pdf
@@ -64,18 +64,19 @@ hoy = datetime.date.today().strftime("%d/%m/%Y")
 cuerpo = """
 <div class="portada">
   <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · ANEXO TÉCNICO</p>
-  <h1 class="titulo">Los 78 nodos<br>con su configuración completa</h1>
+  <h1 class="titulo">Los NNODOS nodos<br>con su configuración completa</h1>
   <p class="sub">Todo el código, todos los parámetros, todas las conexiones — extraído del workflow en vivo.<br>
   Compañero del <i>Manual del Proyecto</i> y del curso <code>docs/CURSO-BOT-DESDE-CERO.md</code>.</p>
   <p class="autor">Para <b>Deicy Milena Jejen</b> · generado el %s</p>
   <p class="sub">💡 Cómo estudiarlo: los comentarios dentro del código (las líneas con //) cuentan el caso real
   que motivó cada decisión — son la mitad de la enseñanza. Empieza por los nodos Code cortos
-  (6, 13, 74, 76) y deja el Cerebro (23) para sesiones guiadas.</p>
+  ("Verificar firma", "Unir pendiente", "Armar aviso a Deicy") y deja el "Cerebro conversacional" para sesiones guiadas.</p>
 </div>
 <h1>Índice</h1>
 <table class="idx"><tr><th>#</th><th>Nodo</th><th>Tipo</th></tr>%s</table>
 %s
 """ % (hoy, "\n".join(indice), "\n".join(secciones))
+cuerpo = cuerpo.replace("NNODOS", str(len(nodes)))   # conteo dinámico: nunca vuelve a quedar viejo
 
 css = """
 @page { size: A4; margin: 14mm 12mm; }

@@ -21,7 +21,7 @@ cuerpo = """
   <p class="sub">Integración de cotización en tiempo real — arquitectura, seguridad y verificación</p>
   <table class="ficha">
     <tr><td>Código del documento</td><td>DOC-BOT-MCP-001</td></tr>
-    <tr><td>Versión</td><td>1.0</td></tr>
+    <tr><td>Versión</td><td>1.1</td></tr>
     <tr><td>Fecha</td><td>%s</td></tr>
     <tr><td>Elaborado por</td><td>Deicy Milena Jejen — Líder del proyecto Bot WhatsApp</td></tr>
     <tr><td>Clasificación</td><td>Uso interno — Grupo Ardisa</td></tr>
@@ -29,7 +29,8 @@ cuerpo = """
   <table class="ficha cambios">
     <tr><th colspan="3">Control de cambios</th></tr>
     <tr><th>Versión</th><th>Fecha</th><th>Descripción</th></tr>
-    <tr><td>1.0</td><td>%s</td><td>Versión inicial: conexión OAuth/M365, arquitectura "token en casa", lista blanca, activación de precios, verificación E2E</td></tr>
+    <tr><td>1.0</td><td>13/08/2026</td><td>Versión inicial: conexión OAuth/M365, arquitectura "token en casa", lista blanca, activación de precios, verificación E2E</td></tr>
+    <tr><td>1.1</td><td>%s</td><td>Listas multi-producto en paralelo (incl. foto con visión), derivación con nombre de asesora, intención de compra al humano, guard de expresiones n8n tras incidente del 14-ago</td></tr>
   </table>
 </div>
 %s

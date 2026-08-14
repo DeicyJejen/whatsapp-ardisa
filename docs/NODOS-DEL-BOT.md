@@ -1,4 +1,4 @@
-# Los 78 nodos del bot WhatsApp Ardisa — uno a uno
+# Los 91 nodos del bot WhatsApp Ardisa — uno a uno
 
 > **Cómo se construye (léelo primero):** los nodos NO se editan a mano en n8n. La fuente única de verdad
 > es **`build_f1.py`**: un script Python que genera el workflow completo (`workflow-bot-f1.json`) y hace
@@ -27,7 +27,7 @@ Cada mensaje de WhatsApp entra por aquí. Seguridad primero, contexto después.
 | 6 | `Verificar firma` | Calcula la firma HMAC-SHA256 del cuerpo con el App Secret: prueba matemática de que el mensaje viene de Meta y no de un impostor. |
 | 7 | `¿Firma válida?` | Deja pasar solo lo firmado. |
 | 8 | `Descartado (firma inválida)` | Basurero de lo no firmado. |
-| 9 | `Extraer datos` | Del JSON enorme de Meta saca lo útil: teléfono, nombre de perfil, texto, botón tocado, tipo/id de adjunto. |
+| 9 | `Extraer datos` | Del JSON enorme de Meta saca lo útil: teléfono, nombre de perfil, texto, botón tocado, tipo/id de adjunto. **14-ago:** si el cliente oculta su número (usernames de WhatsApp 2026), Meta ya no manda teléfono sino un código BSUID (`CO.1352...`) — el extractor lo usa como identidad y el bot le responde por el campo `recipient`; a estos clientes se les pregunta un número de contacto antes de cerrar. |
 | 10 | `¿Es mensaje?` | Meta también manda "entregado/leído" — eso no se procesa. |
 | 11 | `Fin (no es mensaje)` | Basurero de esos estados. |
 | 12 | `Buscar pendiente (MySQL)` | UNA consulta que trae TODO el contexto desde la BD: ¿tiene lead sin reportar? (regla de oro: mismo asesor), ¿autorizó datos hoy?, sesión guardada, muro reciente, chat híbrido, y la config de Fase 2 (usar_cotiza, alcance, URL y token del MCP, tool de precio). La BD manda; staticData es solo caché. |
@@ -57,14 +57,28 @@ La IA ENTIENDE, el código DECIDE. Con kill-switch para volver a menús puros en
 | 24 | `¿Hay sesión?` | ¿El Cerebro dejó sesión para guardar? |
 | 25 | `Guardar sesión (MySQL)` | Persiste la sesión del cliente en la BD (cura de la carrera del staticData: dos mensajes seguidos ya no se pisan). Marcadores `$1,$2` — nunca `?` (falla en silencio). |
 
-## Circuito E — Fase 2 · Cotización SAP (nodos 26–29)
+## Circuito E — Fase 2 · Cotización SAP **"MCP EN CASA"** (14 nodos)
 
-| # | Nodo | Qué hace |
-|---|------|----------|
-| 26 | `¿Cotizar?` | ¿El Cerebro armó una cotización? (`hay_cot`: solo números demo, o todos si `cotiza_alcance='todos'`). |
-| 27 | `💰 IA Cotización (SAP)` | UNA llamada a api.anthropic.com con el conector MCP: Claude consulta el servidor SAP (mcp.ardisa.com) con lista blanca de 3 herramientas de mostrador (buscar_producto, disponibilidad, disponibilidad_ciudad — cartera/ventas NO existen para él) y redacta la respuesta. El loop pesado corre en servidores de Anthropic, no en n8n. |
-| 28 | `Entregar cotización` | Guardrails duros: sin texto, con error o con el token `[ASESOR]` → mensaje neutro y el cliente pasa al asesor (nunca se expone el problema interno). Guarda el turno en la sesión. |
-| 29 | `Responder cotización (Meta)` | Envía la respuesta de cotización al cliente por WhatsApp. |
+> ⚠️ Actualizado 14-ago-2026. La primera versión usaba el conector MCP de Anthropic (el loop corría
+> en SUS servidores y había que mandarles el token de SAP). Por requisito de auditoría se cambió a
+> **"el token no sale de casa"**: la IA solo DECLARA qué herramienta necesita y **n8n la ejecuta**
+> contra mcp.ardisa.com con el token leído de la BD. Como n8n no hace ciclos, el loop se desenrolla
+> en una **cadena lineal de 3 vueltas** (R1 → R2 → R3). La numeración exacta de cada nodo vive en el
+> **Anexo Técnico** (se regenera del workflow y nunca se desactualiza).
+
+| Nodo | Qué hace |
+|------|----------|
+| `¿Cotizar?` | ¿El Cerebro armó una cotización? (`hay_cot`: números demo, o todos si `cotiza_alcance='todos'`). |
+| `💰 IA Cotización (SAP)` | 1ª llamada a api.anthropic.com declarando la lista blanca de 3 herramientas (buscar_producto, disponibilidad_ciudad, precio_articulo — cartera/ventas NO existen para él). **Sin token de SAP en el cuerpo** (fijado con prueba). |
+| `Repartir herramientas R1` | ¿El modelo terminó (texto) o pidió herramientas (`tool_use`)? Un item por llamada pedida, con la historia completa. |
+| `¿Fin R1?` | Terminó → Entregar. Pidió herramientas → a ejecutarlas. |
+| `SAP sesión R1` | `initialize` contra mcp.ardisa.com (el servidor EXIGE sesión; el `mcp-session-id` llega en un header). ⚠️ Aquí vivía el bug de las llaves `}}` que cortaba la expresión. |
+| `SAP consulta R1` | `tools/call` con la herramienta y argumentos que pidió el modelo (token desde la BD, rotación en caliente). Si son varios productos, las llamadas van EN PARALELO. |
+| `Armar consulta R2` | Parsea la respuesta SSE (`data: {...}`), empareja cada resultado con su `tool_use_id` y arma la siguiente llamada al modelo. |
+| `💰 IA R2` / `Repartir R2` / `¿Fin R2?` / `SAP sesión R2` / `SAP consulta R2` / `Armar consulta R3` / `💰 IA R3` | La 2ª vuelta, idéntica (típico: disponibilidad + precio en paralelo de lo hallado en R1). |
+| `Cerrar cotización R3` | Tope de vueltas: si a la 3ª el modelo SIGUE pidiendo herramientas → `type:'error'` y el cliente pasa al asesor. |
+| `Entregar cotización` | Guardrails duros: sin texto, con error o con el token `[ASESOR]` → *"Tu solicitud quedó registrada ✅ y será atendida por [la asesora asignada]"* (nunca se expone el problema interno). Guarda el turno en la sesión y el chat completo en el panel. |
+| `Responder cotización (Meta)` | Envía la respuesta al cliente por WhatsApp. |
 
 ## Circuito F — Respuesta y entrega inmediata (nodos 30–50)
 
@@ -141,7 +155,7 @@ Independiente del bot: si el bot se cae, este circuito sigue avisándote.
 | 76 | `¿Llegó el aviso?` | Solo marca como avisada si Meta CONFIRMÓ la entrega (si tu ventana está cerrada, reintenta en 10 min — ninguna alerta se pierde). |
 | 77 | `Marcar avisadas (MySQL)` | `avisado_wa=1` para no repetirte alertas. |
 
-## Nodo 78 — `Nota`
+## La `Nota`
 
 La nota amarilla de documentación dentro del editor de n8n (no ejecuta nada).
 

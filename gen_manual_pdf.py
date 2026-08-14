@@ -4,7 +4,7 @@
 # con los nombres propios para conseguir un buen trabajo").
 #
 # Genera docs/Manual-Proyecto-Bot-Ardisa.pdf a partir de HTML+CSS con wkhtmltopdf.
-# El anexo de los 78 nodos se toma de docs/NODOS-DEL-BOT.md (fuente única, no se duplica a mano).
+# El anexo de los 91 nodos se toma de docs/NODOS-DEL-BOT.md (fuente única, no se duplica a mano).
 # Uso:  python3 gen_manual_pdf.py
 import subprocess, re, html, datetime
 import marca as _marca
@@ -161,7 +161,7 @@ del resultado con cada asesor, se <b>vigila a sí mismo</b> cada hora, y en su F
 disponibilidad en tiempo real contra SAP</b> vía MCP.</p>
 <table>
 <tr><th>Dimensión</th><th>Dato</th></tr>
-<tr><td>Plataforma</td><td>n8n (workflow de 78 nodos generado desde código Python) sobre Docker</td></tr>
+<tr><td>Plataforma</td><td>n8n (workflow de 91 nodos generado desde código Python) sobre Docker</td></tr>
 <tr><td>Canal</td><td>WhatsApp Cloud API (Meta) — webhook firmado + plantillas de utilidad</td></tr>
 <tr><td>IA</td><td>Claude (Anthropic): comprensión de texto y visión de fotos + cotización con MCP→SAP</td></tr>
 <tr><td>Datos</td><td>MariaDB: leads, mensajes, consentimientos, sesiones, alertas, config</td></tr>
@@ -171,7 +171,7 @@ disponibilidad en tiempo real contra SAP</b> vía MCP.</p>
 
 <h1>2. El abecé desde cero (léelo primero)</h1>
 <p class="intro">Los términos que aparecen mil veces en n8n y en este manual, explicados como si fuera el primer día.</p>
-<div class="term"><h3>Workflow (flujo de trabajo)</h3><p>Un dibujo de cajitas conectadas con flechas que se ejecuta solo. Cada cajita hace UNA cosa y le pasa el resultado a la siguiente. Nuestro bot ES un workflow de 78 cajitas.</p></div>
+<div class="term"><h3>Workflow (flujo de trabajo)</h3><p>Un dibujo de cajitas conectadas con flechas que se ejecuta solo. Cada cajita hace UNA cosa y le pasa el resultado a la siguiente. Nuestro bot ES un workflow de 91 cajitas.</p></div>
 <div class="term"><h3>Nodo</h3><p>Cada cajita del workflow. Hay nodos de muchos tipos según lo que hacen: recibir (Webhook), decidir (IF), calcular (Code), guardar (MySQL), llamar a otro sistema (HTTP Request), esperar un reloj (Schedule).</p></div>
 <div class="term"><h3>Webhook</h3><p>El nodo "portero": publica una dirección de internet (URL) y se queda esperando. Cuando ALGUIEN le manda algo a esa dirección (Meta, cada vez que un cliente escribe), el workflow ARRANCA con esos datos. Es el timbre de la casa: no sales a buscar visitas — te timbran.</p></div>
 <div class="term"><h3>IF (nodo de decisión)</h3><p>Una pregunta de sí/no. Mira los datos que llegan y los manda por la rama de arriba (SÍ/true) o la de abajo (NO/false). "¿La firma es válida?" → sí: sigue; no: basurero. Nuestro bot tiene ~24 IFs: son sus semáforos.</p></div>
@@ -231,7 +231,14 @@ diferencia: no lo estudiaste, lo OPERASTE), y una frase lista para decir en una 
 <p class="li">4. El bot cotiza <b>disponibilidad real por ciudad, marcas, unidades de venta y PRECIO con IVA</b> (tool `precio_articulo`: cascada precio especial → lista del cliente → lista general; todo precio sale como "precio de referencia — tu asesor te lo confirma"). Documento formal: <code>DOC-BOT-MCP-001</code>.</p>
 <p class="li">5. Piloto con <b>feature flags</b>: <code>usar_cotiza</code> (maestro) y <code>cotiza_alcance</code> (demo → todos). Probado end-to-end contra SAP real antes de la primera demo.</p>
 
-<h1>4. Anexo — Los 78 nodos, uno a uno</h1>
+<h2>Hito 8 — Clientes con número oculto y cotización de listas (14 de agosto 2026)</h2>
+<p class="li">1. <b>WhatsApp usernames (BSUID)</b>: Meta 2026 permite ocultar el número — el mensaje llega SIN teléfono, con un código por-empresa (<code>CO.1352...</code>). El bot los ignoraba EN SILENCIO (9 personas en 4 días, detectadas en auditoría el mismo día; 4 rescatadas dentro de su ventana de 24h). Ahora: el extractor acepta el código como identidad, la respuesta viaja por el campo <code>recipient</code>, y el asesor recibe el enlace <code>wa.me/@usuario</code> o el número de contacto que el bot le pregunta al cliente antes de cerrar.</p>
+<p class="li">2. <b>Cotización de LISTAS por foto</b>: la visión lee la imagen (una lista de obra con 12 ítems) y el circuito hace TODAS las búsquedas en SAP <b>en paralelo</b> en un turno — respuesta en lista, un renglón por producto con marca, unidad y precio de referencia.</p>
+<p class="li">3. <b>Guard de expresiones n8n</b> en el build: n8n corta cada expresión <code>{{ }}</code> en el primer <code>}}</code> — un objeto anidado moría EN VIVO con "invalid syntax" (así cayó la primera demo del día). El build ahora lo detecta y ABORTA antes de desplegar: esa clase de bug ya no puede llegar a producción.</p>
+<p class="li">4. <b>Vigilante sin repetidos</b>: las alertas ahora se deduplican por el ESTADO de la situación (no por el día del calendario) — solo re-suenan cuando algo cambia de verdad; el spam de proveedores extranjeros queda registrado pero ya no interrumpe.</p>
+<p class="li">5. Si la cotización no puede resolver un producto, el cliente ya no recibe un mensaje genérico: <i>"Tu solicitud quedó registrada ✅ y será atendida por [nombre de la asesora]"</i>.</p>
+
+<h1>4. Anexo — Los 91 nodos, uno a uno</h1>
 %s
 
 <h1>5. Cómo contar este proyecto en una entrevista</h1>
