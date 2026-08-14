@@ -1449,7 +1449,10 @@ if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
   const _pideDemo   = /^(demo|modo demo|modo cliente|simular|probar el bot|quiero probar)$/i.test(_cmd);
   const _pideInform = /^(informe|reporte|estado|status|panel|pulso|resumen|salir|fin demo|salir del demo|c[oó]mo va|como va|c[oó]mo va el bot|como va el bot)$/i.test(_cmd);
   if(_pideDemo){ store.demoAdmin[wa]=NOW; delete S[wa];
-    return [{json:{etapa:'admin_demo', wa_id:wa, wpp_body:txt(wa,'🧪 *Modo demo activado.* Te atiendo como si fueras una clienta para que pruebes el flujo.\n\nCuando quieras volver al panel, escribe *informe*.'), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:{creado_en:fechaCol(), wa_id:wa, nombre:'Deicy (monitoreo)', entrada:[...String(texto||'')].slice(0,200).join(''), salida:'modo demo ON', etapa:'admin_demo'}, consent_log:null, pend_cierre:false, pend_token:0}}];
+    if(store.done) delete store.done[wa]; if(store.cliMsgs) delete store.cliMsgs[wa];   // borrón COMPLETO para re-probar
+    // 14-ago: 'demo' también borra la sesión de la BD (ses_out:'null') — antes solo limpiaba la memoria
+    // rápida y la BD "resucitaba" la conversación anterior con sus candados (caso Deicy 10:05)
+    return [{json:{etapa:'admin_demo', wa_id:wa, wpp_body:txt(wa,'🧪 *Modo demo activado.* Te atiendo como si fueras una clienta para que pruebes el flujo.\n\nCuando quieras volver al panel, escribe *informe*.'), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:{creado_en:fechaCol(), wa_id:wa, nombre:'Deicy (monitoreo)', entrada:[...String(texto||'')].slice(0,200).join(''), salida:'modo demo ON', etapa:'admin_demo'}, consent_log:null, pend_cierre:false, pend_token:0, ses_tel:wa, ses_out:'null'}}];
   }
   const _enDemo = !_pideInform && store.demoAdmin[wa] && (NOW-store.demoAdmin[wa])<3*3600000;
   if(!_enDemo){
@@ -2348,7 +2351,10 @@ if(preguntaHorario){
     const _dial=(st.cotHist||[]).filter(m=>m&&m.role==='user').map(m=>String(m.content)).join(' · ');
     if(!st.detalle || st.detalle.length<3) st.detalle=[...String(_dial||'')].slice(0,300).join('');
     st.tiposol=st.tiposol||('Cotización '+(st.marca||''));
-    delete st.cotFallo;
+    // 14-ago: el candado anti-bucle (cotN/cotFallo) MUERE con la conversación — si se queda en la
+    // sesión persistida, una falla vieja bloquea la cotización del siguiente registro (caso demo
+    // Deicy 10:05: la falla de las 8:14 la mandó al asesor y con el detalle viejo)
+    delete st.cotFallo; delete st.cotN; delete st.cotHist;
     const R=cerrarLead(st,{mediaNota:(nota?('\n🛒 *'+nota+'*'):'')}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias;
     pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre';
     if(nota){
@@ -3165,6 +3171,7 @@ nodes.append(node("¿Lead ya existía?", "n8n-nodes-base.if", 2,
 # reemplaza a `affectedRows === 0`: el nodo MySQL 2.5 devuelve {success:true} SIN affectedRows, así que la
 # detección de duplicados llevaba MUERTA EN SILENCIO desde el 29-jul (la nota de adición no salía jamás).
 _BUSCAR_ORIG_WHERE = ("FROM leads WHERE telefono=$%d AND creado_en > NOW() - INTERVAL 45 MINUTE "
+                      "AND modo_prueba=0 "   # 14-ago: los leads de DEMO no activan el candado (para poder repetir pruebas seguidas)
                       "AND asesor_tel IS NOT NULL AND asesor_tel<>'' ORDER BY id DESC LIMIT 1")
 _BUSCAR_ORIG_SQL = ("SELECT "
     "(SELECT id "+_BUSCAR_ORIG_WHERE % 1+") AS id, "
