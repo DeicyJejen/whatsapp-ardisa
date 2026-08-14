@@ -280,6 +280,7 @@ por asesor."</p>
     p { margin: 5px 0; }
     """ % (GRIS, AMARILLO, VERDE, VERDE, AMARILLO, VERDE, VERDE, VERDE, VERDE, AMARILLO)
 
+    css = css + _marca.CSS_APA   # formato formal APA (pedido Deicy 14-ago)
     html_doc = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%s</style></head><body>%s</body></html>" % (css, body)
     open("/tmp/manual_bot.html", "w").write(html_doc.replace("LOGO_DATAURI", _marca.logo_datauri()))
     subprocess.run(["wkhtmltopdf", "-q", "--enable-local-file-access",

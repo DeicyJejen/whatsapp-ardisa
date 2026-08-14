@@ -100,6 +100,7 @@ code { background: #f0f0f0; padding: 1px 3px; border-radius: 3px; }
 .nodo { page-break-inside: auto; }
 """ % (AMARILLO, VERDE, VERDE, AMARILLO, VERDE, VERDE, VERDE)
 
+css = css + _marca.CSS_APA   # formato formal APA (pedido Deicy 14-ago)
 doc = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%s</style></head><body>%s</body></html>" % (css, cuerpo)
 open("/tmp/anexo_tecnico.html", "w").write(doc.replace("LOGO_DATAURI", _marca.logo_datauri()))
 subprocess.run(["wkhtmltopdf", "-q", "--enable-local-file-access",

@@ -147,6 +147,7 @@ pre { background: #f7f7f2; border: 1px solid #e0e0d8; border-radius: 4px; paddin
 p { margin: 6px 0; }
 """ % (AMARILLO, VERDE, VERDE, AMARILLO, VERDE)
 
+css = css + _marca.CSS_APA   # formato formal APA (pedido Deicy 14-ago)
 doc = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%s</style></head><body>%s</body></html>" % (css, cuerpo)
 open("/tmp/ingles_codigo.html", "w").write(doc.replace("LOGO_DATAURI", _marca.logo_datauri()))
 subprocess.run(["wkhtmltopdf", "-q", "--enable-local-file-access",
