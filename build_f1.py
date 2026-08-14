@@ -209,7 +209,7 @@ const MODO_PRUEBA = false;         // false: EN VIVO -> el aviso va al ASESOR re
 const PRUEBA_NUM = '573205662947'; // número de PRUEBA del asesor (Deicy)
 // CLIENTES DE PRUEBA/DEMO: si el que ESCRIBE (el cliente) es uno de estos números, la solicitud se crea normal
 // pero el aviso va SOLO a DEMO_DEST (a TI), NO a ningún asesor real, y el lead se marca como prueba (no ensucia reportes).
-const CLIENTES_PRUEBA = ['573205662947'];   // agrega aquí los números desde los que quieras hacer demos
+const CLIENTES_PRUEBA = ['573205662947','573156251656'];   // agrega aquí los números desde los que quieras hacer demos (14-ago: 2º número pedido por Deicy)
 const DEMO_DEST = '573205662947';           // a dónde llega el aviso de la demo (Deicy)
 // APAGADO 2026-08-03 (Deicy: "ya sé que funciona, ya quítalo; solo que me lleguen las alertas de problemas").
 // Durante el arranque le llegaba COPIA de cada aviso a asesor para verificar que el reparto funcionaba. Ya no.
