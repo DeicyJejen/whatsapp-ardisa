@@ -532,7 +532,11 @@ function cerrarLead(st,opts){
   // que la solicitud vaga: pregunta única marcada en la sesión, jamás en bucle. ===
   if(TEL_PRIV && !st.telContacto && !st.telAsk){
     st.telAsk=true; st.paso='telContacto';
-    return {wpp_body: txt(wa,'¡Ya casi'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 📱 Como tu número está oculto en WhatsApp, ¿nos regalas un *número de contacto* para que tu asesor te pueda llamar o escribir?\n\nSi prefieres seguir solo por este chat, dime *"por aquí"* y con gusto continuamos así. 🤝'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
+    // Si lo que acaba de escribir es contenido real (no un botón), se le CONFIRMA que quedó sumado
+    // (regla Deicy: lo que el cliente agrega se le confirma — caso Oscar "si melamina" 14-ago)
+    const _ack2 = (!es_media && !id && texto && [...String(texto).trim()].length>=3)
+      ? '¡Listo! Eso queda en tu solicitud ✅\n\n' : '';
+    return {wpp_body: txt(wa,_ack2+'¡Ya casi'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 📱 Como tu número está oculto en WhatsApp, ¿nos regalas un *número de contacto* para que tu asesor te pueda llamar o escribir?\n\nSi prefieres seguir solo por este chat, dime *"por aquí"* y con gusto continuamos así. 🤝'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
   }
   let mediaNota=opts.mediaNota||'';
   // si el cliente adjuntó una foto/audio y no se pasó nota explícita, avisamos al asesor que se lo reenviamos
