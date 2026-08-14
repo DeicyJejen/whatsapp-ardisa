@@ -377,7 +377,9 @@ try:
                "WHERE etapa='cotiza_fallo' AND creado_en >= NOW() - INTERVAL 1 DAY")
         _nf = int(_f[0][0]) if _f else 0
         if _nf:
-            anota("cotiza_fallos", 1 if _nf >= 3 else 2, "fallos|" + AHORA.strftime("%Y-%m-%d"),
+            # clave por el ÚLTIMO fallo (no por día): solo re-avisa si hay un fallo NUEVO — el mismo
+            # fallo de ayer no se re-cuenta al cambiar el calendario (pedido Deicy 14-ago)
+            anota("cotiza_fallos", 1 if _nf >= 3 else 2, "fallos|" + str(_f[0][1]),
                   "%d consulta(s) de cotización SAP fallaron en las últimas 24h (última: %s). El cliente no "
                   "se pierde (recibe el mensaje neutro y pasa al asesor), pero la Fase 2 está degradada: "
                   "revisa el servidor MCP y reportes/cron_mcp_token.log." % (_nf, _f[0][1]))
