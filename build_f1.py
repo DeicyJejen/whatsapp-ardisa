@@ -118,7 +118,7 @@ try { const _s = $getWorkflowStaticData('global'); paso_actual = (_s.ses && _s.s
 const _pareceProducto = (texto||'').trim().length>=12 && ( /\d/.test(texto||'') || /(cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|cemento|varilla|hierro|acero|cer[aá]mic|porcelan|loseta|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|pintura|tablero|mdf|melamin|madera|drywall|arena|ladrillo|teja|tubo|l[aá]mina|mueble|combo|electrodom|nevera|estufa|lavadora|aluminio|eterboard|fibrocemento|bulto|metro|m2)/i.test(_low) );
 const _pasoRecolec = (paso_actual==='nombre'||paso_actual==='ciudad'||paso_actual==='ciudadOtra'||paso_actual==='ocuArd'||paso_actual==='ocupacion'||paso_actual==='punto');
 const espera_ia = (paso_actual==='' || paso_actual==='cerrado' || paso_actual==='detalle' || paso_actual==='marca' || paso_actual==='consent' || paso_actual==='confirmGrupo') || (_pasoRecolec && _pareceProducto);
-return [{ json: { es_mensaje: true, wa_id, msg_id, mtype, es_media, media_id, media_caption, texto, opcion_id, profileName,
+return [{ json: { es_mensaje: true, wa_id, msg_id, mtype, es_media, media_id, media_caption, texto, opcion_id, profileName, usuario_wa,
                   usar_ia_flag: USAR_IA, es_saludo, pide_humano_kw, espera_ia, paso_actual } }];
 """
 
@@ -155,6 +155,12 @@ if (!store.medias) store.medias = {};   // TODOS los adjuntos que el cliente man
 if (!store.ses) store.ses = {};
 const S = store.ses;
 const wa = d.wa_id;
+// 14-ago (BSUID): cliente con número OCULTO de WhatsApp — no hay teléfono, solo el código privado.
+// El asesor NO puede escribirle por fuera: la única vía es la línea del bot. Las tarjetas lo dicen claro.
+const TEL_PRIV = /^[A-Z][A-Z]\./.test(String(wa||''));
+const USRW = String(d.usuario_wa||'');
+const waDisp = TEL_PRIV ? ('🔒 número privado'+(USRW?(' (@'+USRW+')'):'')+' — solo se le puede responder por la línea del bot (316); avisa a Deicy para coordinar la respuesta') : ('+'+wa);
+const waLink = TEL_PRIV ? '(número privado — sin enlace directo)' : ('wa.me/'+wa);
 const id = d.opcion_id || '';
 const texto = (d.texto || '').trim();
 const msg_id = d.msg_id || '';
@@ -717,7 +723,7 @@ function cerrarLead(st,opts){
   const _mezclaDet = _mezclaTxt;   // definido arriba (lo usan cerrarLead y las ramas que suman texto del cliente)
   const _detSt = (st.detalle && st.detalle!==_detFallback) ? st.detalle : '';
   let _detShown = _mezclaDet(_cliAll, _detSt) || _detFallback;
-  if([..._detShown].length>1800) _detShown = [..._detShown].slice(0,1800).join('')+'\n… (pedido largo — ábrelo completo en el chat: wa.me/'+wa+')';
+  if([..._detShown].length>1800) _detShown = [..._detShown].slice(0,1800).join('')+'\n… (pedido largo — ábrelo completo en el chat: '+waLink+')';
   // DETALLE para el EXCEL (columna "Solicitud del cliente"): lo que escribió el cliente + la lectura de la IA de la imagen (si envió).
   // La FOTO real se le reenvía al asesor por WhatsApp; en el Excel queda la DESCRIPCIÓN, marcada con 📎, para que no se pierda nada.
   const _nAdj = (store.medias && store.medias[wa]) ? store.medias[wa].filter(m=>m&&m.id).length : ((st.mediaId||st.imgDesc)?1:0);
@@ -740,7 +746,7 @@ function cerrarLead(st,opts){
   const _avisoBody = _notaPend +
     (_yaTuyo ? '➕ *Nueva solicitud de un cliente que YA tienes*\n\n' : '🔔 *Nuevo cliente para atender*\n\n')+
     '👤 *Cliente:* '+st.nombre+'\n'+
-    '📱 *WhatsApp:* +'+wa+'\n'+
+    '📱 *WhatsApp:* '+waDisp+'\n'+
     '📍 *Ciudad:* '+(st.ciudad||'—')+'\n'+
     (_puntoNom ? ('🏪 *Punto más cercano:* '+_puntoNom+(_puntoDir?('\n🗺️ *Dirección:* '+_puntoDir):'')+'\n') : '')+
     '🏷️ *Línea:* '+lineaTxt+'\n'+
@@ -752,7 +758,7 @@ function cerrarLead(st,opts){
   // La PLANTILLA (ventana cerrada) la corta Meta a 700: si el pedido es largo, el corte se lo llevaba
   // TODO lo de atrás — incluido el enlace al chat. Se recorta el DETALLE, no la metadata (2026-08-06).
   const _detTpl = ([..._detShown].length>380) ? ([..._detShown].slice(0,380).join('')+'… (pedido largo — ábrelo completo en el chat)') : _detShown;
-  const _solTpl = (st.tiposol||'Cotización / Info')+' — '+_detTpl+(st.imgDesc?(' | En la imagen: '+st.imgDesc):'')+(mediaNota?' | (📎 el cliente envió adjuntos: RESPONDE este chat y te los reenvío)':'')+(st.pidioHumano?' | (pidió hablar con un asesor)':'')+(st.fuera?(' | ⏰ entró fuera de horario'):'')+' | Escríbele: wa.me/'+wa;
+  const _solTpl = (st.tiposol||'Cotización / Info')+' — '+_detTpl+(st.imgDesc?(' | En la imagen: '+st.imgDesc):'')+(mediaNota?' | (📎 el cliente envió adjuntos: RESPONDE este chat y te los reenvío)':'')+(st.pidioHumano?' | (pidió hablar con un asesor)':'')+(st.fuera?(' | ⏰ entró fuera de horario'):'')+' | Escríbele: '+waLink;
   // Token de SEGUIMIENTO generado ANTES del aviso: la plantilla lleva el botón "Reportar resultado" con payload SEG:<tok>.
   const _segTok = SEG_ACTIVO ? (NOW.toString(36)+Math.floor(Math.random()*46656).toString(36)) : null;
   // AHORRO (2026-07-21): si el asesor tiene su ventana de 24h ABIERTA, el aviso sale como mensaje de SERVICIO (GRATIS)
@@ -2495,7 +2501,7 @@ if(preguntaHorario){
       leadRow={creado_en:fechaCol(), telefono:wa, nombre:(st.nombre||''), marca:(st.marca||'Ardisa'), ciudad:(st.ciudad||''), tipo_cliente:(st.ocupacion||'—'),
         solicitud:'Nueva solicitud (cliente recurrente)', detalle:'El cliente volvió a escribir hoy.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):'')+' · Nota: también tiene pendiente la solicitud #'+PEND_ID+' sin reporte (mismo asesor).',
         asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
-      const _rec2=txt(_dest,'📌 Este cliente también tiene la solicitud *#'+PEND_ID+'* pendiente de reporte — aprovecha y resuélvele las dos. 🙌\n\n➕ *Nueva solicitud de un cliente que YA tienes*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* +'+wa+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\n📲 *Escríbele:* https://wa.me/'+wa);
+      const _rec2=txt(_dest,'📌 Este cliente también tiene la solicitud *#'+PEND_ID+'* pendiente de reporte — aprovecha y resuélvele las dos. 🙌\n\n➕ *Nueva solicitud de un cliente que YA tienes*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* '+waDisp+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\n📲 *Escríbele:* '+waLink);
       if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else encolarMedia(_rec2, st.nombre||'');
       // 2026-07-29 (Deicy): NUNCA contarle al cliente que hubo que recordarle al asesor — es un problema interno.
       // 2026-08-06 (caso Fundación Mujer y Futuro #235): tampoco DISCULPARSE por una demora que el bot no puede
@@ -2515,7 +2521,7 @@ if(preguntaHorario){
       aviso_body=txt(_dest,
         '⏰ *Recordatorio — el cliente insiste*\n\n'+
         '👤 *Cliente:* '+(st.nombre||'—')+'\n'+
-        '📱 *WhatsApp:* +'+wa+'\n'+
+        '📱 *WhatsApp:* '+waDisp+'\n'+
         '💬 El cliente volvió a escribir (aún sin ser atendido).\n'+
         '📝 *Solicitud:* '+(st.detalle||'—')+'\n\n'+
         '📲 *Escríbele:* https://wa.me/'+wa+
