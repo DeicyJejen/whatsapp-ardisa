@@ -163,11 +163,16 @@ const TEL_PRIV = /^[A-Z][A-Z]\./.test(String(wa||''));
 // (enlace oficial de WhatsApp por username) — el asesor le escribe normal y el número sigue oculto.
 const USRW = String(d.usuario_wa|| (S[wa]&&S[wa].userWa) ||'');
 if(TEL_PRIV && d.usuario_wa && S[wa]) S[wa].userWa = String(d.usuario_wa);
-const waDisp = TEL_PRIV ? (USRW ? ('@'+USRW+' (número oculto — escríbele por su usuario)')
-                                : '🔒 número privado sin @usuario — solo se le puede responder por la línea del bot (316); avisa a Deicy')
-                        : ('+'+wa);
-const waLink = TEL_PRIV ? (USRW ? ('wa.me/'+USRW) : '(número privado — sin enlace directo)') : ('wa.me/'+wa);
-const waLinkFull = TEL_PRIV ? (USRW ? ('https://wa.me/'+USRW) : '(número privado — usa la línea del bot)') : ('https://wa.me/'+wa);
+let waDisp = TEL_PRIV ? (USRW ? ('@'+USRW+' (número oculto — escríbele por su usuario)')
+                              : '🔒 número privado sin @usuario — solo se le puede responder por la línea del bot (316); avisa a Deicy')
+                      : ('+'+wa);
+let waLink = TEL_PRIV ? (USRW ? ('wa.me/'+USRW) : '(número privado — sin enlace directo)') : ('wa.me/'+wa);
+let waLinkFull = TEL_PRIV ? (USRW ? ('https://wa.me/'+USRW) : '(número privado — usa la línea del bot)') : ('https://wa.me/'+wa);
+// Si el cliente oculto YA nos regaló un número de contacto (decisión Deicy 14-ago), ese manda:
+function usarTelContacto(){ const _tc=String((S[wa]&&S[wa].telContacto)||''); if(TEL_PRIV && _tc){
+  waDisp='+'+_tc+' (contacto dado por el cliente — su WhatsApp de origen es privado)';
+  waLink='wa.me/'+_tc; waLinkFull='https://wa.me/'+_tc; } }
+usarTelContacto();
 const id = d.opcion_id || '';
 const texto = (d.texto || '').trim();
 const msg_id = d.msg_id || '';
@@ -517,6 +522,14 @@ function cerrarLead(st,opts){
       st.asesoriaAsk=true; st.paso='detalle';
       return {wpp_body: txt(wa,'¡Con gusto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 🤝 Para pasarte con el asesor correcto y darte una cotización precisa, cuéntame: *¿qué producto(s) necesitas cotizar?*\nPor ejemplo: cemento, cerámica, grifería, tableros, láminas, sanitarios, pintura...'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
     }
+  }
+  // === NÚMERO DE CONTACTO para el cliente con número OCULTO (BSUID) — decisión Deicy 14-ago:
+  // se le pregunta UNA sola vez un número; si lo da, la tarjeta y el enlace usan ESE número;
+  // si prefiere seguir por el chat, se cierra igual (@usuario o línea del bot). Mismo patrón
+  // que la solicitud vaga: pregunta única marcada en la sesión, jamás en bucle. ===
+  if(TEL_PRIV && !st.telContacto && !st.telAsk){
+    st.telAsk=true; st.paso='telContacto';
+    return {wpp_body: txt(wa,'¡Ya casi'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 📱 Como tu número está oculto en WhatsApp, ¿nos regalas un *número de contacto* para que tu asesor te pueda llamar o escribir?\n\nSi prefieres seguir solo por este chat, dime *"por aquí"* y con gusto continuamos así. 🤝'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
   }
   let mediaNota=opts.mediaNota||'';
   // si el cliente adjuntó una foto/audio y no se pasó nota explícita, avisamos al asesor que se lo reenviamos
@@ -2395,6 +2408,15 @@ if(preguntaHorario){
     try{ armarRescate(S[wa]); }catch(e){}
     return [{json:{etapa,wa_id:wa,wpp_body:null,aviso_body:null,aviso_medias:null,hay_aviso:false,hay_media:false,lead:null,chat:{creado_en:fechaCol(), wa_id:wa, nombre:(st.nombre||''), entrada:[...String(texto)].slice(0,300).join(''), salida:'(cotizando con SAP...)', etapa:'cotizacion'},consent_log:null,pend_cierre:false,pend_token:0,cot_req:cot_req,hay_cot:true,ses_tel:wa,ses_out:JSON.stringify(S[wa]||null)}}];
   }
+} else if(st.paso==='telContacto'){
+  // Respuesta a la pregunta del número de contacto (cliente con número oculto, decisión Deicy 14-ago).
+  // Si trae 7+ dígitos, ese es el contacto (celular colombiano de 10 se normaliza a 57...); si dice
+  // "por aquí"/lo que sea sin número, se respeta y se cierra igual. Foto/audio también cierra (se adjunta).
+  if(es_media){ st.mediaId=d.media_id||st.mediaId; st.mediaType=d.mtype||st.mediaType; }
+  const _num=String(texto||'').replace(/[^\d]/g,'');
+  if(_num.length>=7){ st.telContacto=(_num.length===10 && _num[0]==='3') ? ('57'+_num) : _num; usarTelContacto(); }
+  const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias;
+  pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre';
 } else if(st.paso==='confirmGrupo'){   // Fase 2: el cliente confirma Construcción/Acabados con 1 toque (NO llama IA)
   const g=elige([['GRP_CONS','Construcción'],['GRP_ACAB','Acabados'],['GRP_MOBIL','Proyecto Arquitectónico']]);
   if(!g){

@@ -6,6 +6,7 @@ $c = @new mysqli('127.0.0.1', 'monitor_ro', $dbpass, 'bot_ardisa');
 if ($c->connect_errno) { http_response_code(500); die('Sin conexión a la base de datos.'); }
 $c->set_charset('utf8mb4');
 function h($s){ return htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8'); }
+function telDisp($w){ return preg_match('/^[A-Z]{2}\./', $w ?? '') ? '🔒 número privado' : ('+'.$w); }
 
 // ===== Generador de .xlsx REAL con estilo (sin librerías, usa ZipArchive) =====
 function xcol($n){ $s=''; while($n>0){ $m=($n-1)%26; $s=chr(65+$m).$s; $n=intdiv($n-1,26);} return $s; }
@@ -121,7 +122,7 @@ if (isset($_GET['export'])) {
     $est=($x['estado']!==null && $x['estado']!=='')?$x['estado']:'Pendiente';
     if(stripos($est,'ganado')!==false){ $tg++; $vv+=(float)$x['valor_venta']; }
     $val=($x['valor_venta']!==null && $x['valor_venta']!=='')?('$'.number_format((float)$x['valor_venta'],0,',','.')):'';
-    $data[]=[ $i,'WhatsApp',$MES[(int)date('n',$t)],date('d/m/Y',$t),$x['ciudad'],$x['nombre'],'+'.$x['telefono'],
+    $data[]=[ $i,'WhatsApp',$MES[(int)date('n',$t)],date('d/m/Y',$t),$x['ciudad'],$x['nombre'],telDisp($x['telefono']),
       $x['solicitud'],$x['tipo_cliente'],$x['detalle'],$x['marca'],$x['asesor'],trim((($x['estado_motivo']??'')!==''?('Motivo: '.$x['estado_motivo'].' · '):'').(string)$x['obs_asesor'],' · '),$val,$est ]; }
   $lbl=['hoy'=>'Hoy','ayer'=>'Ayer','semana'=>'Últimos 7 días','mes'=>'Últimos 30 días','todos'=>'Histórico'][$per];
   // Se dice por QUÉ fecha está filtrado: un Excel que no lo aclara se lee como si fuera lo otro.
@@ -344,7 +345,7 @@ function lnk($ov=[]){
       <?php foreach($rows as $x): $carp=(mb_stripos((string)$x['marca'],'carp')!==false); ?>
         <tr>
           <td style="white-space:nowrap"><?php echo date('d/m',strtotime($x['creado_en'])); ?><br><span class="sub2"><?php echo date('g:i a',strtotime($x['creado_en'])); ?></span></td>
-          <td><div class="cli"><?php echo h($x['nombre']?:'—'); ?></div><div class="sub2"><?php echo h($x['ciudad']?:''); ?> · +<?php echo h($x['telefono']); ?></div></td>
+          <td><div class="cli"><?php echo h($x['nombre']?:'—'); ?></div><div class="sub2"><?php echo h($x['ciudad']?:''); ?> · <?php echo h(telDisp($x['telefono'])); ?></div></td>
           <td><span class="pill <?php echo $carp?'carp':''; ?>"><?php echo h($x['marca']?:'—'); ?></span><?php if(!empty($x['mp'])): ?> <span class="pill" style="background:#FCEBD6;color:#B15C00">🧪</span><?php endif; ?></td>
           <td><?php echo h($x['solicitud']?:'—'); ?></td>
           <td><?php echo h($x['tipo_cliente']?:'—'); ?></td>

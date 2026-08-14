@@ -16,7 +16,7 @@ $c->set_charset('utf8mb4');
 // los mensajes y los reportes de los leads quedan intactos; el chat solo sale de la lista y se puede restaurar.
 if ($_SERVER['REQUEST_METHOD']==='POST' && !$_CSRF_OK) { http_response_code(403); exit('Origen no permitido'); }
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['acc'], $_POST['wa'])) {
-  $w = preg_replace('/[^0-9]/','',$_POST['wa']);
+  $w = preg_replace('/[^0-9A-Za-z.]/','',$_POST['wa']);
   if ($w!=='') {
     if ($_POST['acc']==='ocultar')  { $st=$c->prepare("INSERT IGNORE INTO chats_ocultos (wa_id) VALUES (?)"); $st->bind_param('s',$w); $st->execute(); }
     if ($_POST['acc']==='restaurar'){ $st=$c->prepare("DELETE FROM chats_ocultos WHERE wa_id=?"); $st->bind_param('s',$w); $st->execute(); }
@@ -27,6 +27,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['acc'], $_POST['wa'])) {
 }
 
 function h($s){ return htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8'); }
+// 14-ago: clientes con número OCULTO de WhatsApp (BSUID tipo CO.123...) — no es un teléfono, no se pinta con '+'
+function telDisp($w){ return preg_match('/^[A-Z]{2}\./', $w ?? '') ? '🔒 número privado' : ('+'.$w); }
 // Renderiza el formato de WhatsApp: *negrita*, _cursiva_, ~tachado~, ```mono```, enlaces y saltos de línea
 function nl($s){
   $s = htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
@@ -212,7 +214,7 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
     <div class="list">
       <?php if(!$convs): ?><div class="empty"><?php echo $vista==='ase' ? 'Aún no hay chats de asesores en este período.<br>Aquí aparecen sus reportes y recordatorios.' : 'Aún no hay conversaciones.<br>Escríbele al bot para verlas aquí.'; ?></div><?php endif; ?>
       <?php foreach($convs as $cv): $on = $cv['wa_id']===$sel;
-        $nmL = (!empty($ASE[$cv['wa_id']])) ? $ASE[$cv['wa_id']] : ($cv['nombre'] ?: ('+'.$cv['wa_id']));
+        $nmL = (!empty($ASE[$cv['wa_id']])) ? $ASE[$cv['wa_id']] : ($cv['nombre'] ?: telDisp($cv['wa_id']));
         if($vista==='ase') $nmL = '🧑‍💼 '.$nmL;
         if(isset($humanos[$cv['wa_id']])) $nmL = '👩‍💼 '.$nmL; ?>
         <a class="conv <?php echo $on?'on':''; ?>" href="?wa=<?php echo h($cv['wa_id']); ?><?php echo $qd; ?>">
@@ -230,11 +232,11 @@ $refreshUrl = $explicit ? ('?wa='.h($sel).$qd) : ('?d='.$dayf.'&v='.$vista);
   <div class="chat">
     <?php if($sel!==''): ?>
     <div class="hd">
-      <?php $selShow = (!empty($ASE[$sel])) ? $ASE[$sel] : ($selNombre ?: ('+'.$sel)); ?>
+      <?php $selShow = (!empty($ASE[$sel])) ? $ASE[$sel] : ($selNombre ?: telDisp($sel)); ?>
       <a class="back" href="?d=<?php echo $dayf; ?>&v=<?php echo $vista; ?>" title="Volver a los chats">←</a>
       <div class="av" style="background:<?php echo avc($sel); ?>"><?php echo h(ini_($selShow)); ?></div>
       <div><div style="font-weight:700"><?php echo isset($ASE[$sel])?'🧑‍💼 ':''; echo h($selShow); ?></div>
-      <div style="font-size:.74rem;opacity:.85">+<?php echo h($sel); ?><?php echo isset($ASE[$sel])?' · asesor':''; ?></div></div>
+      <div style="font-size:.74rem;opacity:.85"><?php echo h(telDisp($sel)); ?><?php echo isset($ASE[$sel])?' · asesor':''; ?></div></div>
       <?php if($HIBRIDO && $vista==='cli' && !isset($ASE[$sel])): ?>
         <?php if($selHumano): ?>
           <span style="background:#FFD54F;color:#5b4300;border-radius:7px;padding:6px 10px;font-weight:700;font-size:.78rem;margin-left:auto">👩‍💼 Atendiéndola tú — bot en pausa</span>
