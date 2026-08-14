@@ -17,7 +17,7 @@
 #       python3 vigilante.py --seco     -> solo muestra en pantalla, no guarda ni envía
 import subprocess, os, sys, ssl, smtplib, datetime, base64, json
 from email.message import EmailMessage
-from vigilante_reglas import clasifica_perdido   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
+from vigilante_reglas import clasifica_perdido, etapa_cola   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
 
 BASE      = "/home/ubuntu/whatsapp-ardisa"
 KEY_N8N   = "/home/ubuntu/.config/ardisa/n8n_api_key"
@@ -70,9 +70,11 @@ if not SECO:
             print("BD caída Y correo falló: %s / %s" % (e, e2))
         raise SystemExit(2)
 
-hallazgos = []   # (tipo, severidad, clave, detalle)
-def anota(tipo, sev, clave, detalle):
-    hallazgos.append((tipo, sev, str(clave)[:120], detalle))
+hallazgos = []   # (tipo, severidad, clave, detalle, silencio)
+def anota(tipo, sev, clave, detalle, silencio=False):
+    # silencio=True: queda en la tabla `alertas` (auditoría/panel) pero nace con avisado_wa=1,
+    # así el circuito de WhatsApp nunca la envía (pedido Deicy 14-ago: spam corregido no re-suena).
+    hallazgos.append((tipo, sev, str(clave)[:120], detalle, silencio))
 
 # ── Excluir a quien NO es cliente: asesores, la línea de monitoreo y los números de prueba ──
 # La lista de etapas es intercambiable (@ETAPAS@): el chequeo de CLIENTE PERDIDO necesita VER las filas
@@ -152,11 +154,11 @@ for wa, nom, n, ini, ult, pedido in q("""
     GROUP BY m.wa_id
     HAVING MAX(m.creado_en) < NOW() - INTERVAL 20 MINUTE
        AND (SUM(m.entrada<>'(inactividad)')>=2 OR MAX(CHAR_LENGTH(m.entrada))>=25)"""):
-    sev, nota = clasifica_perdido(wa, ult)
+    sev, nota, silencio = clasifica_perdido(wa, ult)
     anota("cliente_perdido", sev, wa+"|"+ini,
           "%s (%s) escribió %s %s desde el %s y NO quedó registrado — recorrido: %s%s%s"
           % (nom or wa, wa, n, ("vez" if str(n) == "1" else "veces"), ini, ult,
-             ("  ·  PIDIÓ: "+pedido[:160]) if pedido else "", nota))
+             ("  ·  PIDIÓ: "+pedido[:160]) if pedido else "", nota), silencio=silencio)
 
 # ═══ 2c. ¿LA TABLA `sesiones` DEJÓ DE LLENARSE? ══════════════════════════════
 # 2026-08-10: el nodo que guarda la sesión por cliente (la cura de la carrera del staticData, caso
@@ -292,11 +294,14 @@ try:
                  "WHERE wa_id='" + esc(_dst) + "' AND etapa='media_nudge'")
         _n_nud = int(_nud[0][0]) if _nud else 0
         # la poda del bot descarta de la cola lo que cumpla 7 días: avisar la fecha ANTES de que pase
-        _poda = datetime.datetime.fromtimestamp(
-            min(int(i.get("t", _ms)) for i in _viejos) / 1000) + datetime.timedelta(days=7)
-        # clave por asesor+día: si mañana sigue atascada, vuelve a avisar (a diferencia de un bug puntual,
-        # esta situación HAY que repetirla hasta que alguien la destrabe)
-        anota("cola_adjuntos", 1 if _hrs >= 24 else 2, _dst + "|" + AHORA.strftime("%Y-%m-%d"),
+        _min_t = min(int(i.get("t", _ms)) for i in _viejos)
+        _poda = datetime.datetime.fromtimestamp(_min_t / 1000) + datetime.timedelta(days=7)
+        # 2026-08-14 (pedido Deicy): una cola que NO cambia no se re-avisa cada día. La clave lleva el
+        # ESTADO de la cola (adjunto más viejo + cuántos son + etapa nueva/grave/final): misma cola en
+        # la misma etapa = misma clave = el UNIQUE de la tabla la calla. Solo re-suena si llega otro
+        # adjunto, si cumple un día entero, o en la víspera del descarte (máximo 3 avisos por cola).
+        _etq, _sev = etapa_cola(_hrs, (_poda - AHORA).total_seconds() / 3600)
+        anota("cola_adjuntos", _sev, "%s|%dx%d|%s" % (_dst, _min_t, len(_viejos), _etq),
               "%d adjunto(s) de %d cliente(s) llevan hasta %d horas esperando a %s (+%s): su ventana de 24h "
               "está cerrada.%s Cualquier mensaje del asesor al bot libera la cola en <2 min. ⚠️ Lo más "
               "viejo se descarta de la cola el %s (recuperable a mano). Clientes: %s"
@@ -381,18 +386,21 @@ except Exception as e:
 
 # ── Guardar (idempotente) y avisar solo lo NUEVO y GRAVE ─────────────────────
 if SECO:
-    for t, sev, c, det in hallazgos: print("[%s] sev%d  %s" % (t, sev, det))
+    for t, sev, c, det, sil in hallazgos:
+        print("[%s] sev%d%s  %s" % (t, sev, " (silenciosa)" if sil else "", det))
     print("\n%d hallazgo(s) — modo seco, no se guardó nada" % len(hallazgos))
     raise SystemExit(0)
 
 nuevos = []
-for t, sev, c, det in hallazgos:
+for t, sev, c, det, sil in hallazgos:
     antes = q("SELECT COUNT(*) FROM alertas WHERE tipo='%s' AND clave='%s'" % (esc(t), esc(c)))
     if antes and antes[0][0] != "0":
         continue                                  # ya estaba: no se re-avisa (anti-spam)
-    q("INSERT IGNORE INTO alertas (creado_en,tipo,severidad,clave,detalle) "
-      "VALUES (NOW(),'%s',%d,'%s','%s')" % (esc(t), sev, esc(c), esc(det)))
-    nuevos.append((t, sev, det))
+    # las silenciosas nacen con avisado_wa=1: quedan para auditoría/panel pero WhatsApp jamás las envía
+    q("INSERT IGNORE INTO alertas (creado_en,tipo,severidad,clave,detalle,avisado_wa) "
+      "VALUES (NOW(),'%s',%d,'%s','%s',%d)" % (esc(t), sev, esc(c), esc(det), 1 if sil else 0))
+    if not sil:
+        nuevos.append((t, sev, det))
 
 graves = [x for x in nuevos if x[1] == 1]
 print("%s | hallazgos: %d | nuevos: %d | graves nuevos: %d"
