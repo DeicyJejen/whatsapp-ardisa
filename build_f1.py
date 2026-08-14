@@ -936,8 +936,10 @@ function _cotReq(stC){
   const _sys='Haces parte del equipo de atención al cliente de '+(stC.marca||'Grupo Ardisa')+' (Grupo Ardisa, Colombia). '
     +'Un cliente pregunta por productos. El cliente está en la ciudad de '+(stC.ciudad||'Bucaramanga')+'. REGLAS ESTRICTAS: '
     +'(0) ADMINISTRA TUS TURNOS — tienes máximo 3 turnos de herramientas: 1º UNA sola búsqueda con '
-    +'buscar_producto (NUNCA repitas la búsqueda con variantes; de los resultados elige el o los productos '
-    +'que mejor encajen con lo pedido); 2º consulta disponibilidad y precio de los elegidos EN PARALELO '
+    +'buscar_producto usando SOLO el nombre del producto, SIN cantidades, medidas de compra ni presentaciones '
+    +'(busca "cemento gris", NUNCA "cemento gris 25kg" ni "cemento gris bulto" — la presentación la eliges '
+    +'entre los resultados). NUNCA repitas la búsqueda con variantes; de los resultados elige el o los productos '
+    +'que mejor encajen con lo pedido; 2º consulta disponibilidad y precio de los elegidos EN PARALELO '
     +'(todas las llamadas juntas en el mismo turno); 3º responde. '
     +(_hayPrecio
       ? '(1) Usa las herramientas para identificar el producto y consultar su precio y su disponibilidad en la ciudad del cliente. '
@@ -988,7 +990,9 @@ function _cotReq(stC){
     messages:(stC.cotHist||[]).slice(-6) };
 }
 const COTIZA_ON = () => String(PEND.cfg_cotiza||'').trim().toLowerCase()==='si' && String(PEND.cfg_mcp_url||'').trim()!=='';
-const KW_QUIERE = /(lo quiero|los quiero|la quiero|las quiero|me lo llevo|me la llevo|me los llevo|c[oó]mo (pago|es el pago|hago el pedido)|ap[aá]rt[ae]|reserv[ae]|env[ií][ae]|ll[eé]v[ae]lo|de una|hag[aá]mosle|s[ií],? quiero|d[oó]nde pago|quiero (comprar|el pedido|pedirlo)|me interesa compr|factur[ae]|listo,? (comprar|pedir|env))/i;
+// 14-ago (caso Oscar): "me interesa el (bulto/el de 25kg)..." tras recibir precios = eligió presentación ->
+// intención de compra, entra el humano (antes solo cubría "me interesa comprar" literal)
+const KW_QUIERE = /(lo quiero|los quiero|la quiero|las quiero|me lo llevo|me la llevo|me los llevo|c[oó]mo (pago|es el pago|hago el pedido)|ap[aá]rt[ae]|reserv[ae]|env[ií][ae]|ll[eé]v[ae]lo|de una|hag[aá]mosle|s[ií],? quiero|d[oó]nde pago|quiero (comprar|el pedido|pedirlo)|me interesa compr|me interesa (el|la|los|las|ese|esa|este|esta)\s+(?!(precio|costo|valor|cotizaci[oó]n|dato|saber|conocer)\b)|factur[ae]|listo,? (comprar|pedir|env))/i;
 
 const BANNER_URL='https://bot.ardisa.com/assets/banner-grupo.png';   // banner con los DOS logos (Ardisa + Carpincentro), servido por nginx
 const MARCA=[['MAR_ARD','🟢 Ardisa'],['MAR_CARP','🟡 Carpincentro']];
@@ -1596,7 +1600,10 @@ if(!es_media && texto && !id){
   // sépticos, filtro anaerobio, trampa de grasas). Un pedido real cabe en 1200; la plantilla de Meta
   // sigue protegida por _tpv (700) y la tarjeta por su propio tope.
   const _t=[...texto].slice(0,1200).join('').trim();
-  const _esNomCiu = st && ['nombre','ciudad','ciudadOtra'].includes(st.paso);
+  // 14-ago (caso Edinson): 'telContacto' también se excluye — "por aquí" o el número que regala el
+  // cliente oculto son respuestas a NUESTRA pregunta, no parte de su pedido (rompían la fusión y el
+  // detalle salía repetido: "producto · por aqui · producto")
+  const _esNomCiu = st && ['nombre','ciudad','ciudadOtra','telContacto'].includes(st.paso);
   const _esRuido = /^((ok(ay)?|listo|dale|vale|bueno|buen[oa]s|perfecto|de acuerdo|gracias|muchas|mil|muy|amable|va|hecho|entendido|correcto|s[ií]|no|autorizo|acepto|hola|men[uú]|👍|🙏|👌)[\s.,!👍🙏👌]*)+$/i.test(low);
   if(_t.length>=2 && !reinicia && !_esNomCiu && !_esRuido){
     store.cliMsgs = store.cliMsgs || {};
@@ -3009,7 +3016,7 @@ const _f=_c.getUTCFullYear()+'-'+_p(_c.getUTCMonth()+1)+'-'+_p(_c.getUTCDate())+
 return [{json:{
   wpp_body:{messaging_product:'whatsapp', to:wa, type:'text', text:{preview_url:false, body:body}},
   ses_tel:wa, ses_out:JSON.stringify(st),
-  chat:{creado_en:_f, wa_id:wa, nombre:(st.nombre||''), entrada:'(respuesta cotización)', salida:[...body].slice(0,400).join(''), etapa:(fallo?'cotiza_fallo':'cotiza_rta')}
+  chat:{creado_en:_f, wa_id:wa, nombre:(st.nombre||''), entrada:'(respuesta cotización)', salida:[...body].slice(0,2000).join(''), etapa:(fallo?'cotiza_fallo':'cotiza_rta')}
 }}];
 """
 
