@@ -1123,12 +1123,11 @@ function intentaCotizar(){
     // 14-ago (pedido Deicy, foto de lista): si la IA LEYÓ la imagen y son POCOS productos (<=3), se
     // cotiza con esa lectura; una lista de obra larga o una foto ilegible siguen yendo al asesor
     // (una lista B2B con 12 ítems no cabe en 3 turnos y la debe tarifar la asesora con su lista de cliente).
-    if(st.mediaId){
-      const _nProd=(ia && ia.productos && ia.productos.length)||0;
-      // 14-ago v2 (pedido Deicy: "debe cotizarle tal cual"): la lista completa SÍ cabe — el circuito
-      // ejecuta N búsquedas EN PARALELO por turno. Solo la foto que la IA no pudo leer va al asesor.
-      if(!(st.imgDesc && _nProd>0)) return false;
-    }
+    // 14-ago v3 (12:15, la lista de Deicy seguía cerrando sin cotizar): el chequeo miraba `ia` del
+    // MENSAJE ACTUAL — pero el cierre llega con el botón del perfil, que no pasa por la IA (ia=null).
+    // La lectura de la foto vive en la SESIÓN (st.imgDesc, guardada cuando llegó la imagen): si la IA
+    // pudo leerla, se cotiza la lista completa (N búsquedas en paralelo por turno); ilegible -> asesor.
+    if(st.mediaId && !st.imgDesc) return false;
     let _base=String(st.detalle||st.notas||st.iaProd||((ia&&ia.productos&&ia.productos.length)?ia.productos.join(', '):'')||'').trim();
     if(st.mediaId && st.imgDesc){ _base=(_base?(_base+' — '):'')+'En la imagen envió: '+String(st.imgDesc); }
     if([..._base].length<3) return false;   // sin producto no hay qué cotizar
