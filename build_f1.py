@@ -939,12 +939,13 @@ function _cotReq(stC){
   const _hayPrecio=_toolPrecio!=='';
   const _sys='Haces parte del equipo de atención al cliente de '+(stC.marca||'Grupo Ardisa')+' (Grupo Ardisa, Colombia). '
     +'Un cliente pregunta por productos. El cliente está en la ciudad de '+(stC.ciudad||'Bucaramanga')+'. REGLAS ESTRICTAS: '
-    +'(0) ADMINISTRA TUS TURNOS — tienes máximo 3 turnos de herramientas: 1º UNA sola búsqueda con '
-    +'buscar_producto usando SOLO el nombre del producto, SIN cantidades, medidas de compra ni presentaciones '
+    +'(0) ADMINISTRA TUS TURNOS — tienes máximo 3 turnos de herramientas: 1º busca con buscar_producto '
+    +'usando SOLO el nombre de cada producto, SIN cantidades, medidas de compra ni presentaciones '
     +'(busca "cemento gris", NUNCA "cemento gris 25kg" ni "cemento gris bulto" — la presentación la eliges '
-    +'entre los resultados). NUNCA repitas la búsqueda con variantes; de los resultados elige el o los productos '
-    +'que mejor encajen con lo pedido; 2º consulta disponibilidad y precio de los elegidos EN PARALELO '
-    +'(todas las llamadas juntas en el mismo turno); 3º responde. '
+    +'entre los resultados); si el cliente pidió VARIOS productos, haz TODAS las búsquedas EN PARALELO en ese '
+    +'mismo primer turno (una llamada por producto, juntas). NUNCA repitas una búsqueda con variantes; de los '
+    +'resultados elige el o los productos que mejor encajen con lo pedido; 2º consulta disponibilidad y precio '
+    +'de los elegidos EN PARALELO (todas las llamadas juntas en el mismo turno); 3º responde. '
     +(_hayPrecio
       ? '(1) Usa las herramientas para identificar el producto y consultar su precio y su disponibilidad en la ciudad del cliente. '
       : '(1) Usa las herramientas para identificar el producto y consultar su disponibilidad en la ciudad del cliente. ')
@@ -1115,8 +1116,15 @@ function intentaCotizar(){
     const _alc=String(PEND.cfg_cotiza_alcance||'').trim().toLowerCase();
     if(!(COTIZA_ON() && (CLIENTES_PRUEBA.indexOf(wa)>=0 || _alc==='todos'))) return false;
     if(!st || st.cotN || st.cotFallo || st.escape || st.pidioHumano) return false;   // ya cotizó/falló, o pidió humano
-    if(st.mediaId) return false;   // mandó foto/archivo: el asesor la ve, el MCP no — cierre normal
-    const _base=String(st.detalle||st.notas||st.iaProd||((ia&&ia.productos&&ia.productos.length)?ia.productos.join(', '):'')||'').trim();
+    // 14-ago (pedido Deicy, foto de lista): si la IA LEYÓ la imagen y son POCOS productos (<=3), se
+    // cotiza con esa lectura; una lista de obra larga o una foto ilegible siguen yendo al asesor
+    // (una lista B2B con 12 ítems no cabe en 3 turnos y la debe tarifar la asesora con su lista de cliente).
+    if(st.mediaId){
+      const _nProd=(ia && ia.productos && ia.productos.length)||0;
+      if(!(st.imgDesc && _nProd>0 && _nProd<=3)) return false;
+    }
+    let _base=String(st.detalle||st.notas||st.iaProd||((ia&&ia.productos&&ia.productos.length)?ia.productos.join(', '):'')||'').trim();
+    if(st.mediaId && st.imgDesc){ _base=(_base?(_base+' — '):'')+'En la imagen envió: '+String(st.imgDesc); }
     if([..._base].length<3) return false;   // sin producto no hay qué cotizar
     // 14-ago (caso Oscar 'hola necesito asesoria'): un saludo, una categoría del menú o 'necesito
     // asesoría' NO son un producto — sin producto CONCRETO no se promete '¡ya te confirmo
