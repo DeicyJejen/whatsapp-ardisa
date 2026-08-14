@@ -11,7 +11,7 @@ hoy = datetime.date.today().strftime("%d/%m/%Y")
 contenido = md_a_html(open("docs/CURSO-BOT-DESDE-CERO.md").read())
 cuerpo = """
 <div class="portada">
-  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px">
+  <img src="LOGO_DATAURI" style="width:180px;max-width:55%%;margin-bottom:16px">
   <p class="kicker">GRUPO ARDISA · GUÍA DE APRENDIZAJE</p>
   <h1 class="titulo">Curso: el Bot desde Cero</h1>
   <p class="sub">Las recetas de cada tipo de nodo, los 78 nodos con su configuración,<br>y el ciclo profesional de construcción.</p>

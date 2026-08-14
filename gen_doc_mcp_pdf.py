@@ -16,14 +16,14 @@ contenido = md_a_html(open("docs/DOC-CONEXION-MCP-SAP.md").read())
 
 cuerpo = """
 <div class="portada">
-  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · DOCUMENTACIÓN TÉCNICA</p>
+  <img src="LOGO_DATAURI" style="width:180px;max-width:55%%;margin-bottom:16px"><p class="kicker">GRUPO ARDISA · DOCUMENTACIÓN TÉCNICA</p>
   <h1 class="titulo">Conexión del Bot de WhatsApp<br>al MCP de SAP Business One</h1>
   <p class="sub">Integración de cotización en tiempo real — arquitectura, seguridad y verificación</p>
   <table class="ficha">
     <tr><td>Código del documento</td><td>DOC-BOT-MCP-001</td></tr>
     <tr><td>Versión</td><td>1.1</td></tr>
     <tr><td>Fecha</td><td>%s</td></tr>
-    <tr><td>Elaborado por</td><td>Deicy Milena Jejen — Líder del proyecto Bot WhatsApp</td></tr>
+    <tr><td>Elaborado por</td><td>Deicy Milena Jejen — Desarrolladora del Bot WhatsApp</td></tr>
     <tr><td>Clasificación</td><td>Uso interno — Grupo Ardisa</td></tr>
   </table>
   <table class="ficha cambios">

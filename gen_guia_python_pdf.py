@@ -71,7 +71,7 @@ ls -la backups/auto/ | tail -3        # 8. los últimos respaldos diarios</pre>
 hoy = datetime.date.today().strftime("%d/%m/%Y")
 cuerpo = """
 <div class="portada">
-  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · GUÍA DE APRENDIZAJE</p>
+  <img src="LOGO_DATAURI" style="width:180px;max-width:55%%;margin-bottom:16px"><p class="kicker">GRUPO ARDISA · GUÍA DE APRENDIZAJE</p>
   <h1 class="titulo">Python y la Terminal<br>del proyecto</h1>
   <p class="sub">Cómo un script FABRICA los 78 nodos y los PDFs, la anatomía de un script real,<br>
   y todos los comandos que usamos — con ejemplos del proyecto, no de libro.</p>

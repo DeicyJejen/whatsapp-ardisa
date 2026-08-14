@@ -11,8 +11,8 @@ AMARILLO = "#FEC604"        # Amarillo Mostaza (acento principal del manual)
 
 def logo_datauri():
     """El imagotipo oficial embebido (para portadas de PDF sin depender de rutas)."""
-    return "data:image/jpeg;base64," + base64.b64encode(
-        open("oficina/IMAGOTIPOS-GRUPOARDISA-01-V1-(3).jpg", "rb").read()).decode()
+    return "data:image/png;base64," + base64.b64encode(
+        open("oficina/logo-grupo-transparente.png", "rb").read()).decode()   # PNG sin fondo (pedido Deicy 14-ago)
 
 # ── Formato formal tipo NORMAS APA para los PDFs (pedido Deicy 14-ago) ──────────────────────────
 # Se AÑADE al final del CSS de cada generador (el CSS que llega después gana): tipografía serif

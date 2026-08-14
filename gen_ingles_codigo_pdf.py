@@ -87,7 +87,7 @@ ERRORES = [
 hoy = datetime.date.today().strftime("%d/%m/%Y")
 cuerpo = """
 <div class="portada">
-  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · GUÍA DE APRENDIZAJE</p>
+  <img src="LOGO_DATAURI" style="width:180px;max-width:55%%;margin-bottom:16px"><p class="kicker">GRUPO ARDISA · GUÍA DE APRENDIZAJE</p>
   <h1 class="titulo">El Inglés del Código</h1>
   <p class="sub">Las ~100 palabras que son el 90%% de todo lo programado —<br>
   con pronunciación figurada y su ejemplo real en TU proyecto.</p>

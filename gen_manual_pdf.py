@@ -145,11 +145,11 @@ def construir():
 
     body = """
 <div class="portada">
-  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · CARPINCENTRO</p>
+  <img src="LOGO_DATAURI" style="width:180px;max-width:55%%;margin-bottom:16px"><p class="kicker">GRUPO ARDISA · CARPINCENTRO</p>
   <h1 class="titulo">El Bot de WhatsApp<br>de principio a fin</h1>
   <p class="sub">Manual completo del proyecto: cómo se construyó, cómo funciona,<br>
   y los nombres propios de cada cosa — para operarlo y para contarlo.</p>
-  <p class="autor">Proyecto liderado por <b>Deicy Milena Jejen</b><br>Generado el %s · versión del workflow en vivo</p>
+  <p class="autor">Desarrollado por <b>Deicy Milena Jejen</b><br>Generado el %s · versión del workflow en vivo</p>
 </div>
 
 <h1>1. El proyecto en una página</h1>

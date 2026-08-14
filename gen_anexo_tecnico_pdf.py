@@ -63,7 +63,7 @@ for i, n in enumerate(nodes, 1):
 hoy = datetime.date.today().strftime("%d/%m/%Y")
 cuerpo = """
 <div class="portada">
-  <img src="LOGO_DATAURI" style="width:320px;max-width:75%%;margin-bottom:18px"><p class="kicker">GRUPO ARDISA · ANEXO TÉCNICO</p>
+  <img src="LOGO_DATAURI" style="width:180px;max-width:55%%;margin-bottom:16px"><p class="kicker">GRUPO ARDISA · ANEXO TÉCNICO</p>
   <h1 class="titulo">Los NNODOS nodos<br>con su configuración completa</h1>
   <p class="sub">Todo el código, todos los parámetros, todas las conexiones — extraído del workflow en vivo.<br>
   Compañero del <i>Manual del Proyecto</i> y del curso <code>docs/CURSO-BOT-DESDE-CERO.md</code>.</p>
