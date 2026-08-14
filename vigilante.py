@@ -374,7 +374,8 @@ try:
                   "BD: toda consulta va a caer al asesor. Corre `python3 mcp_token_login.py` o revisa "
                   "reportes/cron_mcp_token.log (refrescador).")
         _f = q("SELECT COUNT(*), COALESCE(MAX(DATE_FORMAT(creado_en,'%d/%m %H:%i')),'') FROM mensajes "
-               "WHERE etapa='cotiza_fallo' AND creado_en >= NOW() - INTERVAL 1 DAY")
+               "WHERE etapa='cotiza_fallo' AND creado_en >= NOW() - INTERVAL 1 DAY "
+               "AND wa_id <> '573205662947'")   # 14-ago: las pruebas de Deicy no cuentan como degradación
         _nf = int(_f[0][0]) if _f else 0
         if _nf:
             # clave por el ÚLTIMO fallo (no por día): solo re-avisa si hay un fallo NUEVO — el mismo
