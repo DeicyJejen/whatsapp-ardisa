@@ -79,10 +79,16 @@ const body = root.body || root;
 const value = body?.entry?.[0]?.changes?.[0]?.value;
 const msg = value?.messages?.[0];
 if (!msg) { return [{ json: { es_mensaje: false } }]; }
-const wa_id = msg.from;
+// 14-ago-2026: WhatsApp "usernames" (BSUID) — si el usuario oculta su número, Meta NO manda msg.from:
+// manda from_user_id / contacts[].user_id con un código por-empresa tipo "CO.1352055013679988"
+// (caso real: Oscar, demo de Deicy — el bot lo ignoraba en silencio). El BSUID sirve como wa_id a
+// todo lo largo del bot; para RESPONDERLE se usa el campo 'recipient' (lo resuelve http_send).
+const wa_id = msg.from || msg.from_user_id || value?.contacts?.[0]?.user_id || '';
+if (!wa_id) { return [{ json: { es_mensaje: false } }]; }
 const msg_id = msg.id || '';
 const mtype = msg.type || '';
 const profileName = value?.contacts?.[0]?.profile?.name || '';
+const usuario_wa = value?.contacts?.[0]?.profile?.username || '';   // @usuario (si eligió tener uno)
 // Solo estos tipos son adjuntos válidos (un lead); reacciones/system/unsupported/order/etc. se ignoran.
 const MEDIA = ['image','audio','video','document','sticker','location','contacts'];
 if (mtype !== 'text' && mtype !== 'interactive' && mtype !== 'button' && !MEDIA.includes(mtype)) { return [{ json: { es_mensaje: false } }]; }
@@ -209,7 +215,7 @@ const MODO_PRUEBA = false;         // false: EN VIVO -> el aviso va al ASESOR re
 const PRUEBA_NUM = '573205662947'; // número de PRUEBA del asesor (Deicy)
 // CLIENTES DE PRUEBA/DEMO: si el que ESCRIBE (el cliente) es uno de estos números, la solicitud se crea normal
 // pero el aviso va SOLO a DEMO_DEST (a TI), NO a ningún asesor real, y el lead se marca como prueba (no ensucia reportes).
-const CLIENTES_PRUEBA = ['573205662947','573156251656'];   // agrega aquí los números desde los que quieras hacer demos (14-ago: 2º número pedido por Deicy)
+const CLIENTES_PRUEBA = ['573205662947','573156251656','CO.1352055013679988'];   // números (o BSUID de usuario privado) desde los que se hacen demos (14-ago: Oscar usa username de WhatsApp -> Meta manda su BSUID, no su 315)
 const DEMO_DEST = '573205662947';           // a dónde llega el aviso de la demo (Deicy)
 // APAGADO 2026-08-03 (Deicy: "ya sé que funciona, ya quítalo; solo que me lleguen las alertas de problemas").
 // Durante el arranque le llegaba COPIA de cada aviso a asesor para verificar que el reparto funcionaba. Ya no.
@@ -2688,11 +2694,18 @@ def node(name, ntype, tv, params, x, y, extra=None):
 
 def http_send(body_expr):
     # Auth por CREDENCIAL CIFRADA (httpHeaderAuth): el token NO viaja en el JSON.
+    # 14-ago-2026 (BSUID): si el destinatario es un código de usuario privado ("CO.xxxx" — dos letras
+    # y un punto), Meta exige mandarlo en 'recipient' en vez de 'to' (con 'to' presente, 'to' gana).
+    # El intercambio se hace AQUÍ, en el único embudo de salida, para no tocar los 30+ armadores de
+    # mensajes. OJO expresión n8n: jamás dejar "}}" pegadas (ver guard del build).
+    _swap = ("(function(b){ if(b && b.to && /^[A-Z][A-Z]\\./.test(String(b.to))) { "
+             "var c = Object.assign({ }, b); c.recipient = c.to; delete c.to; return c; } return b; })")
     return {"method":"POST","url":"=https://graph.facebook.com/v21.0/%s/messages" % PHONE_NUMBER_ID,
         "authentication":"predefinedCredentialType","nodeCredentialType":"httpHeaderAuth",
         "sendHeaders":True,"headerParameters":{"parameters":[
             {"name":"Content-Type","value":"application/json"}]},
-        "sendBody":True,"specifyBody":"json","jsonBody":"={{ JSON.stringify(%s) }}" % body_expr,"options":{"timeout":15000}}
+        "sendBody":True,"specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify(%s(%s)) }}" % (_swap, body_expr),"options":{"timeout":15000}}
 
 nodes = []
 nodes.append(node("Verificación (GET)", "n8n-nodes-base.webhook", 2,

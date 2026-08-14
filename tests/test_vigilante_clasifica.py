@@ -50,6 +50,9 @@ caso("colombiano que solo saludó y se fue", "573011755929", "consent>recordator
 # caso del comprador B2B echado como proveedor en la auditoría del 05-ago)
 caso("colombiano orientado a Servicio al Cliente", "573001112233", "info", 2, "atendió", False)
 caso("colombiano clasificado proveedor (¿B2B?)", "573124027713", "proveedor", 2, "atendió", False)
+# Usuario con "username" de WhatsApp (BSUID): CO = Colombia -> cliente colombiano, NO spam extranjero
+caso("BSUID colombiano varado en el flujo", "CO.1352055013679988", "consent>marca>cierre_inactividad", 1, None, False)
+caso("BSUID extranjero (India)", "IN.9990001112223334", "", 2, "internacional", True)
 # Bordes: nada de esto debe romper ni silenciar de más
 caso("recorrido vacío, número colombiano", "573000000000", "", 1, None, False)
 caso("recorrido vacío, número extranjero", "919000000000", "", 2, "internacional", True)

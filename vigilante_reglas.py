@@ -33,7 +33,10 @@ def clasifica_perdido(wa_id, recorrido):
     caso 573124639292): siempre queda en la tabla con el texto completo para poderla juzgar.
     """
     etapas = set(e for e in str(recorrido or "").split(">") if e)
-    extranjero = not str(wa_id or "").startswith("57")
+    # 14-ago: un usuario con "username" de WhatsApp llega como BSUID ("CO.1352..."): CO = Colombia,
+    # es un cliente colombiano con el número oculto, NO un extranjero.
+    _wa = str(wa_id or "")
+    extranjero = not (_wa.startswith("57") or _wa.startswith("CO."))
     if etapas and etapas <= ETAPAS_SIN_LEAD:
         return 2, (" — OJO: el bot SÍ lo atendió (%s) y a propósito no crea lead; revisar solo si en "
                    "realidad era un cliente" % "/".join(sorted(etapas))), extranjero
