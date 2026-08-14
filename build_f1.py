@@ -2978,7 +2978,10 @@ def _http_mcp_init(nombre, x, y):
             {"name":"Accept","value":"application/json, text/event-stream"},
             {"name":"Authorization","value":"=Bearer {{ $('Unir pendiente').first().json.cfg_mcp_token }}"}]},
          "sendBody":True,"specifyBody":"json",
-         "jsonBody":"={{ JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'bot-ardisa',version:'2'}}}) }}",
+         # ⚠️ dentro de {{ }} JAMÁS pueden quedar dos llaves pegadas "}}": el motor de expresiones de n8n
+         # corta la expresión en el PRIMER "}}" que ve y el nodo muere con "invalid syntax" (bug real
+         # 14-ago: la demo de Deicy cayó a cotiza_fallo por esto). Por eso los "} }" van separados.
+         "jsonBody":"={{ JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'bot-ardisa',version:'2'} } }) }}",
          "options":{"timeout":15000,"response":{"response":{"fullResponse":True,"responseFormat":"text"}}}},
         x, y, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000})
 
@@ -2992,7 +2995,8 @@ def _http_mcp_call(nombre, repartir, x, y):
             {"name":"Authorization","value":"=Bearer {{ $('Unir pendiente').first().json.cfg_mcp_token }}"},
             {"name":"mcp-session-id","value":"={{ ($json.headers && ($json.headers['mcp-session-id']||$json.headers['Mcp-Session-Id'])) || '' }}"}]},
          "sendBody":True,"specifyBody":"json",
-         "jsonBody":"={{ JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:$('" + repartir + "').item.json.tuse.name, arguments:$('" + repartir + "').item.json.tuse.input}}) }}",
+         # ⚠️ mismo cuidado que en _http_mcp_init: "} }" separados para no formar "}}" dentro de la expresión
+         "jsonBody":"={{ JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:$('" + repartir + "').item.json.tuse.name, arguments:$('" + repartir + "').item.json.tuse.input} }) }}",
          "options":{"timeout":20000,"response":{"response":{"responseFormat":"text"}}}},
         x, y, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000})
 
@@ -3173,7 +3177,7 @@ _ADIC_BODY = ("{messaging_product:'whatsapp', to:String($json.asesor_tel||''), t
     "+ '📱 *WhatsApp:* +' + (" + LEAD_PATH + ".telefono || '') + '\\n\\n'"
     "+ '💬 *Volvió a escribir:*\\n' + (" + LEAD_PATH + ".detalle || '—') + '\\n\\n'"
     "+ '_No es un cliente nuevo ni una segunda solicitud: es el MISMO de hace un rato. No se creó otro registro._'"
-    "}}")
+    "} }")   # ⚠️ "} }" separados: dos llaves pegadas dentro de {{ }} cortan la expresión (bug 14-ago)
 nodes.append(node("Avisar adición (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send(_ADIC_BODY), 2640, 480,
     {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("¿Hay aviso 1?", "n8n-nodes-base.if", 2,
@@ -4021,6 +4025,30 @@ for _n in nodes:
         _js_errs.append("  ✗ [%s]: %s" % (_n["name"], (_errln[0].strip() if _errln else (_chk.stderr or "").strip()[:140])))
 if _js_errs:
     sys.exit("ABORT: errores de SINTAXIS en el JavaScript (NO se generó el JSON, NO se desplegará):\n" + "\n".join(_js_errs))
+# GUARD DE EXPRESIONES (14-ago, caso "invalid syntax" de la demo): el motor de expresiones de n8n corta
+# cada {{ ... }} en el PRIMER "}}" que encuentra. Si dentro de la expresión quedan dos llaves pegadas
+# (p.ej. un objeto anidado ...'2'}}}), la expresión queda a medias y el nodo muere EN VIVO con
+# "invalid syntax" — y con onError:continue, muere EN SILENCIO. Este guard lo detecta ANTES de escribir
+# el JSON: si tras el primer cierre "}}" lo que sigue parece continuación de la expresión ( ) } ' " ),
+# la expresión estaba mal escrita. Los nodos de código no se revisan (su JS no usa este motor).
+import re as _re
+_expr_errs = []
+def _revisa_exprs(_obj, _nom, _ruta=""):
+    if isinstance(_obj, dict):
+        for _k, _v in _obj.items(): _revisa_exprs(_v, _nom, _ruta + "." + str(_k))
+    elif isinstance(_obj, list):
+        for _i, _v in enumerate(_obj): _revisa_exprs(_v, _nom, "%s[%d]" % (_ruta, _i))
+    elif isinstance(_obj, str) and "{{" in _obj:
+        for _m in _re.finditer(r"\{\{(.*?)\}\}", _obj, _re.S):
+            if _obj[_m.end():][:1] in (")", "}", "'", '"'):
+                _expr_errs.append("  ✗ [%s] %s: la expresión se corta en «...%s»"
+                                  % (_nom, _ruta, _obj[max(0,_m.end()-25):_m.end()+6]))
+for _n in nodes:
+    if _n["type"] != "n8n-nodes-base.code":
+        _revisa_exprs(_n.get("parameters") or {}, _n["name"])
+if _expr_errs:
+    sys.exit("ABORT: expresiones de n8n con '}}' interno (se cortarían en vivo con 'invalid syntax'):\n"
+             + "\n".join(_expr_errs))
 _out = "/home/ubuntu/whatsapp-ardisa/workflow-bot-f1.json"
 open(_out,"w").write(_serialized)
 os.chmod(_out, 0o600)   # defensa en profundidad
