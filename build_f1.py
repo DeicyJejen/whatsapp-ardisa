@@ -3007,7 +3007,12 @@ const fallo = !t || /\[ASESOR\]/i.test(t) || !!resp.error || (resp.type==='error
 let body;
 if(fallo){
   st.cotFallo=1; st.t=Date.now();
-  body='Ese producto te lo cotiza mejor tu asesor con el detalle exacto — ya tenemos tu solicitud y te contactaremos dentro del horario de atención. 🙌\n\n¿Hay algo más que quieras agregar?';
+  // 14-ago (pedido Deicy): decirle QUE quedó registrada y QUIÉN la atiende. El rescate pre-armado
+  // (armarRescate) ya calculó el asesor asignado; si existe el paquete, se nombra — es el mismo que
+  // entregaría el cron si el cliente no vuelve a escribir.
+  let _ases=''; try{ _ases=(store.rescate && store.rescate[wa] && store.rescate[wa].lead && store.rescate[wa].lead.asesor)||''; }catch(e){}
+  body='Tu solicitud quedó *registrada* ✅ y '+(_ases?('será atendida por *'+_ases+'*, quien'):'tu asesor')
+      +' te contactará dentro del horario de atención para darte el detalle exacto. 🙌\n\n¿Hay algo más que quieras agregar?';
 }else{
   t=[...t].slice(0,900).join('');
   st.cotHist=((st.cotHist||[]).concat([{role:'assistant', content:t}])).slice(-6);
