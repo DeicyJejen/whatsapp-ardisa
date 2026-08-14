@@ -154,6 +154,9 @@ if (!store.fwd) store.fwd = {};   // media ya reenviada al asesor (por media_id)
 if (!store.medias) store.medias = {};   // TODOS los adjuntos que el cliente mandó en esta conversación (para reenviarlos completos al asesor)
 if (!store.ses) store.ses = {};
 const S = store.ses;
+// Detector ÚNICO de producto concreto (14-ago): lo usan la solicitud vaga Y la compuerta de
+// cotización — 'hola necesito asesoria' o un botón de categoría NO son un producto cotizable.
+const RE_PRODCONC = /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|f[oó]rmica|formica|triplex|tripl|contrachap|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|cl[oó]set|closet|repisa|entrepa[ñn]o|estante|puerta)/i;
 const wa = d.wa_id;
 // 14-ago (BSUID): cliente con número OCULTO de WhatsApp — no hay teléfono, solo el código privado.
 // El asesor NO puede escribirle por fuera: la única vía es la línea del bot. Las tarjetas lo dicen claro.
@@ -504,7 +507,7 @@ function cerrarLead(st,opts){
     // producto -> el cierre lo veía "vago" y pedía el producto en bucle aunque el cliente YA lo dijo. Se
     // suma la familia de la madera y "tabl" (cubre tablero Y el typo "tableo"). Mismo cambio que en la
     // captura de arriba: el bot debe reconocer que una madera/tablero/herraje ES un producto concreto.
-    const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|f[oó]rmica|formica|triplex|tripl|contrachap|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|cl[oó]set|closet|repisa|entrepa[ñn]o|estante|puerta)/i.test(_dv);
+    const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || RE_PRODCONC.test(_dv);
     const _pareceVago = /(cotiz|cotizar|cotizaci|precio|presupuesto|asesor[ií]a|asesoren|me asesor|ayuda|ay[uú]den|orientaci[oó]n|informaci[oó]n|informes?|colabor|comprar|adquirir|interesad)/i.test(_dv) && !_tieneProd;
     // GENÉRICO SIN PRODUCTO (2026-07-17, caso Arley "Un producto"): el cliente no dio un producto concreto -> NO cerramos a medias.
     const _dvLimpio = _dv.replace(/[^a-z0-9áéíóúñ]/gi,'');
@@ -1107,6 +1110,10 @@ function intentaCotizar(){
     if(st.mediaId) return false;   // mandó foto/archivo: el asesor la ve, el MCP no — cierre normal
     const _base=String(st.detalle||st.notas||st.iaProd||((ia&&ia.productos&&ia.productos.length)?ia.productos.join(', '):'')||'').trim();
     if([..._base].length<3) return false;   // sin producto no hay qué cotizar
+    // 14-ago (caso Oscar 'hola necesito asesoria'): un saludo, una categoría del menú o 'necesito
+    // asesoría' NO son un producto — sin producto CONCRETO no se promete '¡ya te confirmo
+    // disponibilidad!'; el flujo normal pregunta el producto y la cotización llega en el cierre real.
+    if(!( /\d/.test(_base) || RE_PRODCONC.test(_base) || (st.iaProd && String(st.iaProd).trim()) )) return false;
     st.paso='cotizacion'; st.cotN=1; st.t=NOW;
     st.cotHist=[{role:'user', content:[..._base].slice(0,400).join('')}];
     // ACUSE INMEDIATO (pedido Deicy 13-ago, "se demoró mucho"): la consulta a SAP toma 5-10s; este texto

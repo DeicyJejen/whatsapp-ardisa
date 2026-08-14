@@ -98,6 +98,23 @@ for (const alc of ['', 'demo']) {
            !r.lead && (sd.leads||[]).length === 0, 'leads='+(sd.leads||[]).length);
 }
 
+// ══ 6b. CASO OSCAR (14-ago): "hola necesito asesoria" NO es un producto -> NO se promete
+// "¡ya te confirmo disponibilidad!" con las manos vacías; el flujo normal pregunta el producto ══
+{
+  const sd = base(); sd.ses = {}; sd.demoAdmin = { [DEMO]: Date.now() };
+  const paso = (o, ia) => correr({ datos: Object.assign({ wa_id:DEMO, profileName:'Oscar', texto:'', mtype:'',
+    media_id:'', opcion_id:'', opcion_txt:'', es_media:false, ia:(ia||null) }, o), sd, pend:CFG_BASE });
+  paso({ texto:'hola necesito asesoria' }, { en_alcance:true, marca:'Ardisa', productos:[], confianza:'baja',
+                                             resumen:'pide asesoría', acuse:'¡Con gusto!' });
+  paso({ texto:'oscar jimenez' });
+  paso({ texto:'Bucaramanga', opcion_id:'BUCARAMANGA' });
+  const r = paso({ texto:'🏠 Cliente final', opcion_id:'OAR_FINAL' });
+  chequear('CASO OSCAR: sin producto concreto NO cotiza (nada de "dame unos segunditos" en falso)',
+           !r.hay_cot, 'etapa='+r.etapa+' hay_cot='+r.hay_cot);
+  chequear('y en su lugar el bot PREGUNTA el producto (solicitud vaga)',
+           /qu[eé] producto/i.test(JSON.stringify(r.wpp_body||'')), JSON.stringify(r.wpp_body||'').slice(0,120));
+}
+
 // ══ 7. El que PIDE HUMANO no recibe cotización de bot (cierra al asesor como siempre) ══
 {
   const sd = base(); sd.ses[DEMO] = Object.assign(sesion(), { escape:true, pidioHumano:true });
