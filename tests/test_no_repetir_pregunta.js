@@ -34,7 +34,7 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const r = correr({ datos: boton('MAR_ARD','🟢 Ardisa'), sd, pend:{ cons_si:1 } });
   const cuerpo = JSON.stringify(r.wpp_body||'');
   chequear('Toca "Ardisa" -> avanza (NO repite el menú de marca)',
-           r.etapa !== 'marca' && !/Con cuál te ayudamos/.test(cuerpo), 'etapa=' + r.etapa + ' ' + cuerpo.slice(0,160));
+           r.etapa !== 'marca' && !(/🟢 \*?Ardisa/.test(cuerpo) && /🟡 \*?Carpincentro/.test(cuerpo)), 'etapa=' + r.etapa + ' ' + cuerpo.slice(0,160));
   chequear('Le pregunta el nombre, que es lo que sigue', /nombre/i.test(cuerpo), cuerpo.slice(0,160));
   chequear('La línea queda guardada como Ardisa', sd.ses[WA] && sd.ses[WA].marca === 'Ardisa', JSON.stringify(sd.ses[WA]));
 }

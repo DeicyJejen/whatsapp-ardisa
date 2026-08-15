@@ -445,13 +445,18 @@ const POLITICA_URL='https://www.ardisa.com/politica-de-datos-personales/';
 // sigue en el mensaje y contiene los derechos y el canal — por eso ese enlace NO se puede quitar también:
 // si algún día se va, el aviso se queda sin ninguna vía para ejercer derechos. Hay prueba que lo vigila.
 // La rama que atiende a quien escriba "no autorizo" sigue viva en el código.
+// 2026-08-15, 4ª pasada de Deicy: "debe decir al continuar estás aceptando o autorizando, o sea que sea
+// bien como el ejemplo que te pasé". Su modelo es el de UNIMINUTO, y tiene razón en el fondo: "al utilizar
+// este medio aceptas" nombra el acto que da la autorización (usar el canal) — que es EXACTAMENTE la
+// conducta inequívoca del Decreto 1377 art. 7. Decirlo así no es solo redacción: describe lo que en
+// realidad ocurre, y por eso la frase importa más de lo que parece.
 const msgPolitica = (sal, emo) =>
   '¡'+sal+'! '+emo+'\n\n'
  +'Gracias por escribir a *Grupo Ardisa*. 🙌\n\n'
- +'Antes de continuar: al seguir esta conversación autorizas el tratamiento de tus datos personales, '
- +'conforme a la *Ley 1581 de 2012* y el *Decreto 1377 de 2013*. Los usamos únicamente para atender tu '
- +'solicitud y conectarte con tu asesor.\n\n'
- +'📄 *Política de tratamiento de datos*\n'+POLITICA_URL;
+ +'Al utilizar este medio aceptas los *términos y condiciones* y autorizas el *tratamiento de tus datos '
+ +'personales* (Ley 1581 de 2012), y eres responsable de la información que compartas.\n\n'
+ +'Tu privacidad nos importa 🔒 Revisa nuestra política de tratamiento de datos:\n'
+ +'📄 '+POLITICA_URL;
 // tipos de adjunto (media) traducidos a español
 const MTYPE_ES = {image:'una imagen',audio:'una nota de voz',video:'un video',document:'un documento',sticker:'una imagen (sticker)',location:'una ubicación',contacts:'un contacto'};
 
@@ -1330,7 +1335,7 @@ function siguientePaso(st){
   const prodTxt = st.iaProd ? (' sobre *'+st.iaProd+'*') : '';
   const nom = st.nombre ? st.nombre.split(' ')[0] : '';
   if(!st.marca){ st.paso='marca'; etapa='marca';
-    wpp_body=boton(wa,'¡Con gusto te ayudamos! ¿Tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA); return; }
+    wpp_body=boton(wa,'¡Con gusto te ayudamos! ¿Tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA); return; }
   if(!st.nombre){ st.paso='nombre'; etapa='nombre'; st.acuse='';
     const _lead = _op || (prodTxt?('¡Perfecto! Con gusto gestionamos tu consulta'+prodTxt+'.\n'):'¡Perfecto! ');
     wpp_body=txt(wa,_lead+'👤 Para asignarte el asesor especializado, ¿nos confirmas tu *nombre y apellido*?'); return; }
@@ -1376,7 +1381,7 @@ function arrancarIA(st, ia, detalle){
       return;
     }
     st.paso='marca'; etapa='marca'; st.acuse='';   // el acuse no se muestra aquí -> se descarta (antes quedaba huérfano y reaparecía pegado después)
-    wpp_body=boton(wa,'¡Con gusto te ayudamos! Para conectarte con el asesor ideal, ¿tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
+    wpp_body=boton(wa,'¡Con gusto te ayudamos! Para conectarte con el asesor ideal, ¿tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
     return;
   }
   // perfil heredado de una consulta anterior: solo vale si corresponde a la marca de ESTA consulta (una nevera no hereda "Carpintero")
@@ -1429,7 +1434,7 @@ function repreguntar(st, pre){
     }
     case 'detalle':      return txt(wa, pre+MSG_DETALLE);
     case 'confirmGrupo': return grupoMenu(pre);
-    default:             return boton(wa, pre+'¿Seguimos con *Ardisa* o con *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes', MARCA);
+    default:             return boton(wa, pre+'¿Seguimos con *Ardisa* o con *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._', MARCA);
   }
 }
 
@@ -1917,7 +1922,7 @@ if((id==='CONSENT_SI' || id==='CONSENT_NO') && !st){
     return [{json:{etapa:'noconsent', wa_id:wa, wpp_body:txt(wa,'Entendido. Sin tu autorización para el tratamiento de datos no podemos gestionar tu solicitud por este medio. Si cambias de opinión, escríbenos cuando quieras y con gusto te atendemos.'), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:null, consent_log:{ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'NO', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id }, pend_cierre:false, pend_token:0}}];
   }
   st=S[wa]={paso:'marca', t:NOW, consent:true}; store.consent[wa]=NOW;
-  return [{json:{etapa:'marca', wa_id:wa, wpp_body:boton(wa,'¡Perfecto! Con gusto te conectamos con el asesor ideal para lo que necesitas.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:null, consent_log:{ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id }, pend_cierre:false, pend_token:0}}];
+  return [{json:{etapa:'marca', wa_id:wa, wpp_body:boton(wa,'¡Perfecto! Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:null, consent_log:{ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id }, pend_cierre:false, pend_token:0}}];
 }
 // DOBLE TOQUE DE MARCA (fix 2026-07-16): si el cliente YA eligió marca y toca la OTRA en un paso posterior (p.ej. tocó Ardisa y luego Carpincentro),
 // lo IGNORAMOS -> no lo malinterpretamos como nombre/ciudad ni lo confundimos. Se queda con la primera que eligió.
@@ -2063,7 +2068,7 @@ if(preguntaHorario){
   // preserva el mensaje original si trae contenido (no solo la palabra gatillo)
   if(texto && !st.detalle && !/^(asesor|asesora|humano|persona|agente|0)\s*$/i.test(low)){ st.detalle=[...texto].slice(0,300).join(''); }
   if(!st.marca){ st.paso='marca'; etapa='marca';
-    wpp_body=boton(wa,'¡Claro! Te comunico con un asesor. Solo dime, ¿es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
+    wpp_body=boton(wa,'¡Claro! Te comunico con un asesor. Solo dime, ¿es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
   } else if(!st.ciudadId){ st.paso='ciudad'; etapa='ciudad';
     wpp_body=ciudadMenu('📍 ¡Claro! Te comunico con un asesor. ¿En qué *ciudad* estás?', (st.marca==='Ardisa'?CIU_ARD:CIU));
   } else {
@@ -2095,7 +2100,7 @@ if(preguntaHorario){
                   politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
     wpp_pre=txt(wa, msgPolitica(saludo, emoji));
     // sin saludo: ya saludó el aviso que va justo antes
-    wpp_body=boton(wa,'Recibimos tu foto, ¡gracias! 📷\n\nCon gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
+    wpp_body=boton(wa,'Recibimos tu foto, ¡gracias! 📷\n\nRevisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA);
   } else {   // primero el consentimiento; guardamos la foto (y lo que entendió) para retomarla al autorizar
     // NO se pisa la sesión entera: si otra ejecución simultánea ya la había hecho avanzar, conservamos su paso.
     // Antes, esta línea era `st = S[wa] = {paso:'consent', ...}` y la foto DEVOLVÍA al cliente al muro.
@@ -2128,7 +2133,7 @@ if(preguntaHorario){
   if(texto && !reinicia){ st.notas=(st.notas?(st.notas+' | '):'')+[...texto].slice(0,1200).join(''); }
   const _nom = prev.nombre ? (' '+prev.nombre.split(' ')[0]) : '';
   const _bienv = prev.nombre ? ('¡Hola de nuevo'+_nom+'! ') : '¡Bienvenido a *Grupo Ardisa*! ';
-  wpp_body=boton(wa,_bienv+'Con gusto te asesoramos.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
+  wpp_body=boton(wa,_bienv+'Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA);
 // === UN SALUDO NO BORRA UN PERFIL A MEDIO LLENAR (2026-07-29, caso Stephanie Naffah 27-jul) ===
 // Ella eligió Carpincentro, dio nombre, ciudad Bogotá y punto Restrepo; se demoró 7 min en el paso del perfil,
 // el bot la cerró por inactividad (15 min) y al escribir "Buenas tardes" la REINICIÓ DESDE CERO. Volvió a llenar
@@ -2150,7 +2155,7 @@ if(preguntaHorario){
     // === Ya autorizó antes -> NO re-preguntamos el consentimiento (dura hasta que lo revoque) ===
     st=S[wa]={paso:'marca',t:NOW,consent:true}; etapa='marca';
     if(es_media && d.media_id){ st.mediaId=d.media_id; st.mediaType=d.mtype||''; }   // recuerda el adjunto para reenviarlo al cierre
-    wpp_body=boton(wa,avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\n¡Bienvenido de nuevo a *Grupo Ardisa*! Con gusto te conectamos con el asesor ideal para lo que necesitas.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n*¿Qué estás buscando?* 👇',MARCA);
+    wpp_body=boton(wa,avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\n¡Bienvenido de nuevo a *Grupo Ardisa*! Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA);
   } else if(esFormulario){
     // === LEAD DE FORMULARIO/ANUNCIO DE META (decisión Ernesto 2026-07-21) ===
     // El formulario de Meta YA muestra y hace aceptar el aviso de privacidad al cliente ANTES de enviar sus datos.
@@ -2164,7 +2169,7 @@ if(preguntaHorario){
       if(wpp_body && wpp_body.text && typeof wpp_body.text.body==='string'){ wpp_body.text.body = 'Recibimos tus datos del formulario 🙌 Los trataremos conforme a nuestra política de privacidad (📄 '+POLITICA_URL+').\n\n'+wpp_body.text.body; }
     } else {   // sin lectura de IA: igual capturamos y pedimos SOLO la marca (no perder el lead)
       st.paso='marca'; etapa='marca'; st.notas=[...String(texto)].slice(0,1200).join('');
-      wpp_body=boton(wa,'¡Hola! Gracias por dejarnos tus datos 🙌 Con gusto te conectamos con el asesor ideal.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
+      wpp_body=boton(wa,'¡Hola! Gracias por dejarnos tus datos 🙌 Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA);
     }
   } else if(CONSENT_IMPL && /^(no|no autorizo|no acepto|niego|no gracias|no doy autorizaci[oó]n|no autorizo el tratamiento)[\s.,!]*$/i.test(String(low||'').trim())){
     // La NEGATIVA EXPRESA manda siempre. Sin esto, con el aviso implícito encendido alguien que escribe
@@ -2192,7 +2197,7 @@ if(preguntaHorario){
     // que decirle que llegó, o cree que se perdió (el flujo de foto con lectura de IA entra por otra rama).
     wpp_pre=txt(wa, msgPolitica(saludo, emoji));
     // sin saludo: ya saludó el aviso que va justo antes
-    wpp_body=boton(wa, avisoInicioHorario()+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Con gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇', MARCA);
+    wpp_body=boton(wa, avisoInicioHorario()+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇', MARCA);
   } else {
     // === HABEAS DATA (Opción B, decisión Deicy 2026-07-09): consentimiento EXPLÍCITO como primer paso ===
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
@@ -2212,7 +2217,7 @@ if(preguntaHorario){
   if(consintioHoy() || st.consent){
     st.consent=true; st.paso='marca'; etapa='marca';
     if(es_media && d.media_id){ st.mediaId=d.media_id; st.mediaType=d.mtype||''; }
-    wpp_body=boton(wa,'¡Perfecto! Con gusto te conectamos con el asesor ideal para lo que necesitas.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
+    wpp_body=boton(wa,'¡Perfecto! Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA);
   } else {
   let cc=elige([['CONSENT_SI','Sí, autorizo'],['CONSENT_NO','No autorizo']]);
   // === FIX 2026-07-29 (auditoría): el "sí/no" debe ser TODO el mensaje, no solo su comienzo. ===
@@ -2296,11 +2301,11 @@ if(preguntaHorario){
     } else { const _pt=st.pendTexto; delete st.pendTexto; delete st.pendIA; delete st.pendImgDesc; st.paso='marca'; etapa='marca';
       if(_pt) st.notas=(st.notas?(st.notas+' | '):'')+_pt;   // escribió algo (aunque la IA no lo entendiera) -> NO se pierde, le llega al asesor
       const _ack = (_pt || st.mediaId) ? 'Ya tenemos tu mensaje y lo sumamos a tu solicitud para el asesor. 🙌\n\n' : '';   // el cliente mandó audio/texto -> que sienta que SÍ lo escuchamos
-      wpp_body=boton(wa,'¡Gracias! Tu autorización quedó registrada ✅\n\n'+_ack+'Con gusto te conectamos con el asesor ideal para lo que necesitas.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA); } }
+      wpp_body=boton(wa,'¡Gracias! Tu autorización quedó registrada ✅\n\n'+_ack+'Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA); } }
   }
 } else if(st.paso==='marca'){
   const m=elige(MARCA);
-  if(!m){ wpp_body=boton(wa,'Para ayudarte mejor, elige la línea que necesitas 👇\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA); }
+  if(!m){ wpp_body=boton(wa,'Para ayudarte mejor, elige la línea que necesitas 👇\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA); }
   else { st.marca=(m[0]==='MAR_CARP')?'Carpincentro':'Ardisa';
     if(st.escape){
       if(!st.ciudadId){ st.paso='ciudad'; etapa='ciudad'; wpp_body=ciudadMenu('📍 Perfecto. ¿En qué *ciudad* estás?', (st.marca==='Ardisa'?CIU_ARD:CIU)); }
@@ -2642,7 +2647,7 @@ if(preguntaHorario){
       arrancarIA(st, ia, texto);
     } else {
       st.paso='marca';
-      wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes',MARCA);
+      wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
     }
   } else if(texto && low.length>=2 && !/^\d$/.test(low) && !_soloSaludoTxt && !_esperaAsesor && _mismoDia){
     // `!_esperaAsesor` (2026-08-11, caso Alfonso Crismatt): "la asesora nunca me escribió" NO es un detalle

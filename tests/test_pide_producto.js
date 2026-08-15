@@ -22,7 +22,10 @@ const ev = (o) => Object.assign({ wa_id:WA, profileName:'Cliente', texto:'', mty
                                   opcion_id:'', opcion_txt:'', es_media:false, ia:null }, o);
 const SI = ev({ opcion_id:'CONSENT_SI', opcion_txt:'✅ Sí, autorizo' });
 const cuerpo = (r) => JSON.stringify(r.wpp_body || '');
-const menuMarca = (r) => /Ardisa\*? o \*?Carpincentro|elige la línea que necesitas|Con cuál te ayudamos/i.test(cuerpo(r));
+// Se detecta el MENÚ por sus dos renglones de marca, no por la frase de arriba: esa frase la reescribe
+// Deicy cada tanto (15-ago fue la tercera vez) y atar la prueba a sus palabras la rompe en cada retoque.
+const menuMarca = (r) => /Ardisa\*? o \*?Carpincentro/i.test(cuerpo(r)) ||
+  (/🟢 \*?Ardisa/.test(cuerpo(r)) && /🟡 \*?Carpincentro/.test(cuerpo(r)));
 
 // Lo que devuelve la IA para "estoy buscando asesoria": es una compra, pero sin producto ni linea.
 const IA_VAGA   = { en_alcance:true, marca:'', grupo_pista:'', productos:[], confianza:'baja',

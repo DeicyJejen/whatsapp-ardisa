@@ -59,8 +59,12 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   // da al cliente una vía para ejercer sus derechos es el ENLACE a la política (Ley 1581 art. 12). Por eso
   // la prueba se mueve al enlace: si alguien lo quita también, el aviso se queda sin nada y esto se cae.
   chequear('El aviso cita la norma y conserva el ENLACE a la política (única vía a los derechos)',
-           /Ley 1581/.test(pre) && /Decreto 1377/.test(pre) &&
-           /politica-de-datos-personales/.test(pre), pre.slice(0, 400));
+           /Ley 1581/.test(pre) && /politica-de-datos-personales/.test(pre), pre.slice(0, 400));
+  // Lo que da la autorización es USAR el canal: nombrar ese acto es la "conducta inequívoca" del
+  // Decreto 1377 art. 7. No es adorno de redacción — si el aviso no dice qué acto autoriza, no describe
+  // lo que realmente pasa y la autorización implícita se queda sin su base.
+  chequear('Dice qué acto es el que autoriza (usar este medio)',
+           /Al utilizar este medio/i.test(pre) && /(aceptas|autorizas)/i.test(pre), pre.slice(0, 300));
   chequear('NO le pide al cliente que escriba nada para negarse',
            !/NO AUTORIZO/.test(pre), pre.slice(0, 400));
   chequear('El mensaje comercial ya NO repite la política',
