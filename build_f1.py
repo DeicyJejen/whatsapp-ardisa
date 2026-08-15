@@ -1018,8 +1018,13 @@ function _cotReq(stC){
     +(_hayPrecio
       ? '(1) Usa las herramientas para identificar el producto y consultar su precio y su disponibilidad en la ciudad del cliente. '
       : '(1) Usa las herramientas para identificar el producto y consultar su disponibilidad en la ciudad del cliente. ')
-    +'(1b) Si VARIAS referencias o marcas encajan con lo pedido, nombra hasta 3 opciones diciendo la MARCA de '
-    +'cada una y si hay disponibilidad, y pregunta cuál le interesa — no escojas una sola por tu cuenta. '
+    +'(1b) Si VARIAS referencias encajan con lo pedido, NO escojas una por tu cuenta ni te quedes con la '
+    +'primera: el cliente es quien sabe cuál necesita. Cuando las coincidencias se diferencian solo por '
+    +'MEDIDA, CALIBRE, ACABADO o PRESENTACIÓN (ángulo de 1/2, 3/4 o 1 pulgada; calibre 0.30, 0.35 o 0.40; '
+    +'crudo, anodizado o pintura blanca), dilo así: cuéntale que lo manejamos en varias opciones, nombra '
+    +'hasta 3 con su diferencia concreta y su precio, y PREGÚNTALE cuál necesita. Nunca describas una sola '
+    +'referencia como si fuera la única que hay, y jamás digas "no es específico para lo que buscas" sin '
+    +'antes haber mirado las demás opciones del catálogo. '
     +'(1c) Di siempre CÓMO SE VENDE cada producto según los datos de las herramientas: la unidad de venta y su '
     +'contenido si aparece (bulto de 42.5kg, caja que cubre X m2, galón, lámina, unidad...), para que el cliente '
     +'sepa qué está pidiendo. '
@@ -1074,8 +1079,8 @@ function _cotReq(stC){
   // configurada). Fichas copiadas del catálogo real del servidor (sap-b1-mcp v3.4.2, 13-ago-2026).
   const _tools=[
     {name:'buscar_producto',
-     description:'Busca productos por descripción o por código SAP cuando el cliente no da el código exacto. Acepta una palabra o frase (ej: "cemento", "aglomerado 25mm") y devuelve coincidencias activas y vendibles con item_code, nombre y unidad. Úsala SIEMPRE como primer paso para identificar el producto.',
-     input_schema:{type:'object', properties:{q:{type:'string'}, limit:{type:'integer', default:10}},
+     description:'Busca productos por descripción. Úsala SIEMPRE como primer paso. Busca por UNA palabra del producto: el buscador compara contra el NOMBRE del artículo en el catálogo, así que juntar palabras que no están en ese nombre devuelve CERO ("angulo drywall" da 0 resultados; "angulo" da 25). Manda SIEMPRE limit:25, que es el máximo: con el valor por defecto (10) te pierdes la mayoría de las medidas y acabados que sí manejamos y le dices al cliente que no lo tenemos siendo mentira.',
+     input_schema:{type:'object', properties:{q:{type:'string'}, limit:{type:'integer', default:25}},
        required:['q'], additionalProperties:false}},
     {name:'disponibilidad_ciudad',
      description:'Disponibilidad (si HAY o NO HAY inventario) de un artículo en una ciudad. Requiere el item_code exacto (sale de buscar_producto) y el nombre de la ciudad del cliente.',
