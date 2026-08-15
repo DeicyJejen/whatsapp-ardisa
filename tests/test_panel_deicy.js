@@ -12,10 +12,13 @@ function correr({ datos, staticData, pend }) {
 }
 const DEICY = '573205662947';
 const sd = () => ({ rot:{}, consent:{}, leads:[], done:{}, ses:{} });
-const PEND = { alr_n:2, alr_ok:5, alr_det:'1|Cliente X se perdio~~2|Asesor Y sin reportar',
+// alr_n = abiertas AHORA (de todas las semanas) · alr_viejas = cuántas de esas vienen de antes del lunes
+// alr_sem / alr_ok = detectadas y resueltas ESTA semana (la cuenta que se renueva cada lunes).
+const PEND = { alr_n:2, alr_viejas:1, alr_sem:3, alr_ok:5,
+               alr_det:'1|Cliente X se perdio~~2|Asesor Y sin reportar',
                rep_hoy:4, rep_hoy_det:'Karime 2 · Yormy 2', rep_pend:11, rep_pend_det:'Karime 8 · Jhon 3' };
-// Mismo panel pero SIN nada abierto: todo lo detectado en la semana ya se resolvió (2026-08-15).
-const PEND_LIMPIO = Object.assign({}, PEND, { alr_n:0, alr_det:'' });
+// Mismo panel pero SIN nada abierto: no queda ningún error sin resolver (2026-08-15).
+const PEND_LIMPIO = Object.assign({}, PEND, { alr_n:0, alr_viejas:0, alr_det:'' });
 const msg = (texto) => ({ wa_id:DEICY, profileName:'Deicy', texto, mtype:'', media_id:'',
                           btn_id:'', btn_title:'', es_media:false, ia:null });
 
@@ -25,8 +28,14 @@ const casos = [
   // "errores" y la mayoría ya estaban corregidos; si el panel no distingue, se aprende a ignorarlo.
   { n:'"y los errores?" -> solo lo SIN RESOLVER', t:'y los errores?',        tiene:['ERRORES SIN RESOLVER: 2','Cliente X se perdio'], noTiene:['Cola interna'] },
   { n:'"que problemas hay" -> solo errores',    t:'que problemas hay',       tiene:['ERRORES SIN RESOLVER'],  noTiene:['Cola interna'] },
-  { n:'Los resueltos se cuentan como buena noticia', t:'y los errores?',     tiene:['Resueltos en estos 7 días: *5*'] },
-  { n:'Todo resuelto -> el panel lo dice, no calla', t:'y los errores?',     tiene:['Nada pendiente','Resueltos en estos 7 días: *5*'], noTiene:['SIN RESOLVER'], pend:PEND_LIMPIO },
+  // La semana arranca el lunes (pedido Deicy 15-ago), como el reporte de leads: no es una ventana rodante.
+  { n:'La semana se cuenta aparte y dice que se renueva', t:'y los errores?',
+    tiene:['Semana en curso: 3 detectado(s) · 5 resuelto(s)','Se renueva el lunes'] },
+  // Lo abierto NO se esconde al cambiar de semana: eso era el bug original. Se arrastra y se avisa.
+  { n:'Lo que viene de semanas anteriores se dice, no se esconde', t:'y los errores?',
+    tiene:['1 vienen de semanas anteriores'] },
+  { n:'Todo resuelto -> el panel lo dice, no calla', t:'y los errores?',
+    tiene:['Nada pendiente','Semana en curso'], noTiene:['SIN RESOLVER'], pend:PEND_LIMPIO },
   { n:'"cuantos leads hay hoy" -> solo leads',  t:'cuantos leads hay hoy',   tiene:['Leads de hoy: 4','Karime 2'], noTiene:['Cola interna'] },
   { n:'"quien no ha reportado" -> pendientes',  t:'quien no ha reportado',   tiene:['Sin reportar por los asesores: 11'], noTiene:['Cola interna'] },
   { n:'Pregunta rara -> panel completo',        t:'buenas que mas pues',     tiene:['PANEL DEL BOT','Cola interna'] },

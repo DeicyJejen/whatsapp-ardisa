@@ -16,6 +16,8 @@
 # Uso:  python3 vigilante.py            -> detecta, guarda, CIERRA lo resuelto y avisa lo nuevo grave
 #       python3 vigilante.py --seco     -> solo muestra en pantalla, no guarda ni envía
 #       python3 vigilante.py --cerrar 7 -> cierra a mano la alerta #7 (las que no se cierran solas)
+#       python3 vigilante.py --semanal  -> manda el reporte de la semana que cerró (cron: lunes 7:20)
+#                                          (con --seco lo imprime en pantalla en vez de enviarlo)
 import subprocess, os, sys, ssl, smtplib, datetime, base64, json
 from email.message import EmailMessage
 from vigilante_reglas import clasifica_perdido, etapa_cola   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
@@ -87,6 +89,64 @@ if not SECO:
         q("ALTER TABLE alertas ADD COLUMN resuelto_en DATETIME NULL DEFAULT NULL, "
           "ADD KEY idx_abiertas (resuelto_en, creado_en)")
         print("alertas: columna `resuelto_en` creada")
+
+# ═══ REPORTE SEMANAL, LUNES POR LA MAÑANA ════════════════════════════════════
+# 2026-08-15 (pedido Deicy: "que lleguen los de cada semana, se reporta y se renueva cada lunes").
+# El correo de alertas es REACTIVO: solo sale cuando aparece algo nuevo y grave. Con eso nunca hay un
+# momento en que se sepa "cómo nos fue": si la semana fue limpia no llega nada, y el silencio se confunde
+# con que el vigilante se cayó. Este reporte cierra el ciclo con el mismo ritmo que el reporte de leads
+# (lunes por la mañana): qué se detectó, qué se resolvió y qué sigue abierto — incluido lo que se arrastra.
+# Corre el lunes, así que la semana que cuenta es la que ACABA de cerrar: lunes pasado → domingo.
+if "--semanal" in sys.argv:
+    _lun_esta = AHORA.date() - datetime.timedelta(days=AHORA.weekday())
+    _lun_ant  = _lun_esta - datetime.timedelta(days=7)
+    _L1, _L2  = _lun_ant.strftime("%Y-%m-%d"), _lun_esta.strftime("%Y-%m-%d")
+    _rango    = "%s al %s" % (_lun_ant.strftime("%d/%m"), (_lun_esta - datetime.timedelta(days=1)).strftime("%d/%m"))
+
+    _det = q("SELECT COUNT(*) FROM alertas WHERE creado_en  >= '%s' AND creado_en  < '%s'" % (_L1, _L2))
+    _res = q("SELECT COUNT(*) FROM alertas WHERE resuelto_en>= '%s' AND resuelto_en< '%s'" % (_L1, _L2))
+    _n_det = int(_det[0][0]) if _det else 0
+    _n_res = int(_res[0][0]) if _res else 0
+
+    _abiertas = q("SELECT severidad, DATE_FORMAT(creado_en,'%d/%m'), "
+                  "TIMESTAMPDIFF(DAY, creado_en, NOW()), detalle "
+                  "FROM alertas WHERE resuelto_en IS NULL ORDER BY severidad, creado_en")
+    _viejas = [a for a in _abiertas if int(a[2]) >= 7]   # abiertas de semanas anteriores (se arrastran)
+
+    _lineas = ["Así cerró la semana del %s (el bot se revisa solo cada hora).\n" % _rango,
+               "  • Detectados esta semana:   %d" % _n_det,
+               "  • Resueltos esta semana:    %d" % _n_res,
+               "  • Siguen SIN RESOLVER:      %d%s\n"
+               % (len(_abiertas), ("  (%d llevan más de una semana)" % len(_viejas)) if _viejas else "")]
+
+    if _abiertas:
+        _lineas.append("─── LO QUE SIGUE SIN RESOLVER ───")
+        for _sev, _cuando, _dias, _detalle in _abiertas:
+            _lineas.append("%s [%s · %s día(s) abierta] %s"
+                           % ("🔴" if _sev == "1" else "🟡", _cuando, _dias, _detalle))
+        _lineas.append("")
+    else:
+        _lineas.append("✅ No queda ningún error sin resolver.\n")
+
+    _cerradas_sem = q("SELECT DATE_FORMAT(resuelto_en,'%%d/%%m'), detalle FROM alertas "
+                      "WHERE resuelto_en >= '%s' AND resuelto_en < '%s' ORDER BY resuelto_en" % (_L1, _L2))
+    if _cerradas_sem:
+        _lineas.append("─── RESUELTOS DURANTE LA SEMANA ───")
+        for _cuando, _detalle in _cerradas_sem:
+            _lineas.append("✔ [%s] %s" % (_cuando, _detalle[:180]))
+        _lineas.append("")
+
+    _lineas.append("El panel de WhatsApp muestra lo mismo en vivo: escríbele *informe* al bot.\n"
+                   "La cuenta de la semana se renueva cada lunes; lo que siga abierto se arrastra "
+                   "hasta que se resuelva de verdad.")
+    if SECO:
+        print("\n".join(_lineas))
+    else:
+        avisar_correo("Reporte semanal del bot — semana del %s (%d sin resolver)" % (_rango, len(_abiertas)),
+                      "\n".join(_lineas))
+        print("%s | reporte semanal enviado (%s): %d detectados, %d resueltos, %d abiertos"
+              % (AHORA.strftime("%Y-%m-%d %H:%M"), _rango, _n_det, _n_res, len(_abiertas)))
+    raise SystemExit(0)
 
 # Cierre a mano, para las alertas que a propósito NO se cierran solas (ver NO_SE_CIERRA_SOLA abajo).
 if CERRAR:
@@ -453,9 +513,16 @@ for _id, _tipo, _clave in q("SELECT id, tipo, clave FROM alertas WHERE resuelto_
         continue                                  # la causa sigue ahí (o solo la cierra una persona)
     if _tipo in CIERRE_POR_DESENLACE:
         # la clave de estas empieza por el wa_id/teléfono de la persona: "573001234567|13/08 13:11"
-        _hay = q("SELECT COUNT(*) FROM leads WHERE telefono='%s'" % esc(_clave.split("|")[0]))
-        if not (_hay and _hay[0][0] != "0"):
-            continue                              # sigue sin lead: sigue perdida, no se cierra
+        _quien = _clave.split("|")[0]
+        # Reconciliación con clasifica_perdido: en esa función `silencio` acaba siendo exactamente "el
+        # número no es de Colombia" (ni 57..., ni BSUID 'CO.'), o sea proveedor/spam internacional que el
+        # bot atendió a propósito. Eso es CONSTANCIA, no trabajo pendiente. Las nuevas ya nacen cerradas;
+        # esto cierra las que quedaron abiertas de antes — 9 de las 23 del 15-ago eran justo eso.
+        _extranjero = not (_quien.startswith("57") or _quien.startswith("CO."))
+        if not (_extranjero and _tipo == "cliente_perdido"):
+            _hay = q("SELECT COUNT(*) FROM leads WHERE telefono='%s'" % esc(_quien))
+            if not (_hay and _hay[0][0] != "0"):
+                continue                          # sigue sin lead: sigue perdida, no se cierra
     q("UPDATE alertas SET resuelto_en=NOW() WHERE id=%d" % int(_id))
     cerradas += 1
 
@@ -467,17 +534,24 @@ for t, sev, c, det, sil in hallazgos:
         _id, _res = antes[0][0], antes[0][1]
         if not _res:
             continue                              # ya estaba ABIERTA: no se re-avisa (anti-spam de siempre)
+        if sil:
+            continue                              # silenciosa: no se reabre como pendiente (ver abajo)
         # Estaba cerrada y el problema VOLVIÓ. Hay que reabrirla explícitamente: el UNIQUE(tipo,clave)
         # impide volver a insertarla, así que sin esto cerrar una alerta la silenciaría PARA SIEMPRE —
         # el arreglo del ruido se habría comido la próxima alerta de verdad.
-        q("UPDATE alertas SET resuelto_en=NULL, creado_en=NOW(), severidad=%d, detalle='%s', avisado_wa=%d "
-          "WHERE id=%d" % (sev, esc(det), 1 if sil else 0, int(_id)))
-        if not sil:
-            nuevos.append((t, sev, det))
+        q("UPDATE alertas SET resuelto_en=NULL, creado_en=NOW(), severidad=%d, detalle='%s', avisado_wa=0 "
+          "WHERE id=%d" % (sev, esc(det), int(_id)))
+        nuevos.append((t, sev, det))
         continue
-    # las silenciosas nacen con avisado_wa=1: quedan para auditoría/panel pero WhatsApp jamás las envía
-    q("INSERT IGNORE INTO alertas (creado_en,tipo,severidad,clave,detalle,avisado_wa) "
-      "VALUES (NOW(),'%s',%d,'%s','%s',%d)" % (esc(t), sev, esc(c), esc(det), 1 if sil else 0))
+    # Las SILENCIOSAS nacen CERRADAS (2026-08-15). `silencio=True` lo pone clasifica_perdido cuando ella
+    # misma concluye que NO era un problema: proveedor extranjero o spam que el bot atendió a propósito.
+    # Nacían abiertas y con avisado_wa=1 — o sea que no sonaban en WhatsApp, pero SÍ engordaban la cuenta
+    # de "errores sin resolver" del panel: 9 de las 23 abiertas del 15-ago eran spam ya clasificado. Dejar
+    # constancia en la tabla es correcto; cobrarlo como trabajo pendiente no. Queda registrada y auditable
+    # (`SELECT ... WHERE avisado_wa=1`), pero no le pide nada a nadie.
+    q("INSERT IGNORE INTO alertas (creado_en,tipo,severidad,clave,detalle,avisado_wa,resuelto_en) "
+      "VALUES (NOW(),'%s',%d,'%s','%s',%d,%s)"
+      % (esc(t), sev, esc(c), esc(det), 1 if sil else 0, "NOW()" if sil else "NULL"))
     if not sil:
         nuevos.append((t, sev, det))
 

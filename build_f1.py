@@ -1539,15 +1539,20 @@ if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
     // 2026-08-15: antes decía "ERRORES DETECTADOS (7 días)" y contaba TODO lo detectado, resuelto o no.
     // Deicy vio 36 y preguntó cuáles seguían vivos — con razón: la mayoría ya estaban corregidos. Ahora
     // solo se listan los que SIGUEN ABIERTOS, y los resueltos se dicen como lo que son: buenas noticias.
-    const _alrN  = Number(PEND.alr_n||0);
-    const _alrOk = Number(PEND.alr_ok||0);
-    const _okTxt = _alrOk ? ('✅ Resueltos en estos 7 días: *'+_alrOk+'*\n') : '';
+    // 2ª vuelta (Deicy: "se reporta y se renueva cada lunes"): la cuenta de la SEMANA arranca el lunes,
+    // como el reporte de leads. Lo que sigue abierto NO se esconde al cambiar de semana — se arrastra y se
+    // dice cuánto viene de atrás, porque esconderlo sería volver al bug que acabamos de arreglar.
+    const _alrN   = Number(PEND.alr_n||0);       // abiertas AHORA (de todas las semanas)
+    const _alrVj  = Number(PEND.alr_viejas||0);  // de esas, cuántas vienen de semanas anteriores
+    const _alrSem = Number(PEND.alr_sem||0);     // detectadas esta semana (desde el lunes)
+    const _alrOk  = Number(PEND.alr_ok||0);      // resueltas esta semana
+    const _semTxt = '📅 _Semana en curso: '+_alrSem+' detectado(s) · '+_alrOk+' resuelto(s). Se renueva el lunes._\n';
     const _alrTxt = _alrN
-      ? ('⚠️ *ERRORES SIN RESOLVER: '+_alrN+'*  _(últimos 7 días)_\n'+
+      ? ('⚠️ *ERRORES SIN RESOLVER: '+_alrN+'*'+(_alrVj?(' _('+_alrVj+' vienen de semanas anteriores)_'):'')+'\n'+
          String(PEND.alr_det||'').split('~~').filter(Boolean)
            .map(function(x){ const p=x.split('|'); return '   '+(p[0]==='1'?'🔴 ':'🟡 ')+p.slice(1).join('|'); }).join('\n')+
-         (_alrN>6 ? ('\n   … y '+(_alrN-6)+' más (te llegaron por correo)') : '')+'\n'+_okTxt+'\n')
-      : ('✅ *Nada pendiente: todo lo detectado en 7 días ya está resuelto.*\n'+_okTxt+'\n');
+         (_alrN>6 ? ('\n   … y '+(_alrN-6)+' más (te llegaron por correo)') : '')+'\n'+_semTxt+'\n')
+      : ('✅ *Nada pendiente: no queda ningún error sin resolver.*\n'+_semTxt+'\n');
     const _inf =
       '📊 *PANEL DEL BOT — Grupo Ardisa*\n'+
       '🕒 '+fechaCol().slice(0,16)+'\n\n'+
@@ -2840,6 +2845,10 @@ POLITICA_URL = 'https://www.ardisa.com/politica-de-datos-personales/'
 _PEND_COND = "modo_prueba=0 AND (estado IS NULL OR estado='') AND creado_en > NOW() - INTERVAL 30 DAY"
 # Para el PANEL de Deicy se cuentan TODOS los sin reportar, sin tope de fecha.
 _REP_COND  = "modo_prueba=0 AND (estado IS NULL OR estado='')"
+# El LUNES 00:00 de la semana en curso. WEEKDAY() da 0 el lunes ... 6 el domingo, así que restarle esos
+# días a hoy siempre aterriza en el lunes. Es la unidad con la que Ardisa reporta y renueva (pedido Deicy
+# 15-ago: "que lleguen los de cada semana, se reporta y se renueva cada lunes"), no una ventana rodante.
+_LUNES = "(CURDATE() - INTERVAL WEEKDAY(CURDATE()) DAY)"
 # RENDIMIENTO (2026-07-29): esta consulta corre en CADA mensaje, así que no puede degradarse cuando la tabla crezca.
 #  - `creado_en >= CURDATE()` en vez de `DATE(creado_en)=CURDATE()`: la función sobre la columna impedía usar el índice
 #    (escaneo completo). Mismo resultado, pero ahora entra por idx_creado.
@@ -2888,13 +2897,24 @@ _PEND_SQL = ("SELECT "
     # arreglado el lunes por la tarde seguía gritando hasta el domingo (Deicy vio 36 "errores" el 15-ago y
     # la mayoría ya estaban corregidos). Ahora solo cuentan las ABIERTAS: `resuelto_en IS NULL`. Las que se
     # cerraron se muestran aparte como buenas noticias — vigilante.py es quien las cierra.
-    "(SELECT COUNT(*) FROM alertas WHERE resuelto_en IS NULL AND creado_en >= NOW() - INTERVAL 7 DAY) AS alr_n, "
-    "(SELECT COUNT(*) FROM alertas WHERE resuelto_en >= NOW() - INTERVAL 7 DAY) AS alr_ok, "
+    #
+    # 2026-08-15 (2ª vuelta, Deicy: "que lleguen los de cada semana, se reporta y se renueva cada lunes"):
+    # la ventana ya no es "los últimos 7 días" RODANDO, sino LA SEMANA en curso, que arranca el lunes — el
+    # mismo ritmo del reporte de leads. `WEEKDAY()` da 0 el lunes ... 6 el domingo, así que restarle esos
+    # días a hoy cae siempre en el lunes 00:00 de esta semana.
+    #
+    # PERO lo que sigue ABIERTO no se esconde al cambiar de semana: eso sería volver al bug de origen (hoy
+    # hay 5 clientes perdidos de antes del 10/08 que el panel no mostraba). Lo que se RENUEVA cada lunes es
+    # la CUENTA de la semana (nuevos y resueltos); lo abierto se arrastra y se dice cuánto viene de atrás.
+    "(SELECT COUNT(*) FROM alertas WHERE resuelto_en IS NULL) AS alr_n, "
+    "(SELECT COUNT(*) FROM alertas WHERE resuelto_en IS NULL AND creado_en < " + _LUNES + ") AS alr_viejas, "
+    "(SELECT COUNT(*) FROM alertas WHERE creado_en   >= " + _LUNES + ") AS alr_sem, "
+    "(SELECT COUNT(*) FROM alertas WHERE resuelto_en >= " + _LUNES + ") AS alr_ok, "
     # El emoji lo pone el JavaScript, NO el SQL: un emoji dentro de la consulta depende de la codificación de la
     # conexión (utf8mb4) y si el driver no la fija se convierte en '????'. Aquí solo viaja el número de severidad.
     "(SELECT GROUP_CONCAT(CONCAT(z.severidad,'|', z.detalle) ORDER BY z.severidad, z.id DESC SEPARATOR '~~') "
       "FROM (SELECT severidad, id, LEFT(detalle,130) detalle FROM alertas "
-            "WHERE resuelto_en IS NULL AND creado_en >= NOW() - INTERVAL 7 DAY "
+            "WHERE resuelto_en IS NULL "
             "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det, "
     # === DETALLE del lead pendiente (2026-08-05, caso Kiara #230): para distinguir "insiste en LO MISMO"
     # (-> ⚠️ REINTENTO) de "viene por OTRA cosa" (-> solicitud nueva con nota neutral, mismo asesor). ===
@@ -2959,8 +2979,10 @@ return [{ json: Object.assign({}, d, {
   muro_45s:     Number(p.muro_45s|| 0),  // ¿muro de datos enviado hace <45s? (la BD ve lo que staticData aún no)
   humano_on:    Number(p.humano_on|| 0),  // chat híbrido: 1 = un humano atiende desde el panel (el bot se calla)
   adj:          String(p.adj || ''),     // "mediaid:tipo,mediaid:tipo" de los últimos 45 min (a prueba de carreras)
-  alr_n:        Number(p.alr_n   || 0),  // alertas ABIERTAS de los últimos 7 días (las escribe vigilante.py)
-  alr_ok:       Number(p.alr_ok  || 0),  // y las que YA se resolvieron en esos 7 días (buenas noticias)
+  alr_n:        Number(p.alr_n     || 0),  // alertas ABIERTAS ahora mismo (las escribe vigilante.py)
+  alr_viejas:   Number(p.alr_viejas|| 0),  // de esas, las que vienen de semanas anteriores (arrastradas)
+  alr_sem:      Number(p.alr_sem   || 0),  // detectadas esta semana (desde el lunes; se renueva el lunes)
+  alr_ok:       Number(p.alr_ok    || 0),  // resueltas esta semana (buenas noticias)
   alr_det:      p.alr_det ? String(p.alr_det) : ''
 }) }];
 """}, 1080, 360))
