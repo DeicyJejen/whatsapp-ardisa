@@ -50,18 +50,30 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const pre = JSON.stringify(r.wpp_pre || '');
   chequear('La política va en su PROPIO mensaje (wpp_pre), no dentro del saludo',
            !!r.wpp_pre && r.hay_pre === true &&
-           /Tratamiento de datos personales/i.test(pre) && /GRUPO ARDISA/.test(pre) &&
+           /Pol[ií]tica de tratamiento de datos/i.test(pre) &&
            /politica-de-datos-personales/.test(pre), pre.slice(0, 260));
   // Corrección de Deicy (15-ago): NADA de "responde NO AUTORIZO" — eso es el mismo peaje que quitamos,
   // solo que escrito. Pero la Ley 1581 art. 8 obliga a informar los derechos del titular, revocar incluido:
   // se enuncia el DERECHO y el canal, sin pedirle al cliente que haga nada.
-  chequear('El aviso cita la norma y enuncia los derechos (informado, sin pedir nada)',
+  // La línea de revocación se acortó a un renglón (Deicy: "como que sobra") pero NO se borra: es lo que
+  // sostiene el "pudo negarse y no lo hizo" del Decreto 1377 art. 7, y la Ley 1581 art. 12 obliga a
+  // informar los derechos al recoger los datos. Si alguien la quita, esta prueba se cae.
+  chequear('El aviso cita la norma y dice por dónde revocar (informado, sin pedir nada)',
            /Ley 1581/.test(pre) && /Decreto 1377/.test(pre) &&
            /revocar/i.test(pre) && /ayuda@ardisa\.com/.test(pre), pre.slice(0, 400));
   chequear('NO le pide al cliente que escriba nada para negarse',
            !/NO AUTORIZO/.test(pre), pre.slice(0, 400));
   chequear('El mensaje comercial ya NO repite la política',
            !/politica-de-datos-personales/.test(cuerpo(r)), cuerpo(r).slice(0, 200));
+  // 3ª pasada de Deicy: el aviso saluda por hora "como los otros" y el comercial NO vuelve a saludar —
+  // dos "buenas tardes" seguidas suenan a máquina. Y fuera el encabezado ━━━, que parecía una circular.
+  const preTxt = (r.wpp_pre && r.wpp_pre.text) ? r.wpp_pre.text.body : '';
+  chequear('El aviso saluda por hora, como el resto del bot',
+           /^¡Buen(os d[ií]as|as tardes|as noches)!/.test(preTxt), preTxt.slice(0, 60));
+  chequear('Sin encabezado tipo carta (la línea ━━━ se fue)',
+           !/━/.test(pre), pre.slice(0, 120));
+  chequear('El segundo mensaje NO vuelve a saludar',
+           !/Buen(os d[ií]as|as tardes|as noches)/.test(cuerpo(r)), cuerpo(r).slice(0, 120));
   chequear('Ya no hay botones de autorizar/no autorizar',
            !/CONSENT_SI|CONSENT_NO/.test(cuerpo(r)), cuerpo(r).slice(0, 160));
   // Sin evidencia registrada, la "conducta inequívoca" del Decreto 1377 no se puede sostener.

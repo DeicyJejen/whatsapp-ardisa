@@ -433,20 +433,22 @@ const POLITICA_URL='https://www.ardisa.com/politica-de-datos-personales/';
 // conocer, actualizar, rectificar y revocar, y por dónde. No le pide nada y cumple igual.
 // OJO: la rama que atiende a quien escriba "no autorizo" SIGUE viva en el código — solo se dejó de
 // anunciar. Quien se niegue expresamente se respeta igual.
-// Formato pensado para la PANTALLA del teléfono, no para el papel: WhatsApp no tiene tipografías ni
-// tamaños, así que lo único que da jerarquía son los renglones cortos, la negrita y el espacio en blanco.
-// Un bloque corrido de seis líneas se ve amontonado; separado en tres ideas se lee formal.
-const MSG_POLITICA =
-  '*GRUPO ARDISA*\n'
- +'_Ardisa · Carpincentro_\n'
- +'━━━━━━━━━━━━━━━\n'
- +'*Tratamiento de datos personales*\n\n'
- +'Al continuar esta conversación autorizas el tratamiento de tus datos personales, conforme a la '
- +'*Ley 1581 de 2012* y el *Decreto 1377 de 2013*.\n\n'
- +'*Finalidad.* Atender tu solicitud comercial y ponerte en contacto con el asesor correspondiente.\n\n'
- +'*Política completa*\n'+POLITICA_URL+'\n\n'
- +'*Tus derechos.* Puedes conocer, actualizar, rectificar o revocar tu autorización cuando quieras '
- +'escribiendo a ayuda@ardisa.com';
+// 2026-08-15, 3ª pasada de Deicy: "que diga buenos días/tardes/noches así como los otros… quedó como tipo
+// correo". El encabezado con la línea ━━━ era una carta membretada, no un WhatsApp: se fue. El aviso ABRE
+// con el mismo saludo por hora que el resto del bot, así el cliente ve una conversación, no una circular.
+// Como este mensaje ya saluda, el SEGUNDO (el comercial) dejó de saludar: dos "buenas tardes" seguidas
+// suenan a máquina. Por eso recibe `sal`/`emo` en vez de ser una constante.
+// El renglón de revocación se acortó ("esto como que sobra") pero NO se borra: es la única línea que no es
+// decoración — la autorización se sostiene en que el titular pudo negarse y no lo hizo (Decreto 1377
+// art. 7), y la Ley 1581 art. 12 obliga a informar los derechos al recoger los datos.
+const msgPolitica = (sal, emo) =>
+  '¡'+sal+'! '+emo+'\n\n'
+ +'Gracias por escribir a *Grupo Ardisa*. 🙌\n\n'
+ +'Antes de continuar: al seguir esta conversación autorizas el tratamiento de tus datos personales, '
+ +'conforme a la *Ley 1581 de 2012* y el *Decreto 1377 de 2013*. Los usamos únicamente para atender tu '
+ +'solicitud y conectarte con tu asesor.\n\n'
+ +'📄 *Política de tratamiento de datos*\n'+POLITICA_URL+'\n\n'
+ +'_Puedes revocar tu autorización cuando quieras:_ ayuda@ardisa.com';
 // tipos de adjunto (media) traducidos a español
 const MTYPE_ES = {image:'una imagen',audio:'una nota de voz',video:'un video',document:'un documento',sticker:'una imagen (sticker)',location:'una ubicación',contacts:'un contacto'};
 
@@ -2088,8 +2090,9 @@ if(preguntaHorario){
     etapa='marca';
     consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI',
                   politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
-    wpp_pre=txt(wa, MSG_POLITICA);
-    wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\nCon gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
+    wpp_pre=txt(wa, msgPolitica(saludo, emoji));
+    // sin saludo: ya saludó el aviso que va justo antes
+    wpp_body=boton(wa,'Recibimos tu foto, ¡gracias! 📷\n\nCon gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
   } else {   // primero el consentimiento; guardamos la foto (y lo que entendió) para retomarla al autorizar
     // NO se pisa la sesión entera: si otra ejecución simultánea ya la había hecho avanzar, conservamos su paso.
     // Antes, esta línea era `st = S[wa] = {paso:'consent', ...}` y la foto DEVOLVÍA al cliente al muro.
@@ -2184,8 +2187,9 @@ if(preguntaHorario){
                   politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
     // Si lo que llegó fue una foto o una nota de voz, se acusa recibo: al cliente que manda un archivo hay
     // que decirle que llegó, o cree que se perdió (el flujo de foto con lectura de IA entra por otra rama).
-    wpp_pre=txt(wa, MSG_POLITICA);
-    wpp_body=boton(wa, avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\n'+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Con gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇', MARCA);
+    wpp_pre=txt(wa, msgPolitica(saludo, emoji));
+    // sin saludo: ya saludó el aviso que va justo antes
+    wpp_body=boton(wa, avisoInicioHorario()+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Con gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇', MARCA);
   } else {
     // === HABEAS DATA (Opción B, decisión Deicy 2026-07-09): consentimiento EXPLÍCITO como primer paso ===
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
