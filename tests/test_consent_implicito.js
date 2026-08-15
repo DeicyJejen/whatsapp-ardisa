@@ -36,6 +36,8 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const r = correr({ datos: msg('Buenas, necesito cemento'), sd: base(), pend: OFF });
   chequear('Interruptor APAGADO -> sigue el muro de siempre',
            r.etapa === 'consent' && /CONSENT_SI/.test(cuerpo(r)), 'etapa=' + r.etapa);
+  chequear('Apagado -> tampoco sale el mensaje aparte de política',
+           !r.wpp_pre && !r.hay_pre, JSON.stringify(r.wpp_pre));
 }
 
 // ══ 2. ENCENDIDO: un paso menos — el aviso y la pregunta de marca van en el MISMO mensaje ══
@@ -43,9 +45,17 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const r = correr({ datos: msg('Buenas, necesito cemento'), sd: base(), pend: ON });
   chequear('Encendido -> se salta el muro y pregunta la marca de una vez',
            r.etapa === 'marca', 'etapa=' + r.etapa);
-  chequear('El aviso de datos y la política VAN en ese mismo mensaje',
-           /aceptas nuestros t[eé]rminos y el tratamiento de tus datos/i.test(cuerpo(r)) &&
-           /politica-de-datos-personales/.test(cuerpo(r)), cuerpo(r).slice(0, 260));
+  // El aviso va en MENSAJE APARTE (pedido Deicy 15-ago): se lee como comunicación formal y queda como un
+  // mensaje propio en el chat, que es donde vive la evidencia.
+  const pre = JSON.stringify(r.wpp_pre || '');
+  chequear('La política va en su PROPIO mensaje (wpp_pre), no dentro del saludo',
+           !!r.wpp_pre && r.hay_pre === true &&
+           /Autorizaci[oó]n para el tratamiento de datos personales/i.test(pre) &&
+           /politica-de-datos-personales/.test(pre), pre.slice(0, 260));
+  chequear('El aviso cita la norma y dice cómo oponerse (sin salida clara no hay conducta inequívoca)',
+           /Ley 1581/.test(pre) && /Decreto 1377/.test(pre) && /NO AUTORIZO/.test(pre), pre.slice(0, 400));
+  chequear('El mensaje comercial ya NO repite la política',
+           !/politica-de-datos-personales/.test(cuerpo(r)), cuerpo(r).slice(0, 200));
   chequear('Ya no hay botones de autorizar/no autorizar',
            !/CONSENT_SI|CONSENT_NO/.test(cuerpo(r)), cuerpo(r).slice(0, 160));
   // Sin evidencia registrada, la "conducta inequívoca" del Decreto 1377 no se puede sostener.

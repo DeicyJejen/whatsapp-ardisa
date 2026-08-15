@@ -147,6 +147,7 @@ const CONS_SI = Number(PEND.cons_si||0) > 0;
 // Es un INTERRUPTOR de BD: `UPDATE config SET valor='no' WHERE clave='consent_implicito'` devuelve el muro
 // en segundos, sin desplegar.
 const CONSENT_IMPL = String(PEND.cfg_consent_impl||'').trim().toLowerCase()==='si';
+// (el texto del aviso, MSG_POLITICA, se arma junto a POLITICA_URL más abajo)
 // Adjuntos de los últimos 45 min según la BD: "mediaid:tipo,mediaid:tipo" -> [{id,tipo}]. A prueba de carreras.
 const ADJ_BD = String(PEND.adj||'').split(',').filter(Boolean).map(s=>{
   const i=s.lastIndexOf(':'); return i<0 ? null : {id:s.slice(0,i), tipo:s.slice(i+1)};
@@ -410,6 +411,20 @@ function rotaSticky(key,arr){
 // Fecha/hora Colombia (UTC-5) 'YYYY-MM-DD HH:MM:SS' — para el registro legal del consentimiento y otros
 function fechaCol(){ const p=n=>String(n).padStart(2,'0'); const c=new Date(NOW-5*3600000); return c.getUTCFullYear()+'-'+p(c.getUTCMonth()+1)+'-'+p(c.getUTCDate())+' '+p(c.getUTCHours())+':'+p(c.getUTCMinutes())+':'+p(c.getUTCSeconds()); }
 const POLITICA_URL='https://www.ardisa.com/politica-de-datos-personales/';
+// El aviso de datos va en MENSAJE APARTE, antes del saludo comercial (pedido Deicy 15-ago: "que se envíe
+// en dos mensajes, el primero el de políticas, y que quede más profesional"). Aparte por dos razones: se
+// lee como lo que es —una comunicación formal, no un renglón perdido dentro de un saludo— y queda como un
+// mensaje propio en el chat del cliente, que es donde vive la evidencia si algún día alguien pregunta.
+// La salida (*NO AUTORIZO*) es deliberada: sin una vía clara de oponerse, la "conducta inequívoca" del
+// Decreto 1377 art. 7 se sostiene mucho peor. Que sea fácil decir que no es lo que hace válido el sí.
+const MSG_POLITICA =
+  '📄 *Autorización para el tratamiento de datos personales*\n\n'
+ +'Te damos la bienvenida a *Grupo Ardisa* (Ardisa · Carpincentro).\n\n'
+ +'Al continuar la conversación por este medio autorizas el tratamiento de tus datos personales conforme '
+ +'a la *Ley 1581 de 2012* y al *Decreto 1377 de 2013*. Usamos tus datos únicamente para atender tu '
+ +'solicitud comercial y ponerte en contacto con el asesor correspondiente.\n\n'
+ +'Consulta nuestra política de tratamiento de datos:\n'+POLITICA_URL+'\n\n'
+ +'_Si no deseas que tratemos tus datos, responde *NO AUTORIZO* y no continuaremos._';
 // tipos de adjunto (media) traducidos a español
 const MTYPE_ES = {image:'una imagen',audio:'una nota de voz',video:'un video',document:'un documento',sticker:'una imagen (sticker)',location:'una ubicación',contacts:'un contacto'};
 
@@ -1409,6 +1424,9 @@ const _formHits = (!es_media && texto) ? (String(texto).match(/(complet[eé]\s+e
 const esFormulario = _formHits>=2;
 
 let st=S[wa]; let wpp_body=null,aviso_body=null,etapa='',leadRow=null,aviso_medias=null,consent_log=null,pend_cierre=false,pend_token=0,cot_req=null;
+// wpp_pre: mensaje que sale ANTES del principal (hoy solo el aviso de datos). Lo manda su propio nodo,
+// 'Enviar aviso de datos (Meta)', encadenado delante de 'Enviar al cliente' para garantizar el ORDEN.
+let wpp_pre=null;
 // === LA BD MANDA TAMBIÉN PARA LA SESIÓN (2026-08-06, caso Sonia #234: "pregunta dos veces lo mismo") ===
 // El staticData es UN SOLO blob compartido entre todos los clientes: una ejecución LENTA (la IA de otro
 // cliente tardó 7.4s) lo lee viejo y al terminar lo guarda encima, borrando los avances de los demás —
@@ -2048,7 +2066,8 @@ if(preguntaHorario){
     etapa='marca';
     consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI',
                   politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
-    wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\n_Al escribirnos por este medio aceptas nuestros términos y el tratamiento de tus datos personales_ 🔒\n📄 '+POLITICA_URL+'\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
+    wpp_pre=txt(wa, MSG_POLITICA);
+    wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\nCon gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
   } else {   // primero el consentimiento; guardamos la foto (y lo que entendió) para retomarla al autorizar
     // NO se pisa la sesión entera: si otra ejecución simultánea ya la había hecho avanzar, conservamos su paso.
     // Antes, esta línea era `st = S[wa] = {paso:'consent', ...}` y la foto DEVOLVÍA al cliente al muro.
@@ -2143,7 +2162,8 @@ if(preguntaHorario){
                   politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
     // Si lo que llegó fue una foto o una nota de voz, se acusa recibo: al cliente que manda un archivo hay
     // que decirle que llegó, o cree que se perdió (el flujo de foto con lectura de IA entra por otra rama).
-    wpp_body=boton(wa, avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\n'+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Bienvenido a *Grupo Ardisa*.\n\n_Al escribirnos por este medio aceptas nuestros términos y el tratamiento de tus datos personales_ 🔒\n📄 '+POLITICA_URL+'\n\nCon gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇', MARCA);
+    wpp_pre=txt(wa, MSG_POLITICA);
+    wpp_body=boton(wa, avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\n'+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Con gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇', MARCA);
   } else {
     // === HABEAS DATA (Opción B, decisión Deicy 2026-07-09): consentimiento EXPLÍCITO como primer paso ===
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
@@ -2712,6 +2732,7 @@ try{
 }catch(e){}
 return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token,
   cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
+  wpp_pre:(wpp_pre||null), hay_pre:!!wpp_pre,   // aviso de datos como mensaje aparte, ANTES del principal
   ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
 """
 
@@ -3307,6 +3328,15 @@ nodes.append(node("¿Responder al cliente?", "n8n-nodes-base.if", 2,
      "conditions":[{"id":"r1","leftValue":"={{ $json.wpp_body ? true : false }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1080, 320))
 nodes.append(node("Sin respuesta (dup/vacío)", "n8n-nodes-base.noOp", 1, {}, 1320, 480))
+# 2026-08-15 (pedido Deicy): el aviso de datos sale en su PROPIO mensaje, antes del saludo comercial. El
+# orden se garantiza encadenando los nodos —primero este, y su salida alimenta 'Enviar al cliente'—, no
+# poniéndolos en paralelo: dos ramas paralelas llegarían a Meta en cualquier orden y el cliente podría ver
+# la política DESPUÉS del saludo. El IF evita gastar una llamada a Meta cuando no hay aviso que mandar.
+nodes.append(node("¿Aviso de datos aparte?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"p1","leftValue":"={{ $('Cerebro conversacional').item.json.hay_pre ? true : false }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1180, 300))
+nodes.append(node("Enviar aviso de datos (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.wpp_pre"), 1180, 200, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("Enviar al cliente (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.wpp_body"), 1320, 300, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("¿Hay aviso al asesor?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
@@ -4130,7 +4160,10 @@ connections = {
  "Leer lead BD (MySQL)": {"main":[[{"node":"Finalizar cierre","type":"main","index":0}]]},
  "¿Registrar chat?": {"main":[[{"node":"Guardar chat (MySQL)","type":"main","index":0}],[]]},
  "¿Registrar consentimiento?": {"main":[[{"node":"Guardar consentimiento (MySQL)","type":"main","index":0}],[]]},
- "¿Responder al cliente?": {"main":[[{"node":"Enviar al cliente (Meta)","type":"main","index":0}],[{"node":"Sin respuesta (dup/vacío)","type":"main","index":0}]]},
+ "¿Responder al cliente?": {"main":[[{"node":"¿Aviso de datos aparte?","type":"main","index":0}],[{"node":"Sin respuesta (dup/vacío)","type":"main","index":0}]]},
+ # true -> se manda primero la política y SU SALIDA sigue al saludo (así llega en orden); false -> derecho
+ "¿Aviso de datos aparte?": {"main":[[{"node":"Enviar aviso de datos (Meta)","type":"main","index":0}],[{"node":"Enviar al cliente (Meta)","type":"main","index":0}]]},
+ "Enviar aviso de datos (Meta)": {"main":[[{"node":"Enviar al cliente (Meta)","type":"main","index":0}]]},
  "Enviar al cliente (Meta)": {"main":[[{"node":"¿Hay aviso al asesor?","type":"main","index":0}]]},
  "¿Hay aviso al asesor?": {"main":[[{"node":"¿Hay lead?","type":"main","index":0}],[]]},
  "¿Hay lead?": {"main":[[{"node":"Guardar lead (MySQL)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
