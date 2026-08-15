@@ -148,6 +148,24 @@ if "--semanal" in sys.argv:
               % (AHORA.strftime("%Y-%m-%d %H:%M"), _rango, _n_det, _n_res, len(_abiertas)))
     raise SystemExit(0)
 
+# Migración de claves de `cliente_perdido` (2026-08-15): antes la clave era "wa_id|dd/mm HH:MM" y esa fecha
+# se movía sola, así que el MISMO cliente perdido generaba alertas nuevas cada vez que su primer mensaje
+# salía de la ventana de 2 días. Ahora la clave es solo el wa_id. Esto junta las que ya quedaron duplicadas:
+# se conserva la más reciente de cada cliente y las anteriores se cierran (no se borran: queda la historia).
+if not SECO:
+    _dups = q("SELECT clave, id FROM alertas WHERE tipo='cliente_perdido' AND resuelto_en IS NULL "
+              "AND clave LIKE '%|%' ORDER BY id DESC")
+    _vistos = set()
+    for _cl, _aid in _dups:
+        _wa = _cl.split("|")[0]
+        _existe = q("SELECT COUNT(*) FROM alertas WHERE tipo='cliente_perdido' AND clave='%s'" % esc(_wa))
+        _ya = (_existe and _existe[0][0] != "0") or (_wa in _vistos)
+        if _ya:
+            q("UPDATE alertas SET resuelto_en=NOW() WHERE id=%s" % int(_aid))   # duplicada: se cierra
+        else:
+            q("UPDATE alertas SET clave='%s' WHERE id=%s" % (esc(_wa), int(_aid)))
+            _vistos.add(_wa)
+
 # Cierre a mano, para las alertas que a propósito NO se cierran solas (ver NO_SE_CIERRA_SOLA abajo).
 if CERRAR:
     for _cid in CERRAR:
@@ -247,7 +265,12 @@ for wa, nom, n, ini, ult, pedido in q("""
     HAVING MAX(m.creado_en) < NOW() - INTERVAL 20 MINUTE
        AND (SUM(m.entrada<>'(inactividad)')>=2 OR MAX(CHAR_LENGTH(m.entrada))>=25)"""):
     sev, nota, silencio = clasifica_perdido(wa, ult)
-    anota("cliente_perdido", sev, wa+"|"+ini,
+    # 2026-08-15: la clave llevaba wa_id+FECHA DEL PRIMER MENSAJE, y esa fecha SE MUEVE — la regla mira una
+    # ventana de 2 días, así que al envejecer el mensaje más viejo el "desde el" cambia y nacía una alerta
+    # NUEVA por el MISMO cliente perdido. Emma Sierra llegó a tener dos (#42 "desde el 13/08" y #51 "desde
+    # el 14/08"). Un cliente perdido es UN problema: la clave es el cliente y punto. El detalle sí se
+    # refresca en cada corrida, y la alerta se cierra sola el día que esa persona quede como lead.
+    anota("cliente_perdido", sev, wa,
           "%s (%s) escribió %s %s desde el %s y NO quedó registrado — recorrido: %s%s%s"
           % (nom or wa, wa, n, ("vez" if str(n) == "1" else "veces"), ini, ult,
              ("  ·  PIDIÓ: "+pedido[:160]) if pedido else "", nota), silencio=silencio)
@@ -533,7 +556,11 @@ for t, sev, c, det, sil in hallazgos:
     if antes:
         _id, _res = antes[0][0], antes[0][1]
         if not _res:
-            continue                              # ya estaba ABIERTA: no se re-avisa (anti-spam de siempre)
+            # Ya estaba ABIERTA: no se re-avisa (anti-spam de siempre), pero el TEXTO sí se refresca. Si no,
+            # el panel se queda con la foto del primer día: la cola de Karime diría "86 horas" para siempre
+            # y el recorrido de un cliente perdido no mostraría lo que hizo después.
+            q("UPDATE alertas SET severidad=%d, detalle='%s' WHERE id=%d" % (sev, esc(det), int(_id)))
+            continue
         if sil:
             continue                              # silenciosa: no se reabre como pendiente (ver abajo)
         # Estaba cerrada y el problema VOLVIÓ. Hay que reabrirla explícitamente: el UNIQUE(tipo,clave)
