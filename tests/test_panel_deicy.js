@@ -12,15 +12,21 @@ function correr({ datos, staticData, pend }) {
 }
 const DEICY = '573205662947';
 const sd = () => ({ rot:{}, consent:{}, leads:[], done:{}, ses:{} });
-const PEND = { alr_n:2, alr_det:'1|Cliente X se perdio~~2|Asesor Y sin reportar',
+const PEND = { alr_n:2, alr_ok:5, alr_det:'1|Cliente X se perdio~~2|Asesor Y sin reportar',
                rep_hoy:4, rep_hoy_det:'Karime 2 · Yormy 2', rep_pend:11, rep_pend_det:'Karime 8 · Jhon 3' };
+// Mismo panel pero SIN nada abierto: todo lo detectado en la semana ya se resolvió (2026-08-15).
+const PEND_LIMPIO = Object.assign({}, PEND, { alr_n:0, alr_det:'' });
 const msg = (texto) => ({ wa_id:DEICY, profileName:'Deicy', texto, mtype:'', media_id:'',
                           btn_id:'', btn_title:'', es_media:false, ia:null });
 
 const casos = [
   { n:'"informe" -> panel COMPLETO',            t:'informe',                 tiene:['PANEL DEL BOT','Leads de hoy','Sin reportar','Cola interna'] },
-  { n:'"y los errores?" -> solo errores',       t:'y los errores?',          tiene:['ERRORES DETECTADOS','Cliente X se perdio'], noTiene:['Cola interna'] },
-  { n:'"que problemas hay" -> solo errores',    t:'que problemas hay',       tiene:['ERRORES DETECTADOS'],  noTiene:['Cola interna'] },
+  // 2026-08-15: el panel cuenta lo que sigue ABIERTO, no todo lo que alguna vez se detectó. Deicy vio 36
+  // "errores" y la mayoría ya estaban corregidos; si el panel no distingue, se aprende a ignorarlo.
+  { n:'"y los errores?" -> solo lo SIN RESOLVER', t:'y los errores?',        tiene:['ERRORES SIN RESOLVER: 2','Cliente X se perdio'], noTiene:['Cola interna'] },
+  { n:'"que problemas hay" -> solo errores',    t:'que problemas hay',       tiene:['ERRORES SIN RESOLVER'],  noTiene:['Cola interna'] },
+  { n:'Los resueltos se cuentan como buena noticia', t:'y los errores?',     tiene:['Resueltos en estos 7 días: *5*'] },
+  { n:'Todo resuelto -> el panel lo dice, no calla', t:'y los errores?',     tiene:['Nada pendiente','Resueltos en estos 7 días: *5*'], noTiene:['SIN RESOLVER'], pend:PEND_LIMPIO },
   { n:'"cuantos leads hay hoy" -> solo leads',  t:'cuantos leads hay hoy',   tiene:['Leads de hoy: 4','Karime 2'], noTiene:['Cola interna'] },
   { n:'"quien no ha reportado" -> pendientes',  t:'quien no ha reportado',   tiene:['Sin reportar por los asesores: 11'], noTiene:['Cola interna'] },
   { n:'Pregunta rara -> panel completo',        t:'buenas que mas pues',     tiene:['PANEL DEL BOT','Cola interna'] },
@@ -30,7 +36,7 @@ const casos = [
 let ok = 0;
 for (const c of casos) {
   let cuerpo = '', err = '';
-  try { cuerpo = JSON.stringify(correr({ datos:msg(c.t), staticData:sd(), pend:PEND })); }
+  try { cuerpo = JSON.stringify(correr({ datos:msg(c.t), staticData:sd(), pend:(c.pend || PEND) })); }
   catch (e) { err = e.message; }
   const faltan  = (c.tiene   || []).filter(x => !cuerpo.includes(x));
   const sobran  = (c.noTiene || []).filter(x =>  cuerpo.includes(x));

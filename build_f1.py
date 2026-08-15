@@ -1536,13 +1536,18 @@ if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
     const _pieAyuda = '\n\n_Puedes preguntarme: *errores* · *leads de hoy* · *pendientes* · *informe* (todo) · *demo* (probar el bot)._';
     // ALERTAS (2026-08-03, pedido Deicy: "esos errores son los que necesito saber para pasártelos").
     // Las detecta vigilante.py cada hora y quedan en la tabla `alertas`; aquí solo se muestran.
-    const _alrN = Number(PEND.alr_n||0);
+    // 2026-08-15: antes decía "ERRORES DETECTADOS (7 días)" y contaba TODO lo detectado, resuelto o no.
+    // Deicy vio 36 y preguntó cuáles seguían vivos — con razón: la mayoría ya estaban corregidos. Ahora
+    // solo se listan los que SIGUEN ABIERTOS, y los resueltos se dicen como lo que son: buenas noticias.
+    const _alrN  = Number(PEND.alr_n||0);
+    const _alrOk = Number(PEND.alr_ok||0);
+    const _okTxt = _alrOk ? ('✅ Resueltos en estos 7 días: *'+_alrOk+'*\n') : '';
     const _alrTxt = _alrN
-      ? ('⚠️ *ERRORES DETECTADOS (7 días): '+_alrN+'*\n'+
+      ? ('⚠️ *ERRORES SIN RESOLVER: '+_alrN+'*  _(últimos 7 días)_\n'+
          String(PEND.alr_det||'').split('~~').filter(Boolean)
            .map(function(x){ const p=x.split('|'); return '   '+(p[0]==='1'?'🔴 ':'🟡 ')+p.slice(1).join('|'); }).join('\n')+
-         (_alrN>6 ? ('\n   … y '+(_alrN-6)+' más (te llegaron por correo)') : '')+'\n\n')
-      : '✅ *Sin errores detectados en 7 días.*\n\n';
+         (_alrN>6 ? ('\n   … y '+(_alrN-6)+' más (te llegaron por correo)') : '')+'\n'+_okTxt+'\n')
+      : ('✅ *Nada pendiente: todo lo detectado en 7 días ya está resuelto.*\n'+_okTxt+'\n');
     const _inf =
       '📊 *PANEL DEL BOT — Grupo Ardisa*\n'+
       '🕒 '+fechaCol().slice(0,16)+'\n\n'+
@@ -1689,7 +1694,14 @@ for(const _k in store.prov){ if((NOW-(store.prov[_k]||0)) > 48*3600000) delete s
 const _provMarcado = (NOW-(store.prov[wa]||0)) < 48*3600000;   // en algún momento ya le dijimos que esta es la línea de clientes
 const _yaProv      = (NOW-(store.prov[wa]||0)) < 6*3600000;    // y fue hace poco: sigue en el carril
 if(!reinicia || _provMarcado){
-  const _noCol = !String(wa).startsWith('57');
+  // 2026-08-15 (caso Emma Sierra, nota de voz del 14/08 14:17): el cliente con número OCULTO llega como
+  // 'CO.1615986879863099' y NO empieza por '57', así que este filtro lo leía como EXTRANJERO. Con una nota
+  // de voz no hay texto que huela a cliente (_pareceCliente exige texto o veredicto de la IA), así que le
+  // llegaba "por este medio solo atendemos a nuestros clientes" a una clienta que había pedido precio de
+  // malla geotextil. Le pasó a 3 de los 13 clientes con número oculto el primer día que se soportaron.
+  // El prefijo del BSUID ES el país (mismo patrón que usa http_send para responderles): 'CO.' = Colombia.
+  // Un proveedor extranjero que oculte su número sigue llegando como 'CN.'/'IN.' y este filtro sí lo agarra.
+  const _noCol = !/^57/.test(String(wa)) && !/^CO\./i.test(String(wa));
   const _ofrece = !es_media && !!texto && KW_PROVEEDOR.test(low);
   // CLIENTE REAL (aunque su número no sea de Colombia): si pide asesoría/cotización/producto o la IA lo ve EN ALCANCE, NO es proveedor -> se atiende.
   // === FIX 2026-08-11 (caso proveedor de China 8613586300781): `es_info` ya no basta para ser cliente. ===
@@ -2872,11 +2884,17 @@ _PEND_SQL = ("SELECT "
     # El análisis PESADO (leer conversaciones, cruzar tablas) lo hace vigilante.py en un cron y deja aquí el
     # resumen ya digerido. Esta consulta corre en CADA mensaje de CADA cliente, así que solo puede leer una
     # tabla chiquita por índice — nunca escanear. Por eso `alertas` existe: separa el trabajo lento del rápido.
-    "(SELECT COUNT(*) FROM alertas WHERE creado_en >= NOW() - INTERVAL 7 DAY) AS alr_n, "
+    # 2026-08-15: el panel contaba TODO lo detectado en 7 días, resuelto o no, así que un problema
+    # arreglado el lunes por la tarde seguía gritando hasta el domingo (Deicy vio 36 "errores" el 15-ago y
+    # la mayoría ya estaban corregidos). Ahora solo cuentan las ABIERTAS: `resuelto_en IS NULL`. Las que se
+    # cerraron se muestran aparte como buenas noticias — vigilante.py es quien las cierra.
+    "(SELECT COUNT(*) FROM alertas WHERE resuelto_en IS NULL AND creado_en >= NOW() - INTERVAL 7 DAY) AS alr_n, "
+    "(SELECT COUNT(*) FROM alertas WHERE resuelto_en >= NOW() - INTERVAL 7 DAY) AS alr_ok, "
     # El emoji lo pone el JavaScript, NO el SQL: un emoji dentro de la consulta depende de la codificación de la
     # conexión (utf8mb4) y si el driver no la fija se convierte en '????'. Aquí solo viaja el número de severidad.
     "(SELECT GROUP_CONCAT(CONCAT(z.severidad,'|', z.detalle) ORDER BY z.severidad, z.id DESC SEPARATOR '~~') "
-      "FROM (SELECT severidad, id, LEFT(detalle,130) detalle FROM alertas WHERE creado_en >= NOW() - INTERVAL 7 DAY "
+      "FROM (SELECT severidad, id, LEFT(detalle,130) detalle FROM alertas "
+            "WHERE resuelto_en IS NULL AND creado_en >= NOW() - INTERVAL 7 DAY "
             "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det, "
     # === DETALLE del lead pendiente (2026-08-05, caso Kiara #230): para distinguir "insiste en LO MISMO"
     # (-> ⚠️ REINTENTO) de "viene por OTRA cosa" (-> solicitud nueva con nota neutral, mismo asesor). ===
@@ -2941,7 +2959,8 @@ return [{ json: Object.assign({}, d, {
   muro_45s:     Number(p.muro_45s|| 0),  // ¿muro de datos enviado hace <45s? (la BD ve lo que staticData aún no)
   humano_on:    Number(p.humano_on|| 0),  // chat híbrido: 1 = un humano atiende desde el panel (el bot se calla)
   adj:          String(p.adj || ''),     // "mediaid:tipo,mediaid:tipo" de los últimos 45 min (a prueba de carreras)
-  alr_n:        Number(p.alr_n   || 0),  // alertas de los últimos 7 días (las escribe vigilante.py)
+  alr_n:        Number(p.alr_n   || 0),  // alertas ABIERTAS de los últimos 7 días (las escribe vigilante.py)
+  alr_ok:       Number(p.alr_ok  || 0),  // y las que YA se resolvieron en esos 7 días (buenas noticias)
   alr_det:      p.alr_det ? String(p.alr_det) : ''
 }) }];
 """}, 1080, 360))

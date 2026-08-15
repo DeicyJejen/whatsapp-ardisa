@@ -13,8 +13,9 @@
 #     NO duplica alertas. Eso se llama IDEMPOTENCIA y es lo que permite correr esto cada hora sin miedo.
 #   - Solo se avisa por correo lo NUEVO y GRAVE (severidad 1). Un vigilante que grita por todo se ignora.
 #
-# Uso:  python3 vigilante.py            -> detecta, guarda y avisa por correo si hay algo nuevo grave
+# Uso:  python3 vigilante.py            -> detecta, guarda, CIERRA lo resuelto y avisa lo nuevo grave
 #       python3 vigilante.py --seco     -> solo muestra en pantalla, no guarda ni envía
+#       python3 vigilante.py --cerrar 7 -> cierra a mano la alerta #7 (las que no se cierran solas)
 import subprocess, os, sys, ssl, smtplib, datetime, base64, json
 from email.message import EmailMessage
 from vigilante_reglas import clasifica_perdido, etapa_cola   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
@@ -29,6 +30,7 @@ SMTP_PASS = open("/home/ubuntu/.config/ardisa/smtp_pass").read().strip()
 # pero quien opera y recibe las alertas es Deicy — son dos personas distintas, no dos correos de la misma.
 DEST      = ["deicy.jejen@ardisa.com"]
 SECO      = "--seco" in sys.argv
+CERRAR    = [a for a in sys.argv[1:] if a.isdigit()] if "--cerrar" in sys.argv else []
 AHORA     = datetime.datetime.now()
 
 def q(sql):
@@ -70,6 +72,29 @@ if not SECO:
             print("BD caída Y correo falló: %s / %s" % (e, e2))
         raise SystemExit(2)
 
+# ═══ LA TABLA `alertas` TIENE QUE PODER CERRAR ═══════════════════════════════
+# 2026-08-15 (lo preguntó Deicy: "muchos problemas y viejos, no sé si ya están corregidos").
+# `alertas` nació siendo un DIARIO: se escribía y no se cerraba nunca. Pero el panel de WhatsApp muestra
+# "ERRORES DETECTADOS (7 días)", así que un problema detectado el lunes y arreglado el lunes por la tarde
+# seguía gritando hasta el domingo. El 15-ago Deicy vio 36 "errores" y la mayoría ya estaban resueltos: dos
+# de los tres "clientes perdidos" ya eran los leads #294 y #295. Un panel que no distingue lo VIVO de lo
+# HISTÓRICO enseña a ignorarlo, y el día que salga el error de verdad nadie lo va a mirar.
+# La columna se crea sola (idempotente) para que esto funcione en una instalación limpia sin DDL a mano.
+if not SECO:
+    _tiene = q("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() "
+               "AND TABLE_NAME='alertas' AND COLUMN_NAME='resuelto_en'")
+    if _tiene and _tiene[0][0] == "0":
+        q("ALTER TABLE alertas ADD COLUMN resuelto_en DATETIME NULL DEFAULT NULL, "
+          "ADD KEY idx_abiertas (resuelto_en, creado_en)")
+        print("alertas: columna `resuelto_en` creada")
+
+# Cierre a mano, para las alertas que a propósito NO se cierran solas (ver NO_SE_CIERRA_SOLA abajo).
+if CERRAR:
+    for _cid in CERRAR:
+        q("UPDATE alertas SET resuelto_en=NOW() WHERE id=%s AND resuelto_en IS NULL" % int(_cid))
+        print("alerta #%s cerrada a mano" % _cid)
+    raise SystemExit(0)
+
 hallazgos = []   # (tipo, severidad, clave, detalle, silencio)
 def anota(tipo, sev, clave, detalle, silencio=False):
     # silencio=True: queda en la tabla `alertas` (auditoría/panel) pero nace con avisado_wa=1,
@@ -81,7 +106,14 @@ def anota(tipo, sev, clave, detalle, silencio=False):
 # 'proveedor' — si se ocultan, el recorrido sale MENTIROSO: en el caso "Laconic ceramic" (13-ago) Deicy vio
 # "recorrido: info" sin poder saber que el bot ya le había contestado 3 veces como proveedor. Los demás
 # chequeos las siguen excluyendo como siempre.
-_NO_CLIENTE_BASE = ("AND m.wa_id <> '573205662947' AND m.wa_id NOT LIKE '5799999%' "
+# 2026-08-15: los números de PRUEBA tienen que ser UNA sola lista. El bot ya tenía tres en CLIENTES_PRUEBA
+# (build_f1.py) pero aquí solo se excluía el de Deicy, así que una demo desde el BSUID de Oscar se contaba
+# como degradación real: las "3 consultas de cotización SAP fallaron" del 14-ago eran las pruebas de Deicy
+# y de esa demo, ni un solo cliente. Un vigilante que alarma por los ensayos se vuelve ruido.
+CLIENTES_PRUEBA = ["573205662947", "573156251656", "CO.1352055013679988"]   # = CLIENTES_PRUEBA de build_f1.py
+_SQL_PRUEBA = ",".join("'%s'" % esc(x) for x in CLIENTES_PRUEBA)
+
+_NO_CLIENTE_BASE = ("AND m.wa_id NOT IN (" + _SQL_PRUEBA + ") AND m.wa_id NOT LIKE '5799999%' "
               "AND m.wa_id COLLATE utf8mb4_unicode_ci NOT IN (SELECT DISTINCT asesor_tel COLLATE utf8mb4_unicode_ci FROM leads WHERE asesor_tel IS NOT NULL AND asesor_tel<>'') "
               "AND m.etapa NOT LIKE 'seg\\_%' AND m.etapa NOT LIKE 'admin\\_%' "
               "AND m.etapa NOT IN (@ETAPAS@)")
@@ -373,9 +405,11 @@ try:
                   "La cotización SAP está ENCENDIDA (usar_cotiza=si) pero el token del MCP está VACÍO en la "
                   "BD: toda consulta va a caer al asesor. Corre `python3 mcp_token_login.py` o revisa "
                   "reportes/cron_mcp_token.log (refrescador).")
+        # 14-ago: las pruebas de Deicy no cuentan como degradación. 15-ago: NINGUNA prueba cuenta —
+        # el demo de Oscar (BSUID) seguía colándose y era el que inflaba la alerta.
         _f = q("SELECT COUNT(*), COALESCE(MAX(DATE_FORMAT(creado_en,'%d/%m %H:%i')),'') FROM mensajes "
                "WHERE etapa='cotiza_fallo' AND creado_en >= NOW() - INTERVAL 1 DAY "
-               "AND wa_id <> '573205662947'")   # 14-ago: las pruebas de Deicy no cuentan como degradación
+               "AND wa_id NOT IN (" + _SQL_PRUEBA + ")")
         _nf = int(_f[0][0]) if _f else 0
         if _nf:
             # clave por el ÚLTIMO fallo (no por día): solo re-avisa si hay un fallo NUEVO — el mismo
@@ -394,11 +428,53 @@ if SECO:
     print("\n%d hallazgo(s) — modo seco, no se guardó nada" % len(hallazgos))
     raise SystemExit(0)
 
+# ── CERRAR LO QUE YA SE RESOLVIÓ ─────────────────────────────────────────────
+# Hay DOS naturalezas de alerta y tratarlas igual es lo que rompe el panel:
+#
+#   "ausencia"  → la regla se re-evalúa ENTERA en cada corrida sobre una ventana que llega hasta AHORA
+#                 (la cola de adjuntos, el bot mudo, el token por vencer, los crones, la cotización SAP).
+#                 Si esta corrida ya no la encuentra, la causa desapareció. Y si me equivoco no se pierde
+#                 nada: la corrida siguiente la vuelve a encontrar y la REABRE (ver más abajo).
+#
+#   "desenlace" → habla de UNA persona en UN momento y su ventana de detección es corta (2-3 días). Dejar
+#                 de verla NO significa que se resolvió: significa que envejeció. Un cliente perdido sigue
+#                 perdido el cuarto día. Estas solo se cierran comprobando el desenlace REAL: que esa
+#                 persona sí acabó registrada como lead. Cerrarlas por ausencia sería mentir.
+CIERRE_POR_DESENLACE = {"cliente_perdido", "carrera_consent"}
+# `reporte_perdido` no se cierra sola A PROPÓSITO: es la del reporte del asesor que nunca llegó a la BD
+# (uno de los cuatro era una venta ganada de $1.270.000). Ahí no hay señal automática de "ya lo arreglaron",
+# así que se cierra a mano con `python3 vigilante.py --cerrar <id>` cuando alguien la haya reparado.
+NO_SE_CIERRA_SOLA = {"reporte_perdido"}
+
+_vivas = set((t, str(c)[:120]) for t, sev, c, det, sil in hallazgos)
+cerradas = 0
+for _id, _tipo, _clave in q("SELECT id, tipo, clave FROM alertas WHERE resuelto_en IS NULL"):
+    if (_tipo, _clave) in _vivas or _tipo in NO_SE_CIERRA_SOLA:
+        continue                                  # la causa sigue ahí (o solo la cierra una persona)
+    if _tipo in CIERRE_POR_DESENLACE:
+        # la clave de estas empieza por el wa_id/teléfono de la persona: "573001234567|13/08 13:11"
+        _hay = q("SELECT COUNT(*) FROM leads WHERE telefono='%s'" % esc(_clave.split("|")[0]))
+        if not (_hay and _hay[0][0] != "0"):
+            continue                              # sigue sin lead: sigue perdida, no se cierra
+    q("UPDATE alertas SET resuelto_en=NOW() WHERE id=%d" % int(_id))
+    cerradas += 1
+
 nuevos = []
 for t, sev, c, det, sil in hallazgos:
-    antes = q("SELECT COUNT(*) FROM alertas WHERE tipo='%s' AND clave='%s'" % (esc(t), esc(c)))
-    if antes and antes[0][0] != "0":
-        continue                                  # ya estaba: no se re-avisa (anti-spam)
+    antes = q("SELECT id, COALESCE(resuelto_en,'') FROM alertas WHERE tipo='%s' AND clave='%s'"
+              % (esc(t), esc(c)))
+    if antes:
+        _id, _res = antes[0][0], antes[0][1]
+        if not _res:
+            continue                              # ya estaba ABIERTA: no se re-avisa (anti-spam de siempre)
+        # Estaba cerrada y el problema VOLVIÓ. Hay que reabrirla explícitamente: el UNIQUE(tipo,clave)
+        # impide volver a insertarla, así que sin esto cerrar una alerta la silenciaría PARA SIEMPRE —
+        # el arreglo del ruido se habría comido la próxima alerta de verdad.
+        q("UPDATE alertas SET resuelto_en=NULL, creado_en=NOW(), severidad=%d, detalle='%s', avisado_wa=%d "
+          "WHERE id=%d" % (sev, esc(det), 1 if sil else 0, int(_id)))
+        if not sil:
+            nuevos.append((t, sev, det))
+        continue
     # las silenciosas nacen con avisado_wa=1: quedan para auditoría/panel pero WhatsApp jamás las envía
     q("INSERT IGNORE INTO alertas (creado_en,tipo,severidad,clave,detalle,avisado_wa) "
       "VALUES (NOW(),'%s',%d,'%s','%s',%d)" % (esc(t), sev, esc(c), esc(det), 1 if sil else 0))
@@ -406,8 +482,8 @@ for t, sev, c, det, sil in hallazgos:
         nuevos.append((t, sev, det))
 
 graves = [x for x in nuevos if x[1] == 1]
-print("%s | hallazgos: %d | nuevos: %d | graves nuevos: %d"
-      % (AHORA.strftime("%Y-%m-%d %H:%M"), len(hallazgos), len(nuevos), len(graves)))
+print("%s | hallazgos: %d | nuevos: %d | graves nuevos: %d | cerradas: %d"
+      % (AHORA.strftime("%Y-%m-%d %H:%M"), len(hallazgos), len(nuevos), len(graves), cerradas))
 
 if graves:
     cuerpo = ("El vigilante del bot detectó situaciones que requieren atención:\n\n"
