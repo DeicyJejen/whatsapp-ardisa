@@ -79,5 +79,27 @@ const IN    = 'IN.9198765432100';      // el spam de "Laconic ceramic" (India), 
            'oculto=' + oculto.etapa + ' visible=' + visible.etapa);
 }
 
+// ══ 6) Los errores b/v no pueden costar una cotización (prueba de Deicy, 15-ago 13:46) ═══════════
+// Escribió "quiero cotizar *barilla*" y el bot ni intentó cotizar: la lista de productos dice "varilla".
+// La confusión b/v es EL error de escritura más común del español; se unifican las dos letras en el texto
+// y en el patrón, así que no hay que listar variantes una por una.
+{
+  const CEREBRO_SRC = fs.readFileSync(__dirname + '/cerebro.js', 'utf8');
+  const m = CEREBRO_SRC.match(/const RE_PRODCONC = (\/.*?\/i);/);
+  const RE = eval(m[1]);
+  const _bv = s => String(s || '').toLowerCase().replace(/[bv]/g, 'v');
+  const RE_BV = new RegExp(RE.source.replace(/[bv]/g, 'v'), 'i');
+  const detecta = s => RE.test(String(s || '')) || RE_BV.test(_bv(s));
+  const casos = [['quiero cotizar barilla', true], ['quiero cotizar varilla', true],
+                 ['necesito valdosa para el baño', true], ['necesito baldosa', true],
+                 ['vloque de arcilla', true], ['hola necesito asesoria', false],
+                 ['buenos dias', false]];
+  let bien = 0;
+  for (const [t, esp] of casos) if (detecta(t) === esp) bien++;
+  chequear('b/v: "barilla"≡"varilla" y "valdosa"≡"baldosa", sin confundir un saludo con un producto',
+           bien === casos.length,
+           casos.filter(([t, e]) => detecta(t) !== e).map(([t]) => t).join(' | '));
+}
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

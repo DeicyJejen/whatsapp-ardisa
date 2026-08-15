@@ -50,10 +50,16 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const pre = JSON.stringify(r.wpp_pre || '');
   chequear('La política va en su PROPIO mensaje (wpp_pre), no dentro del saludo',
            !!r.wpp_pre && r.hay_pre === true &&
-           /Autorizaci[oó]n para el tratamiento de datos personales/i.test(pre) &&
+           /Tratamiento de datos personales/i.test(pre) && /GRUPO ARDISA/.test(pre) &&
            /politica-de-datos-personales/.test(pre), pre.slice(0, 260));
-  chequear('El aviso cita la norma y dice cómo oponerse (sin salida clara no hay conducta inequívoca)',
-           /Ley 1581/.test(pre) && /Decreto 1377/.test(pre) && /NO AUTORIZO/.test(pre), pre.slice(0, 400));
+  // Corrección de Deicy (15-ago): NADA de "responde NO AUTORIZO" — eso es el mismo peaje que quitamos,
+  // solo que escrito. Pero la Ley 1581 art. 8 obliga a informar los derechos del titular, revocar incluido:
+  // se enuncia el DERECHO y el canal, sin pedirle al cliente que haga nada.
+  chequear('El aviso cita la norma y enuncia los derechos (informado, sin pedir nada)',
+           /Ley 1581/.test(pre) && /Decreto 1377/.test(pre) &&
+           /revocar/i.test(pre) && /ayuda@ardisa\.com/.test(pre), pre.slice(0, 400));
+  chequear('NO le pide al cliente que escriba nada para negarse',
+           !/NO AUTORIZO/.test(pre), pre.slice(0, 400));
   chequear('El mensaje comercial ya NO repite la política',
            !/politica-de-datos-personales/.test(cuerpo(r)), cuerpo(r).slice(0, 200));
   chequear('Ya no hay botones de autorizar/no autorizar',

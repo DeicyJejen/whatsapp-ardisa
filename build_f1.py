@@ -168,6 +168,16 @@ const S = store.ses;
 // Detector ÚNICO de producto concreto (14-ago): lo usan la solicitud vaga Y la compuerta de
 // cotización — 'hola necesito asesoria' o un botón de categoría NO son un producto cotizable.
 const RE_PRODCONC = /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|f[oó]rmica|formica|triplex|tripl|contrachap|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|cl[oó]set|closet|repisa|entrepa[ñn]o|estante|puerta)/i;
+// 2026-08-15 (prueba de Deicy, 13:46): escribió "quiero cotizar *barilla*" y el bot ni intentó cotizar —
+// cerró y la mandó al asesor. La lista dice "varilla"; "barilla" no está, y así no hay producto concreto.
+// Meter la palabra mal escrita sería tapar UN hueco: la confusión b/v es EL error de escritura más común
+// del español, y mañana llegan "valdosa", "vaño", "vloque". Se unifican las dos letras en el texto Y en el
+// patrón, así que "barilla"≡"varilla" y "valdosa"≡"baldosa" sin listar una sola variante.
+// Ojo: se unifica en AMBOS lados o no sirve; y los grupos [aá]/[nñ]/[oó]/[uü] no llevan b ni v, así que
+// la sustitución sobre el patrón es inocua.
+const _bv = s => String(s||'').toLowerCase().replace(/[bv]/g,'v');
+const RE_PRODCONC_BV = new RegExp(RE_PRODCONC.source.replace(/[bv]/g,'v'), 'i');
+const tieneProdConc = s => RE_PRODCONC.test(String(s||'')) || RE_PRODCONC_BV.test(_bv(s));
 const wa = d.wa_id;
 // 14-ago (BSUID): cliente con número OCULTO de WhatsApp — no hay teléfono, solo el código privado.
 // El asesor NO puede escribirle por fuera: la única vía es la línea del bot. Las tarjetas lo dicen claro.
@@ -415,16 +425,28 @@ const POLITICA_URL='https://www.ardisa.com/politica-de-datos-personales/';
 // en dos mensajes, el primero el de políticas, y que quede más profesional"). Aparte por dos razones: se
 // lee como lo que es —una comunicación formal, no un renglón perdido dentro de un saludo— y queda como un
 // mensaje propio en el chat del cliente, que es donde vive la evidencia si algún día alguien pregunta.
-// La salida (*NO AUTORIZO*) es deliberada: sin una vía clara de oponerse, la "conducta inequívoca" del
-// Decreto 1377 art. 7 se sostiene mucho peor. Que sea fácil decir que no es lo que hace válido el sí.
+// 2026-08-15, corrección de Deicy: la primera versión cerraba con "si no deseas, responde *NO AUTORIZO*"
+// y ella lo cortó de raíz — "para eso se dejan las dos opciones que teníamos". Tenía razón: pedirle al
+// cliente que escriba algo para negarse es el MISMO peaje que acabábamos de quitar, solo que escrito.
+// Pero borrar toda mención tampoco sirve: la Ley 1581 (art. 8) obliga a INFORMAR los derechos del titular,
+// y entre ellos está revocar. La salida es un DERECHO ENUNCIADO, no una pregunta: se dice que puede
+// conocer, actualizar, rectificar y revocar, y por dónde. No le pide nada y cumple igual.
+// OJO: la rama que atiende a quien escriba "no autorizo" SIGUE viva en el código — solo se dejó de
+// anunciar. Quien se niegue expresamente se respeta igual.
+// Formato pensado para la PANTALLA del teléfono, no para el papel: WhatsApp no tiene tipografías ni
+// tamaños, así que lo único que da jerarquía son los renglones cortos, la negrita y el espacio en blanco.
+// Un bloque corrido de seis líneas se ve amontonado; separado en tres ideas se lee formal.
 const MSG_POLITICA =
-  '📄 *Autorización para el tratamiento de datos personales*\n\n'
- +'Te damos la bienvenida a *Grupo Ardisa* (Ardisa · Carpincentro).\n\n'
- +'Al continuar la conversación por este medio autorizas el tratamiento de tus datos personales conforme '
- +'a la *Ley 1581 de 2012* y al *Decreto 1377 de 2013*. Usamos tus datos únicamente para atender tu '
- +'solicitud comercial y ponerte en contacto con el asesor correspondiente.\n\n'
- +'Consulta nuestra política de tratamiento de datos:\n'+POLITICA_URL+'\n\n'
- +'_Si no deseas que tratemos tus datos, responde *NO AUTORIZO* y no continuaremos._';
+  '*GRUPO ARDISA*\n'
+ +'_Ardisa · Carpincentro_\n'
+ +'━━━━━━━━━━━━━━━\n'
+ +'*Tratamiento de datos personales*\n\n'
+ +'Al continuar esta conversación autorizas el tratamiento de tus datos personales, conforme a la '
+ +'*Ley 1581 de 2012* y el *Decreto 1377 de 2013*.\n\n'
+ +'*Finalidad.* Atender tu solicitud comercial y ponerte en contacto con el asesor correspondiente.\n\n'
+ +'*Política completa*\n'+POLITICA_URL+'\n\n'
+ +'*Tus derechos.* Puedes conocer, actualizar, rectificar o revocar tu autorización cuando quieras '
+ +'escribiendo a ayuda@ardisa.com';
 // tipos de adjunto (media) traducidos a español
 const MTYPE_ES = {image:'una imagen',audio:'una nota de voz',video:'un video',document:'un documento',sticker:'una imagen (sticker)',location:'una ubicación',contacts:'un contacto'};
 
@@ -532,7 +554,7 @@ function cerrarLead(st,opts){
     // producto -> el cierre lo veía "vago" y pedía el producto en bucle aunque el cliente YA lo dijo. Se
     // suma la familia de la madera y "tabl" (cubre tablero Y el typo "tableo"). Mismo cambio que en la
     // captura de arriba: el bot debe reconocer que una madera/tablero/herraje ES un producto concreto.
-    const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || RE_PRODCONC.test(_dv);
+    const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || tieneProdConc(_dv);
     const _pareceVago = /(cotiz|cotizar|cotizaci|precio|presupuesto|asesor[ií]a|asesoren|me asesor|ayuda|ay[uú]den|orientaci[oó]n|informaci[oó]n|informes?|colabor|comprar|adquirir|interesad)/i.test(_dv) && !_tieneProd;
     // GENÉRICO SIN PRODUCTO (2026-07-17, caso Arley "Un producto"): el cliente no dio un producto concreto -> NO cerramos a medias.
     const _dvLimpio = _dv.replace(/[^a-z0-9áéíóúñ]/gi,'');
@@ -1173,7 +1195,7 @@ function intentaCotizar(){
     // 14-ago (caso Oscar 'hola necesito asesoria'): un saludo, una categoría del menú o 'necesito
     // asesoría' NO son un producto — sin producto CONCRETO no se promete '¡ya te confirmo
     // disponibilidad!'; el flujo normal pregunta el producto y la cotización llega en el cierre real.
-    if(!( /\d/.test(_base) || RE_PRODCONC.test(_base) || (st.iaProd && String(st.iaProd).trim()) )) return false;
+    if(!( /\d/.test(_base) || tieneProdConc(_base) || (st.iaProd && String(st.iaProd).trim()) )) return false;
     st.paso='cotizacion'; st.cotN=1; st.t=NOW;
     st.cotHist=[{role:'user', content:[..._base].slice(0,400).join('')}];
     // ACUSE INMEDIATO (pedido Deicy 13-ago, "se demoró mucho"): la consulta a SAP toma 5-10s; este texto
