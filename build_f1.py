@@ -1033,8 +1033,22 @@ function _cotReq(stC){
         +'con lo que sí sabes: si lo manejamos y si hay disponibilidad. NUNCA digas que no puedes consultarlo. ')
     +'(5) Del inventario di solamente si HAY o NO HAY disponibilidad en la ciudad, sin cantidades exactas. En LISTAS no repitas "hay disponibilidad" en cada renglón: si TODO tiene, dilo UNA vez al final ("todo con disponibilidad en tu ciudad"); menciona renglón por renglón solo lo que NO tenga. '
     +'(6) Escribe en plural (nosotros), tono cálido, tuteo; para 1-2 productos máximo 5 frases más una '
-    +'pregunta final; si el cliente pidió VARIOS productos (una lista), responde en LISTA: un renglón por '
-    +'producto con su marca y unidad de venta'
+    +'pregunta final. '
+    // 2026-08-15 (lista de drywall de Deicy: "se ve todo amontonado, toca dejar espacio entre producto"):
+    // "un renglón por producto" NO se cumple cuando el renglón trae marca, unidad, precio y disponibilidad
+    // — se envuelve en 4 líneas y las 7 fichas quedan pegadas como un muro. En WhatsApp el aire es lo
+    // único que hace legible una lista, así que el formato se pide EXPLÍCITO, con su ejemplo.
+    +'FORMATO DE LISTA (si el cliente pidió VARIOS productos): un BLOQUE por producto, separados por UNA '
+    +'LÍNEA EN BLANCO, exactamente así:\n\n'
+    +'*Nombre del producto*\n'
+    +'Marca · unidad de venta\n'
+    +(_hayPrecio ? '💲 $X.XXX (precio de referencia con IVA)\n' : '')
+    +'✅ Con disponibilidad en '+(stC.ciudad||'tu ciudad')+'\n\n'
+    +'Reglas del bloque: SIN guiones ni viñetas al comienzo; máximo DOS renglones de texto libre por '
+    +'producto; si algo no lo hallamos, ese bloque lleva solo el nombre y una línea diciéndolo; si NO hay '
+    +'disponibilidad, cambia el ✅ por ⚠️. Las aclaraciones largas (que se vende por kits, que hay varios '
+    +'acabados) NO van dentro del bloque: van al final, agrupadas, o se convierten en tu pregunta de cierre. '
+    +'Nada de párrafos dentro de la lista'
     +(_hayPrecio ? ' y su precio de referencia (o "el valor te lo confirma tu asesor" si no aparece en lista)' : '')
     +'. Responde TODOS los productos pedidos en UN solo mensaje: PROHIBIDO responder solo algunos y preguntar si "seguimos con los demás". Da primero TODA la información; las preguntas de detalle (color, referencia) van al final y no reemplazan la información. Cierra con una sola pregunta. '
     +'(7) NUNCA menciones sistemas, herramientas, SAP, códigos internos, ni digas que eres una IA o un bot. '
@@ -3264,7 +3278,7 @@ if(resp.error||resp.type==='error'||!usos.length){ return [{json:resp}]; }
 return usos.map(u=>({json:{tuse:{id:u.id, name:u.name, input:(u.input||{})}, historia:historia}}));
 """
 
-def _code_armar(repartir, fuente_req, final=False):
+def _code_armar(repartir, fuente_req, final=False, empuje=None):
     # Junta los resultados de SAP (vienen como texto SSE "data: {...}") y arma la SIGUIENTE consulta:
     # la historia + un turno user con los tool_result (id emparejado con cada tool_use del modelo).
     return r"""
@@ -3301,7 +3315,14 @@ const resultados=items.map((it,ix)=>({type:'tool_result', tool_use_id:(tuses[ix]
 // tool_use/tool_result (da 400). Por eso se prohíbe usarlas en vez de borrarlas.
 resultados.push({type:'text', text:'Ya no puedes consultar más herramientas. Responde AHORA al cliente con la información que YA tienes, siguiendo tus reglas. Si te faltó un dato concreto (por ejemplo el precio), dilo con naturalidad y remítelo a su asesor; no inventes nada. Responde [ASESOR] solo si no conseguiste NADA útil.'});
 const _tc={type:'none'};
-""" if final else "\nconst _tc=null;\n") + r"""
+""" if final else ("\nconst _tc=null;\n" + ((
+  "// EMPUJÓN DE LA ÚLTIMA VUELTA CON HERRAMIENTAS (2026-08-15). En la lista de drywall de Deicy el\n"
+  "// modelo gastó las TRES vueltas buscando (7+5+4 búsquedas) y nunca pidió un solo precio: la\n"
+  "// respuesta salió sin valores y remitiendo todo al asesor. La regla ya estaba en el prompt del\n"
+  "// sistema, pero con listas largas se le va la mano buscando. Aquí se le recuerda EN EL MOMENTO,\n"
+  "// que es cuando pesa: el prompt del sistema queda lejos tras 16 resultados de búsqueda.\n"
+  "resultados.push({type:'text', text:%s});\n" % json.dumps(empuje, ensure_ascii=False)
+) if empuje else ""))) + r"""
 const _req={model:req.model, max_tokens:req.max_tokens, system:req.system, tools:req.tools,
   messages: historia.concat([{role:'user', content:resultados}])};
 if(_tc) _req.tool_choice=_tc;
@@ -3340,7 +3361,11 @@ nodes.append(node("Repartir herramientas R2", "n8n-nodes-base.code", 2, {"jsCode
 nodes.append(_if_fin("¿Fin R2?", 3300, 560))
 nodes.append(_http_mcp_init("SAP sesión R2", 3520, 560))
 nodes.append(_http_mcp_call("SAP consulta R2", "Repartir herramientas R2", 3740, 560))
-nodes.append(node("Armar consulta R3", "n8n-nodes-base.code", 2, {"jsCode":_code_armar("Repartir herramientas R2", "Armar consulta R2")}, 3960, 560))
+_EMPUJE_R3 = ("Este es tu ÚLTIMO turno con herramientas. NO vuelvas a buscar productos: con lo que ya "
+  "tienes, elige el item_code que mejor encaje con cada cosa pedida y llama AHORA, en este mismo turno y "
+  "en paralelo, precio y disponibilidad de TODOS ellos. Si de algún producto no encontraste nada, "
+  "simplemente lo reportarás como no hallado en tu respuesta final; no gastes este turno buscándolo.")
+nodes.append(node("Armar consulta R3", "n8n-nodes-base.code", 2, {"jsCode":_code_armar("Repartir herramientas R2", "Armar consulta R2", empuje=_EMPUJE_R3)}, 3960, 560))
 nodes.append(_http_anthropic("💰 IA R3", 4180, 560))
 # 2026-08-15: R3 dejó de ser el final. Antes, si en R3 el modelo pedía herramientas se cortaba y el cliente
 # iba al asesor; ahora R3 TAMBIÉN puede consultar SAP y la respuesta se redacta en R4, que va sin
