@@ -1338,7 +1338,7 @@ function siguientePaso(st){
     wpp_body=boton(wa,'¡Con gusto te ayudamos! ¿Tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA); return; }
   if(!st.nombre){ st.paso='nombre'; etapa='nombre'; st.acuse='';
     const _lead = _op || (prodTxt?('¡Perfecto! Con gusto gestionamos tu consulta'+prodTxt+'.\n'):'¡Perfecto! ');
-    wpp_body=txt(wa,_lead+'👤 Para asignarte el asesor especializado, ¿nos confirmas tu *nombre y apellido*?'); return; }
+    wpp_body=txt(wa,_lead+'👤 ¿Nos confirmas tu *nombre y apellido*?'); return; }
   if(!st.ciudadId){ st.paso='ciudad'; etapa='ciudad'; st.acuse='';
     const _lead = _op || ('Gracias, '+nom+'. ');
     wpp_body=ciudadMenu(_lead+'📍 ¿En qué *ciudad* te encuentras?', (st.marca==='Ardisa'?CIU_ARD:CIU)); return; }
@@ -1346,7 +1346,7 @@ function siguientePaso(st){
   // Lead de formulario/anuncio con grupo YA deducido por el producto: NO preguntamos el perfil (el cliente de un anuncio
   // rara vez responde otra pregunta) -> cerramos de una y el asesor afina. Los demás flujos SÍ piden el perfil.
   if(!st.ocupacion && !(st.origen==='formulario' && st.grupo)){ st.paso='ocuArd'; etapa='ocuArd'; st.acuse='';
-    wpp_body=lista(wa,_op+'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR); return; }
+    wpp_body=lista(wa,_op+'🧑‍💼 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OAR); return; }
   finalizeIA(st);
 }
 function arrancarIA(st, ia, detalle){
@@ -1400,7 +1400,7 @@ function carpSiguiente(st){
     return {etapa:'punto', wpp_body: lista(wa,'📍 ¿Cuál punto de *Carpincentro* te queda más cerca?','Ver puntos',('Puntos '+(st.ciudad||'')),pts.map((p,i)=>['PT_'+i,p.tienda,p.dir]))}; }
   if(pts.length===1) st.puntoIdx=0;
   st.paso='ocupacion';
-  return {etapa:'ocupacion', wpp_body: lista(wa,'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA)};
+  return {etapa:'ocupacion', wpp_body: lista(wa,'🪵 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OCA)};
 }
 
 // ¿El saludo debe RETOMAR en vez de reiniciar? Sí cuando la sesión venía a mitad de la recolección, es reciente
@@ -1425,8 +1425,8 @@ function repreguntar(st, pre){
     case 'nombre':      return txt(wa, pre+'👤 ¿Me confirmas tu *nombre y apellido*?');
     case 'ciudad':      return ciudadMenu(pre+'📍 ¿En qué *ciudad* te encuentras?', (st.marca==='Ardisa'?CIU_ARD:CIU));
     case 'ciudadOtra':  return txt(wa, pre+'📍 ¿En qué *ciudad* te encuentras? Escríbela aquí (ciudad y departamento).');
-    case 'ocuArd':      return lista(wa, pre+'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR);
-    case 'ocupacion':   return lista(wa, pre+'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA);
+    case 'ocuArd':      return lista(wa, pre+'🧑‍💼 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OAR);
+    case 'ocupacion':   return lista(wa, pre+'🪵 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OCA);
     case 'punto': {
       const _p = puntosDe(st.ciudadId);
       if(_p.length>1) return lista(wa, pre+'📍 ¿Cuál punto de *Carpincentro* te queda más cerca?','Ver puntos',('Puntos '+(st.ciudad||'')),_p.map((p,i)=>['PT_'+i,p.tienda,p.dir]));
@@ -2315,7 +2315,7 @@ if(preguntaHorario){
       if(av){ st.fuera=true; st.cuando=av.cuando; } else { st.fuera=false; }
       if(st.nombre && st.ciudadId){   // cliente que regresa: ya tenemos nombre y ciudad -> saltamos directo a ocupación
         if(st.marca==='Ardisa'){ st.paso='ocuArd'; etapa='ocuArd';
-          wpp_body=lista(wa,'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR); }
+          wpp_body=lista(wa,'🧑‍💼 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OAR); }
         else { const r=carpSiguiente(st); etapa=r.etapa; wpp_body=r.wpp_body; }
       } else {
         st.paso='nombre'; etapa='nombre';
@@ -2337,7 +2337,7 @@ if(preguntaHorario){
       etapa='nombre';
       wpp_body= (st.nombreIntentos>=2)
         ? txt(wa,'Para registrar tu solicitud necesito el *nombre de la persona* (nombre y apellido). ✍️')
-        : txt(wa,'👤 Para asignarte el asesor correcto, ¿nos confirmas tu *nombre y apellido*?');
+        : txt(wa,'👤 ¿Nos confirmas tu *nombre y apellido*?');
     } else { delete st.nombreIntentos; st.nombre=capNombre(_n); siguientePaso(st); } }
 } else if(st.paso==='ciudad'){
   const c=elige(st.marca==='Ardisa'?CIU_ARD:CIU);
@@ -2354,7 +2354,7 @@ if(preguntaHorario){
   else { st.ciudad=c[1]; st.ciudadId=c[0];
     if(st.escape){ if(!st.detalle) st.detalle='(el cliente pidió hablar con un asesor)'; const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
     else if(st.marca==='Ardisa'){ st.paso='ocuArd'; etapa='ocuArd';
-      wpp_body=lista(wa,'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR); }
+      wpp_body=lista(wa,'🧑‍💼 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OAR); }
     else { const r=carpSiguiente(st); etapa=r.etapa; wpp_body=r.wpp_body; } }
 } else if(st.paso==='ciudadOtra'){   // capturó "Otra ciudad" -> pedimos la ciudad real por texto (ciudadId sigue 'OTRA' -> sin asesor asignado, pero guardamos la ciudad para el humano)
   if(es_media||!texto){ etapa='ciudadOtra'; wpp_body=txt(wa,'Por favor escríbenos tu *ciudad*. 📍'); }
@@ -2364,11 +2364,11 @@ if(preguntaHorario){
     const _mc=matchCiudad(st.marca, st.ciudad); if(_mc){ st.ciudad=_mc[1]; st.ciudadId=_mc[0]; }
     if(st.escape){ if(!st.detalle) st.detalle='(el cliente pidió hablar con un asesor)'; const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
     else if(st.marca==='Ardisa'){ st.paso='ocuArd'; etapa='ocuArd';
-      wpp_body=lista(wa,'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR); }
+      wpp_body=lista(wa,'🧑‍💼 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OAR); }
     else { const r=carpSiguiente(st); etapa=r.etapa; wpp_body=r.wpp_body; } }
 } else if(st.paso==='ocuArd'){   // solo Ardisa: la ocupación es el tipo de cliente
   const o=elige(OAR);
-  if(!o){ wpp_body=lista(wa,'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OAR); }
+  if(!o){ wpp_body=lista(wa,'🧑‍💼 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OAR); }
   else { st.ocupacion=o[1];
     if(o[0]==='OAR_MOBIL'){ st.grupo='MOBILIARIO'; st.interes=_gInt('MOBILIARIO'); }   // elección EXPLÍCITA del cliente -> manda sobre lo que hubiera deducido la IA
     if(st.iaPend){   // la IA ya tomó la solicitud al inicio -> el PRODUCTO define el grupo; si no lo definió, la ocupación es el respaldo -> cerramos
@@ -2392,7 +2392,7 @@ if(preguntaHorario){
       } else { st.paso='detalle'; etapa='detalle'; wpp_body=txt(wa,MSG_DETALLE); } } }
 } else if(st.paso==='ocupacion'){   // solo Carpincentro
   const o=elige(OCA);
-  if(!o){ wpp_body=lista(wa,'🧑‍💼 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA); }
+  if(!o){ wpp_body=lista(wa,'🧑‍💼 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OCA); }
   else { st.ocupacion=o[1]; st.tiposol=st.tiposol||'Cotización / Info';
     if(st.iaPend){ finalizeIA(st); }   // la IA ya tomó la solicitud al inicio -> cerramos (ruteo por ciudad/punto)
     else if(st.notas && [...st.notas].length>=6){   // el cliente YA dijo qué necesita -> no re-preguntamos; cerramos con eso
@@ -2410,7 +2410,7 @@ if(preguntaHorario){
     }
     wpp_body=lista(wa,'Por favor elige el *punto* más cercano. 👇','Ver puntos',('Puntos '+(st.ciudad||'')),opts); }
   else { st.puntoIdx=parseInt(o[0].slice(3),10); st.paso='ocupacion'; etapa='ocupacion';
-    wpp_body=lista(wa,'🪵 Para asignarte el asesor experto, elige tu *perfil* 👇','Elegir opción','Tipo de cliente',OCA); }
+    wpp_body=lista(wa,'🪵 ¿Cuál es tu *perfil*? 👇','Elegir opción','Tipo de cliente',OCA); }
 } else if(st.paso==='detalle'){
   // ¿El texto del paso final es BASURA de verdad? (2026-08-12): solo entonces se interroga. Un producto que
   // la IA no reconoce ("tapa luz", "geotextil nt 40") NO es basura. Basura = muy corto, saludo suelto, o
