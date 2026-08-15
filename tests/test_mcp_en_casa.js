@@ -4,12 +4,20 @@
 // la ejecuta contra mcp.ardisa.com. Esta prueba fija los 3 nodos del loop:
 //   Repartir herramientas R1  -> ¿terminó o pidió herramientas? (un item por llamada)
 //   Armar consulta R2         -> junta los resultados SSE de SAP y arma la siguiente vuelta
-//   Cerrar cotización R3      -> tope de vueltas: fuerza el camino del asesor
+//   Armar consulta R4         -> la ÚLTIMA vuelta: prohíbe herramientas para que SIEMPRE haya respuesta
+//   Cerrar cotización R4      -> red de seguridad del final
 const fs = require('fs');
-const REPARTIR = fs.existsSync(__dirname + '/n_repartir1.js') ? fs.readFileSync(__dirname + '/n_repartir1.js', 'utf8') : null;
-const ARMAR    = fs.existsSync(__dirname + '/n_armar_r2.js')  ? fs.readFileSync(__dirname + '/n_armar_r2.js', 'utf8')  : null;
-const CERRAR   = fs.existsSync(__dirname + '/n_cerrar_r3.js') ? fs.readFileSync(__dirname + '/n_cerrar_r3.js', 'utf8') : null;
-if (!REPARTIR || !ARMAR || !CERRAR) { console.log('  OK   | (nodos MCP-en-casa no disponibles en este arnés)'); process.exit(0); }
+const leer = (f) => fs.existsSync(__dirname + '/' + f) ? fs.readFileSync(__dirname + '/' + f, 'utf8') : null;
+const REPARTIR    = leer('n_repartir1.js');
+const ARMAR       = leer('n_armar_r2.js');
+const ARMAR_FINAL = leer('n_armar_r4.js');
+const CERRAR      = leer('n_cerrar_r3.js');
+// 2026-08-15: antes esto imprimía "OK" y salía con éxito cuando faltaba un nodo — o sea que una prueba
+// que no probaba NADA se veía igual que una que pasó. Faltar un nodo es un FALLO.
+if (!REPARTIR || !ARMAR || !ARMAR_FINAL || !CERRAR) {
+  console.log('  FALLA | faltan nodos del arnés MCP (¿se renombró alguno en build_f1.py?)');
+  process.exit(1);
+}
 
 // Arnés: $('Nodo') resuelve fixtures; $input entrega los items de entrada
 function correrCode(code, entrada, nodos) {
@@ -88,15 +96,45 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
            JSON.stringify(ultimo.content).slice(0, 200));
 }
 
-// ══ 5. Cerrar R3: si a la 3ª vuelta sigue pidiendo herramientas -> fallo forzado (asesor) ══
+// ══ 5. Armar R4 — LA ÚLTIMA VUELTA (2026-08-15, caso Deicy 15-ago 12:06) ══════════════════════════
+// El modelo había buscado la varilla, había elegido la referencia correcta y estaba pidiendo precio y
+// disponibilidad justo cuando se le acabaron las vueltas: el cliente acabó donde el asesor teniéndolo
+// TODO. Ahora la última vuelta va con tool_choice:'none' -> no puede pedir herramientas, tiene que
+// responder. Lo que NO se puede hacer es quitar `tools`: la API las exige mientras la conversación traiga
+// bloques tool_use/tool_result (responde 400). Por eso se PROHÍBEN, no se borran.
+{
+  const tuses = [{ tuse: { id: 'tu_9', name: 'precio_articulo', input: {} }, historia: [{ role: 'user', content: 'x' }] }];
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const entrada = [sse({ result: { content: [{ type: 'text', text: 'PRECIO_12345' }] } })];
+  const out = correrCode(ARMAR_FINAL, entrada, {
+    'Repartir herramientas R3': tuses, 'Armar consulta R3': { cot_req: COT_REQ } });
+  const req = out[0].json.cot_req;
+  const ultimo = req.messages[req.messages.length - 1];
+  chequear('la última vuelta PROHÍBE herramientas (tool_choice none)',
+           req.tool_choice && req.tool_choice.type === 'none', JSON.stringify(req.tool_choice));
+  chequear('pero las tools SIGUEN declaradas (quitarlas da 400 en la API)',
+           Array.isArray(req.tools) && req.tools.length === 1, JSON.stringify(req.tools).slice(0, 80));
+  chequear('el resultado de SAP llega igual + la orden de responder ya',
+           JSON.stringify(ultimo.content).includes('PRECIO_12345') &&
+           ultimo.content[ultimo.content.length - 1].type === 'text' &&
+           /Responde AHORA/.test(ultimo.content[ultimo.content.length - 1].text),
+           JSON.stringify(ultimo.content).slice(0, 200));
+  // Las vueltas intermedias NO deben llevar tool_choice: ahí el modelo sí puede consultar.
+  const medio = correrCode(ARMAR, entrada, {
+    'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ } });
+  chequear('las vueltas intermedias NO prohíben herramientas',
+           !medio[0].json.cot_req.tool_choice, JSON.stringify(medio[0].json.cot_req.tool_choice));
+}
+
+// ══ 6. Cerrar R4: red de seguridad (ya no debería saltar, pero si salta, el cliente no se pierde) ══
 {
   const conTool = { content: [{ type: 'tool_use', id: 't', name: 'buscar_producto', input: {} }] };
   const out = correrCode(CERRAR, [conTool], {});
-  chequear('3ª vuelta con tool_use -> type error (Entregar manda el mensaje neutro + asesor)',
+  chequear('si aun así pidiera herramientas -> type error (mensaje neutro + asesor)',
            out[0].json.type === 'error', JSON.stringify(out).slice(0, 100));
   const final = { content: [{ type: 'text', text: 'Respuesta final' }], stop_reason: 'end_turn' };
   const out2 = correrCode(CERRAR, [final], {});
-  chequear('3ª vuelta con texto -> pasa derecho', out2[0].json.stop_reason === 'end_turn', JSON.stringify(out2).slice(0, 100));
+  chequear('vuelta final con texto -> pasa derecho', out2[0].json.stop_reason === 'end_turn', JSON.stringify(out2).slice(0, 100));
 }
 
 console.log(ok + '/' + total + ' pruebas pasan');

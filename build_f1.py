@@ -942,13 +942,20 @@ function _cotReq(stC){
   const _hayPrecio=_toolPrecio!=='';
   const _sys='Haces parte del equipo de atención al cliente de '+(stC.marca||'Grupo Ardisa')+' (Grupo Ardisa, Colombia). '
     +'Un cliente pregunta por productos. El cliente está en la ciudad de '+(stC.ciudad||'Bucaramanga')+'. REGLAS ESTRICTAS: '
-    +'(0) ADMINISTRA TUS TURNOS — tienes máximo 3 turnos de herramientas: 1º busca con buscar_producto '
+    +'(0) ADMINISTRA TUS TURNOS — tienes máximo 3 turnos de herramientas y un 4º turno en el que YA NO '
+    +'podrás consultar nada y tendrás que responder con lo que tengas: 1º busca con buscar_producto '
     +'usando SOLO el nombre de cada producto, SIN cantidades, medidas de compra ni presentaciones '
     +'(busca "cemento gris", NUNCA "cemento gris 25kg" ni "cemento gris bulto" — la presentación la eliges '
     +'entre los resultados); si el cliente pidió VARIOS productos, haz TODAS las búsquedas EN PARALELO en ese '
-    +'mismo primer turno (una llamada por producto, juntas). NUNCA repitas una búsqueda con variantes; de los '
-    +'resultados elige el o los productos que mejor encajen con lo pedido; 2º consulta disponibilidad y precio '
-    +'de los elegidos EN PARALELO (todas las llamadas juntas en el mismo turno); 3º responde. '
+    +'mismo primer turno (una llamada por producto, juntas). NUNCA repitas una búsqueda con variantes cuando '
+    +'ya te salieron resultados: de los que hay, elige el o los que mejor encajen con lo pedido. '
+    +'(0b) LA ÚNICA repetición permitida: si una búsqueda devolvió total 0, vuelve a buscar ESE producto UNA '
+    +'sola vez con MENOS palabras — quédate con 1 o 2 palabras clave y quita medidas, códigos, colores y '
+    +'marcas (si "Melaminico Unicor Mdf Wengue Tex Madera 183X244X5.5" da 0, busca "melamina"; si "varilla '
+    +'corrugada 1/2 x 6m" da 0, busca "varilla"). Escalar a [ASESOR] tras un solo 0 está PROHIBIDO. '
+    +'2º consulta disponibilidad y precio de los elegidos EN PARALELO (todas las llamadas juntas en el mismo '
+    +'turno); 3º responde. Si vas por el 3er turno y aún no has consultado precio ni disponibilidad, hazlo '
+    +'YA en ese turno: es tu última oportunidad de consultar. '
     +(_hayPrecio
       ? '(1) Usa las herramientas para identificar el producto y consultar su precio y su disponibilidad en la ciudad del cliente. '
       : '(1) Usa las herramientas para identificar el producto y consultar su disponibilidad en la ciudad del cliente. ')
@@ -997,7 +1004,12 @@ function _cotReq(stC){
      description:'Precio de VENTA de un artículo con IVA calculado y unidad de venta (bulto, caja y sus m2, galón...). Requiere item_code; opcional cantidad y ciudad. Si devuelve error de "no hay precio definido", el producto existe pero sin precio en lista: responde disponibilidad y remite el valor al asesor.',
      input_schema:{type:'object', properties:{item_code:{type:'string'}, card_code:{type:'string'},
        cantidad:{type:'number'}, ciudad:{type:'string'}}, required:['item_code'], additionalProperties:false}});
-  return { model:'claude-sonnet-5', max_tokens:1500, system:_sys, tools:_tools,
+  // max_tokens 1500 -> 4000 (2026-08-15). Con 1500 la lista de 11 productos de Deicy (Viniltex,
+  // Sikafill, rodillos...) se quedó SIN ESPACIO: stop_reason='max_tokens' y la respuesta llegó VACÍA, o
+  // sea que el cliente vio el mensaje neutro del asesor sin que fallara nada. El presupuesto lo consume
+  // también el razonamiento del modelo, así que una lista larga se lo come entero. 4000 da aire de sobra
+  // para un renglón por producto (el tope real de WhatsApp son 4096 caracteres, no tokens).
+  return { model:'claude-sonnet-5', max_tokens:4000, system:_sys, tools:_tools,
     messages:(stC.cotHist||[]).slice(-6) };
 }
 const COTIZA_ON = () => String(PEND.cfg_cotiza||'').trim().toLowerCase()==='si' && String(PEND.cfg_mcp_url||'').trim()!=='';
@@ -3150,7 +3162,7 @@ if(resp.error||resp.type==='error'||!usos.length){ return [{json:resp}]; }
 return usos.map(u=>({json:{tuse:{id:u.id, name:u.name, input:(u.input||{})}, historia:historia}}));
 """
 
-def _code_armar(repartir, fuente_req):
+def _code_armar(repartir, fuente_req, final=False):
     # Junta los resultados de SAP (vienen como texto SSE "data: {...}") y arma la SIGUIENTE consulta:
     # la historia + un turno user con los tool_result (id emparejado con cada tool_use del modelo).
     return r"""
@@ -3177,13 +3189,28 @@ function sacarTexto(j){
 }
 const resultados=items.map((it,ix)=>({type:'tool_result', tool_use_id:(tuses[ix]||{}).id||'',
   content:[{type:'text', text:[...sacarTexto(it.json)].slice(0,4000).join('')}]}));
-return [{json:{cot_req:{model:req.model, max_tokens:req.max_tokens, system:req.system, tools:req.tools,
-  messages: historia.concat([{role:'user', content:resultados}])}}}];
+""" + (r"""
+// ÚLTIMA VUELTA (2026-08-15). Antes, si el modelo seguía pidiendo herramientas en la última vuelta, se
+// devolvía type:'error' ("tope de vueltas") y el cliente iba al asesor — aunque ya tuviéramos TODO. Le
+// pasó a Deicy el 15-ago 12:06: había buscado la varilla, había elegido la referencia correcta y estaba
+// pidiendo precio y disponibilidad justo cuando se le acabaron las vueltas. Ahora la última vuelta no
+// PUEDE pedir herramientas: `tool_choice:{type:'none'}` se lo impide, así que siempre sale una respuesta.
+// OJO: no se pueden QUITAR las `tools` — la API las exige mientras la conversación traiga bloques
+// tool_use/tool_result (da 400). Por eso se prohíbe usarlas en vez de borrarlas.
+resultados.push({type:'text', text:'Ya no puedes consultar más herramientas. Responde AHORA al cliente con la información que YA tienes, siguiendo tus reglas. Si te faltó un dato concreto (por ejemplo el precio), dilo con naturalidad y remítelo a su asesor; no inventes nada. Responde [ASESOR] solo si no conseguiste NADA útil.'});
+const _tc={type:'none'};
+""" if final else "\nconst _tc=null;\n") + r"""
+const _req={model:req.model, max_tokens:req.max_tokens, system:req.system, tools:req.tools,
+  messages: historia.concat([{role:'user', content:resultados}])};
+if(_tc) _req.tool_choice=_tc;
+return [{json:{cot_req:_req}}];
 """
 
-_CODE_CERRAR_R3 = r"""
-// Tope de vueltas: si a la 3ª el modelo SIGUE pidiendo herramientas, se fuerza el camino del asesor
-// (Entregar cotización trata type:'error' como fallo -> mensaje neutro + el cliente no se pierde).
+_CODE_CERRAR_FINAL = r"""
+// Red de seguridad de la ÚLTIMA vuelta. Ya no debería saltar nunca: esa vuelta va con
+// tool_choice:{type:'none'}, así que el modelo no puede pedir herramientas. Si aun así llegara un
+// tool_use, se cae al asesor como antes (Entregar cotización trata type:'error' como fallo -> mensaje
+// neutro y el cliente no se pierde).
 let resp={}; try{ resp=$input.first().json||{}; }catch(e){}
 const usos=(resp.content||[]).filter(b=>b&&b.type==='tool_use');
 if(usos.length && !resp.error){ return [{json:{type:'error', error:{message:'tope de vueltas de herramientas'}}}]; }
@@ -3213,7 +3240,17 @@ nodes.append(_http_mcp_init("SAP sesión R2", 3520, 560))
 nodes.append(_http_mcp_call("SAP consulta R2", "Repartir herramientas R2", 3740, 560))
 nodes.append(node("Armar consulta R3", "n8n-nodes-base.code", 2, {"jsCode":_code_armar("Repartir herramientas R2", "Armar consulta R2")}, 3960, 560))
 nodes.append(_http_anthropic("💰 IA R3", 4180, 560))
-nodes.append(node("Cerrar cotización R3", "n8n-nodes-base.code", 2, {"jsCode":_CODE_CERRAR_R3}, 4400, 560))
+# 2026-08-15: R3 dejó de ser el final. Antes, si en R3 el modelo pedía herramientas se cortaba y el cliente
+# iba al asesor; ahora R3 TAMBIÉN puede consultar SAP y la respuesta se redacta en R4, que va sin
+# herramientas (tool_choice:'none') y por lo tanto SIEMPRE contesta. Tres vueltas para consultar, una para
+# responder — que es justo lo que le faltó a la prueba del 15-ago (buscar -> afinar -> precio -> responder).
+nodes.append(node("Repartir herramientas R3", "n8n-nodes-base.code", 2, {"jsCode":_code_repartir("Armar consulta R3")}, 4400, 560))
+nodes.append(_if_fin("¿Fin R3?", 4620, 560))
+nodes.append(_http_mcp_init("SAP sesión R3", 4840, 560))
+nodes.append(_http_mcp_call("SAP consulta R3", "Repartir herramientas R3", 5060, 560))
+nodes.append(node("Armar consulta R4", "n8n-nodes-base.code", 2, {"jsCode":_code_armar("Repartir herramientas R3", "Armar consulta R3", final=True)}, 5280, 560))
+nodes.append(_http_anthropic("💰 IA R4 (sin herramientas)", 5500, 560))
+nodes.append(node("Cerrar cotización R4", "n8n-nodes-base.code", 2, {"jsCode":_CODE_CERRAR_FINAL}, 5720, 560))
 nodes.append(node("Entregar cotización", "n8n-nodes-base.code", 2, {"jsCode":_CODE_ENTREGAR_COT}, 1760, 640))
 nodes.append(node("Responder cotización (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$json.wpp_body"), 1980, 640,
     {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,
@@ -4019,8 +4056,14 @@ connections = {
  "SAP sesión R2": {"main":[[{"node":"SAP consulta R2","type":"main","index":0}]]},
  "SAP consulta R2": {"main":[[{"node":"Armar consulta R3","type":"main","index":0}]]},
  "Armar consulta R3": {"main":[[{"node":"💰 IA R3","type":"main","index":0}]]},
- "💰 IA R3": {"main":[[{"node":"Cerrar cotización R3","type":"main","index":0}]]},
- "Cerrar cotización R3": {"main":[[{"node":"Entregar cotización","type":"main","index":0}]]},
+ "💰 IA R3": {"main":[[{"node":"Repartir herramientas R3","type":"main","index":0}]]},
+ "Repartir herramientas R3": {"main":[[{"node":"¿Fin R3?","type":"main","index":0}]]},
+ "¿Fin R3?": {"main":[[{"node":"Entregar cotización","type":"main","index":0}],[{"node":"SAP sesión R3","type":"main","index":0}]]},
+ "SAP sesión R3": {"main":[[{"node":"SAP consulta R3","type":"main","index":0}]]},
+ "SAP consulta R3": {"main":[[{"node":"Armar consulta R4","type":"main","index":0}]]},
+ "Armar consulta R4": {"main":[[{"node":"💰 IA R4 (sin herramientas)","type":"main","index":0}]]},
+ "💰 IA R4 (sin herramientas)": {"main":[[{"node":"Cerrar cotización R4","type":"main","index":0}]]},
+ "Cerrar cotización R4": {"main":[[{"node":"Entregar cotización","type":"main","index":0}]]},
  "Entregar cotización": {"main":[[{"node":"Responder cotización (Meta)","type":"main","index":0},{"node":"¿Hay sesión?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0}]]},
  "¿Guardar seguimiento?": {"main":[[{"node":"Guardar seguimiento (MySQL)","type":"main","index":0}],[]]},
  "Finalizar cierre": {"main":[[{"node":"¿Hay lead 2?","type":"main","index":0}]]},
