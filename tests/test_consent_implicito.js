@@ -55,12 +55,12 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   // Corrección de Deicy (15-ago): NADA de "responde NO AUTORIZO" — eso es el mismo peaje que quitamos,
   // solo que escrito. Pero la Ley 1581 art. 8 obliga a informar los derechos del titular, revocar incluido:
   // se enuncia el DERECHO y el canal, sin pedirle al cliente que haga nada.
-  // La línea de revocación se acortó a un renglón (Deicy: "como que sobra") pero NO se borra: es lo que
-  // sostiene el "pudo negarse y no lo hizo" del Decreto 1377 art. 7, y la Ley 1581 art. 12 obliga a
-  // informar los derechos al recoger los datos. Si alguien la quita, esta prueba se cae.
-  chequear('El aviso cita la norma y dice por dónde revocar (informado, sin pedir nada)',
+  // El renglón de revocación lo quitó Deicy (15-ago), decisión informada. Con él fuera, lo ÚNICO que le
+  // da al cliente una vía para ejercer sus derechos es el ENLACE a la política (Ley 1581 art. 12). Por eso
+  // la prueba se mueve al enlace: si alguien lo quita también, el aviso se queda sin nada y esto se cae.
+  chequear('El aviso cita la norma y conserva el ENLACE a la política (única vía a los derechos)',
            /Ley 1581/.test(pre) && /Decreto 1377/.test(pre) &&
-           /revocar/i.test(pre) && /ayuda@ardisa\.com/.test(pre), pre.slice(0, 400));
+           /politica-de-datos-personales/.test(pre), pre.slice(0, 400));
   chequear('NO le pide al cliente que escriba nada para negarse',
            !/NO AUTORIZO/.test(pre), pre.slice(0, 400));
   chequear('El mensaje comercial ya NO repite la política',

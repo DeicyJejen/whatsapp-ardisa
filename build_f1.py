@@ -438,17 +438,20 @@ const POLITICA_URL='https://www.ardisa.com/politica-de-datos-personales/';
 // con el mismo saludo por hora que el resto del bot, así el cliente ve una conversación, no una circular.
 // Como este mensaje ya saluda, el SEGUNDO (el comercial) dejó de saludar: dos "buenas tardes" seguidas
 // suenan a máquina. Por eso recibe `sal`/`emo` en vez de ser una constante.
-// El renglón de revocación se acortó ("esto como que sobra") pero NO se borra: es la única línea que no es
-// decoración — la autorización se sostiene en que el titular pudo negarse y no lo hizo (Decreto 1377
-// art. 7), y la Ley 1581 art. 12 obliga a informar los derechos al recoger los datos.
+// El renglón "puedes revocar tu autorización… ayuda@ardisa.com" SE QUITÓ por decisión de Deicy (15-ago),
+// tras explicarle el peso legal: la Ley 1581 art. 12 pide informar los derechos del titular al recoger los
+// datos, y la autorización implícita se apoya en que pudo negarse. Queda constancia de que fue una
+// decisión informada, no un descuido. Lo que sostiene el requisito ahora es el ENLACE a la política, que
+// sigue en el mensaje y contiene los derechos y el canal — por eso ese enlace NO se puede quitar también:
+// si algún día se va, el aviso se queda sin ninguna vía para ejercer derechos. Hay prueba que lo vigila.
+// La rama que atiende a quien escriba "no autorizo" sigue viva en el código.
 const msgPolitica = (sal, emo) =>
   '¡'+sal+'! '+emo+'\n\n'
  +'Gracias por escribir a *Grupo Ardisa*. 🙌\n\n'
  +'Antes de continuar: al seguir esta conversación autorizas el tratamiento de tus datos personales, '
  +'conforme a la *Ley 1581 de 2012* y el *Decreto 1377 de 2013*. Los usamos únicamente para atender tu '
  +'solicitud y conectarte con tu asesor.\n\n'
- +'📄 *Política de tratamiento de datos*\n'+POLITICA_URL+'\n\n'
- +'_Puedes revocar tu autorización cuando quieras:_ ayuda@ardisa.com';
+ +'📄 *Política de tratamiento de datos*\n'+POLITICA_URL;
 // tipos de adjunto (media) traducidos a español
 const MTYPE_ES = {image:'una imagen',audio:'una nota de voz',video:'un video',document:'un documento',sticker:'una imagen (sticker)',location:'una ubicación',contacts:'un contacto'};
 
