@@ -137,6 +137,16 @@ const PEND_DET = String(PEND.pend_det||'');   // detalle del lead sin reportar (
 // ¿Autorizó HOY? Lo dice la BD (tabla consentimientos), no la memoria: una carrera de n8n borra la memoria
 // pero no puede borrar la fila. Ver consintioHoy() más abajo. (fix 2026-08-03, caso Rusbel — 120 bultos de cemento)
 const CONS_SI = Number(PEND.cons_si||0) > 0;
+// === AVISO IMPLÍCITO DE DATOS (2026-08-15, decisión de Deicy con el modelo de UNIMINUTO a la vista) ===
+// El muro con botón costaba clientes de verdad: en 30 días llegaron 277 al muro, 253 autorizaron y solo 222
+// acabaron siendo lead — 24 se caían EN el muro y 31 más se cansaban en el formulario que venía detrás.
+// Con el aviso implícito, el saludo informa y la conversación SIGUE en el mismo mensaje: se ahorra un paso
+// entero para todos. Base legal: Ley 1581 pide autorización previa, expresa e informada, y el Decreto 1377
+// art. 7 admite "conductas inequívocas del titular"; por eso se registra la evidencia (aviso mostrado +
+// política vigente + fecha + que el cliente siguió la conversación) en la tabla `consentimientos`.
+// Es un INTERRUPTOR de BD: `UPDATE config SET valor='no' WHERE clave='consent_implicito'` devuelve el muro
+// en segundos, sin desplegar.
+const CONSENT_IMPL = String(PEND.cfg_consent_impl||'').trim().toLowerCase()==='si';
 // Adjuntos de los últimos 45 min según la BD: "mediaid:tipo,mediaid:tipo" -> [{id,tipo}]. A prueba de carreras.
 const ADJ_BD = String(PEND.adj||'').split(',').filter(Boolean).map(s=>{
   const i=s.lastIndexOf(':'); return i<0 ? null : {id:s.slice(0,i), tipo:s.slice(i+1)};
@@ -2031,6 +2041,14 @@ if(preguntaHorario){
     st = S[wa] = { paso:'', t:NOW, consent:true, nombre:prev.nombre, ciudad:prev.ciudad, ciudadId:prev.ciudadId, ocupacion:prev.ocupacion, notas:prev.notas, pidioProd:prev.pidioProd, iaBest:prev.iaBest };
     st.mediaId = d.media_id||''; st.mediaType = d.mtype||''; st.imgDesc=_res;   // descripción de la IA -> línea aparte en la tarjeta
     arrancarIA(st, ia, '');   // detalle del cliente vacío (solo mandó foto); el ruteo usa ia.productos/grupo_pista
+  } else if(CONSENT_IMPL){   // aviso implícito: la foto tampoco frena la conversación (ver CONSENT_IMPL arriba)
+    const _prev0 = S[wa] || {};
+    st = S[wa] = Object.assign({}, _prev0, { paso:(_prev0.paso && _prev0.paso!=='consent') ? _prev0.paso : 'marca',
+      t:NOW, consent:true, pendImgDesc:_res, pendIA:ia, pendMediaId:(d.media_id||''), pendMediaType:(d.mtype||'') });
+    etapa='marca';
+    consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI',
+                  politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
+    wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\n_Al escribirnos por este medio aceptas nuestros términos y el tratamiento de tus datos personales_ 🔒\n📄 '+POLITICA_URL+'\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
   } else {   // primero el consentimiento; guardamos la foto (y lo que entendió) para retomarla al autorizar
     // NO se pisa la sesión entera: si otra ejecución simultánea ya la había hecho avanzar, conservamos su paso.
     // Antes, esta línea era `st = S[wa] = {paso:'consent', ...}` y la foto DEVOLVÍA al cliente al muro.
@@ -2101,6 +2119,31 @@ if(preguntaHorario){
       st.paso='marca'; etapa='marca'; st.notas=[...String(texto)].slice(0,1200).join('');
       wpp_body=boton(wa,'¡Hola! Gracias por dejarnos tus datos 🙌 Con gusto te conectamos con el asesor ideal.\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇',MARCA);
     }
+  } else if(CONSENT_IMPL && /^(no|no autorizo|no acepto|niego|no gracias|no doy autorizaci[oó]n|no autorizo el tratamiento)[\s.,!]*$/i.test(String(low||'').trim())){
+    // La NEGATIVA EXPRESA manda siempre. Sin esto, con el aviso implícito encendido alguien que escribe
+    // "no autorizo" quedaba registrado como que SÍ aceptó — justo lo contrario de lo que dijo, y la peor
+    // falla posible en un permiso de datos. Lo detectó la prueba antes de salir a producción.
+    etapa='noconsent';
+    consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'NO',
+                  politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
+    wpp_body=txt(wa,'Entendido. Sin tu autorización para el tratamiento de datos no podemos gestionar tu solicitud por este medio. Si cambias de opinión, escríbenos cuando quieras y con gusto te atendemos.');
+    S[wa]={paso:'consent', t:NOW, declined:1};
+  } else if(CONSENT_IMPL){
+    // === AVISO IMPLÍCITO (2026-08-15): el permiso se informa y la conversación SIGUE en el mismo mensaje ===
+    // Un paso menos para TODOS. Lo que el cliente ya haya escrito se conserva igual que en el muro, así que
+    // "Costo de la malla geotextil" no se pierde por saludar (caso Emma Sierra).
+    st=S[wa]={paso:'marca',t:NOW,consent:true}; etapa='marca';
+    if(texto && !reinicia && traeSolicitud(texto, low, ia)){ st.pendTexto=[...texto].slice(0,1200).join(''); if(ia && (ia.en_alcance||ia.es_info||ia.es_reclamo)) st.pendIA=ia; }
+    if(es_media && d.media_id){ st.pendMediaId=d.media_id; st.pendMediaType=d.mtype||''; if(!st.pendTexto){ const _r=resumenIA(ia); st.pendTexto='📎 '+(MTYPE_ES[d.mtype]||'un archivo')+(_r?(' — '+_r):''); st.pendIA=(ia&&ia.en_alcance)?ia:null; } }
+    // LA EVIDENCIA es lo que sostiene la "conducta inequívoca" del Decreto 1377: queda la política vigente,
+    // la fecha y el aviso mostrado. decision='SI' porque la columna es varchar(3) y porque así siguen
+    // funcionando el consentimiento versionado y la REVOCACIÓN ('NO' pesa más que un 'SI' anterior);
+    // la MODALIDAD se distingue por el canal -> `SELECT ... WHERE canal='wa-implicito'`.
+    consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI',
+                  politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
+    // Si lo que llegó fue una foto o una nota de voz, se acusa recibo: al cliente que manda un archivo hay
+    // que decirle que llegó, o cree que se perdió (el flujo de foto con lectura de IA entra por otra rama).
+    wpp_body=boton(wa, avisoInicioHorario()+'¡'+saludo+'! '+emoji+'\n\n'+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Bienvenido a *Grupo Ardisa*.\n\n_Al escribirnos por este medio aceptas nuestros términos y el tratamiento de tus datos personales_ 🔒\n📄 '+POLITICA_URL+'\n\nCon gusto te conectamos con el asesor ideal:\n\n🟢 *Ardisa* — remodelación, materiales de construcción y muebles arquitectónicos a tu medida\n🟡 *Carpincentro* — industriales del mueble, carpintería y herrajes\n\n¿*Con cuál te ayudamos*? 👇', MARCA);
   } else {
     // === HABEAS DATA (Opción B, decisión Deicy 2026-07-09): consentimiento EXPLÍCITO como primer paso ===
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
@@ -2960,7 +3003,10 @@ _PEND_SQL = ("SELECT "
     # del piloto vive en la BD. 'demo' = solo CLIENTES_PRUEBA (como siempre); 'todos' = cualquier cliente
     # entra a cotización. Salir en vivo (o retroceder si algo sale mal) es un UPDATE de esta fila, no un
     # deploy — el freno de mano queda a un SQL de distancia, igual que usar_cotiza.
-    "(SELECT valor FROM config WHERE clave='cotiza_alcance' LIMIT 1) AS cfg_cotiza_alcance")
+    "(SELECT valor FROM config WHERE clave='cotiza_alcance' LIMIT 1) AS cfg_cotiza_alcance, "
+    # Interruptor del AVISO IMPLÍCITO de datos (2026-08-15). Vive en la BD, no en el código: encenderlo o
+    # apagarlo es un UPDATE, sin desplegar — si algún día hay que volver al muro, se vuelve en segundos.
+    "(SELECT valor FROM config WHERE clave='consent_implicito' LIMIT 1) AS cfg_consent_impl")
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
      "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
@@ -2983,6 +3029,7 @@ return [{ json: Object.assign({}, d, {
   cfg_mcp_token:p.cfg_mcp_token? String(p.cfg_mcp_token): '',
   cfg_precio_tool: p.cfg_precio_tool ? String(p.cfg_precio_tool).trim() : '',
   cfg_cotiza_alcance: p.cfg_cotiza_alcance ? String(p.cfg_cotiza_alcance) : '',   // 'demo' | 'todos' (en vivo)
+  cfg_consent_impl:   p.cfg_consent_impl   ? String(p.cfg_consent_impl)   : '',   // 'si' = aviso implícito en vez del muro
   rep_hoy:      p.rep_hoy      || 0,
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',
