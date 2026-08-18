@@ -332,15 +332,17 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   await correrCode(ARMAR, conResultados, nodos, helpers2);
   chequear('Si la búsqueda encontró algo, no se reintenta nada', buscadas2.length === 0, String(buscadas2.length));
 
-  // Una sola palabra ya es lo más corto posible: en SAP no hay nada que recortar. (La tienda en línea sí
-  // se consulta — es otro buscador, no un recorte del mismo.)
+  // Una sola palabra Y sin más texto del cliente de dónde sacar candidatas: no hay nada que probar en SAP.
+  // (La tienda en línea sí se consulta — es otro buscador, no un recorte del mismo.)
   const sap3 = [];
   const helpers3 = { httpRequest: async (o) => {
     if (String(o.url).indexOf('graphql') >= 0) return { data: { products: { items: [] } } };
     sap3.push(1); return { headers: {}, body: {} };
   } };
-  const nodos3 = Object.assign({}, nodos, { 'Repartir herramientas R1': [{ tuse: { id: 't1',
-    name: 'buscar_producto', input: { q: 'tornillo' } }, historia: [] }] });
+  const nodos3 = Object.assign({}, nodos, {
+    'Repartir herramientas R1': [{ tuse: { id: 't1', name: 'buscar_producto', input: { q: 'tornillo' } }, historia: [] }],
+    'Cerebro conversacional': { cot_req: Object.assign({}, COT_REQ, { messages: [{ role:'user', content:'tornillo' }] }),
+                                ses_out: JSON.stringify({ marca:'Ardisa' }) } });
   const cero3 = [sse({ result: { content: [{ type: 'text',
     text: JSON.stringify({ query: 'tornillo', total: 0, truncated: false, matches: [] }) }] } })];
   await correrCode(ARMAR, cero3, nodos3, helpers3);
@@ -425,6 +427,44 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   chequear('Y el precio que viaja al modelo sigue siendo el de SAP, nunca el de la web',
            igual.precio_con_iva === 20999.93 && distinto.precio_con_iva === 323205.65,
            igual.precio_con_iva + ' / ' + distinto.precio_con_iva);
+}
+
+// ══ 13. "TAMBOR DE ACRONAL NOVAFLEX" (2026-08-18) ═══════════════════════════════════════════════
+// El modelo buscó SOLO "acronal" —una palabra, nada que recortar— le dio 0 y se rindió explicándole al
+// cliente que Acronal es una resina de BASF. En el mismo mensaje estaba "novaflex", que devuelve 25
+// productos nuestros. Cuando la búsqueda fallida es corta, se miran también las otras palabras de lo que
+// escribió el cliente: la gente mezcla marca, presentación y producto en la misma frase.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const buscadas = [];
+  const helpers = { httpRequest: async (o) => {
+    if (String(o.url).indexOf('graphql') >= 0) return { data: { products: { items: [] } } };
+    const body = typeof o.body === 'string' ? JSON.parse(o.body) : o.body;
+    if (body.method === 'initialize') return { headers: { 'mcp-session-id': 's' }, body: {} };
+    const q = body.params.arguments.q;
+    buscadas.push(q);
+    const r = (q === 'novaflex')
+      ? { query:q, total: 25, truncated: true, matches: [
+          { item_code:'10026433', item_name:'CANASTILLA NOVAFLEX PARA RECINA ACRILICA', unidad:'Und' }] }
+      : { query:q, total: 0, truncated: false, matches: [] };
+    return 'event: message\ndata: ' + JSON.stringify(
+      { result: { content: [{ type: 'text', text: JSON.stringify(r) }] } }) + '\n';
+  } };
+  const REQ = Object.assign({}, COT_REQ, { messages: [{ role:'user', content:'Tambor de acronal novaflex' }] });
+  const nodos = { 'Repartir herramientas R1': [{ tuse: { id:'t1', name:'buscar_producto',
+                    input: { q:'acronal', limit:25 } }, historia: [] }],
+                  'Cerebro conversacional': { cot_req: REQ, ses_out: JSON.stringify({ marca:'Ardisa' }) },
+                  'Unir pendiente': { cfg_mcp_url:'https://mcp.ardisa.com/mcp', cfg_mcp_token:'tok' } };
+  const cero = [sse({ result: { content: [{ type:'text',
+    text: JSON.stringify({ query:'acronal', total:0, truncated:false, matches:[] }) }] } })];
+  const out = await correrCode(ARMAR, cero, nodos, helpers);
+  const d = JSON.parse(out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Con "acronal" en cero, se prueban las otras palabras que escribió el cliente',
+           buscadas.indexOf('novaflex') >= 0, JSON.stringify(buscadas));
+  chequear('Y le llegan los 25 productos que sí tenemos, no un "no lo manejamos"',
+           d.total === 25 && d.busqueda_usada === 'novaflex', JSON.stringify(d).slice(0, 170));
+  chequear('"tambor" no se busca: es una presentación, no un producto',
+           buscadas.indexOf('tambor') < 0, JSON.stringify(buscadas));
 }
 
 console.log(ok + '/' + total + ' pruebas pasan');

@@ -1035,9 +1035,10 @@ function _cotReq(stC){
     +'hasta 3 con su diferencia concreta y su precio, y PREGÚNTALE cuál necesita. Nunca describas una sola '
     +'referencia como si fuera la única que hay, y jamás digas "no es específico para lo que buscas" sin '
     +'antes haber mirado las demás opciones del catálogo. '
-    +'(1c) Di siempre CÓMO SE VENDE cada producto según los datos de las herramientas: la unidad de venta y su '
-    +'contenido si aparece (bulto de 42.5kg, caja que cubre X m2, galón, lámina, unidad...), para que el cliente '
-    +'sepa qué está pidiendo. El precio que devuelve la herramienta es SIEMPRE el de UNA unidad de venta '
+    +'(1c) Di UNA SOLA VEZ cómo se vende cada producto: la unidad de venta y su contenido si aparece (bulto de '
+    +'42.5kg, caja que cubre X m2, galón, lámina, unidad...). PROHIBIDO repetirla: si el renglón ya dice '
+    +'"Und", no vuelvas a escribir "cada uno se vende por unidad" ni a poner "(unidad)" junto al precio — '
+    +'queda la misma palabra tres veces en cuatro renglones y se lee como relleno. El precio que devuelve la herramienta es SIEMPRE el de UNA unidad de venta '
     +'COMPLETA (una caja entera, un bulto entero), nunca el del metro ni el del kilo: si la caja de 2.51 m2 '
     +'vale $36.858, ese es el precio de la caja. Cuando te sirva, puedes decir además cuánto sale la medida '
     +'(precio de la caja ÷ los m2 que trae), pero deja clarísimo qué es cada número. '
@@ -1053,6 +1054,13 @@ function _cotReq(stC){
     +'(2) SOLO afirma datos que devuelvan las herramientas; PROHIBIDO inventar precios, referencias o inventario. '
     +(_hayPrecio
       ? '(3) Si NADA de lo pedido aparece o las herramientas fallan del todo, responde únicamente: [ASESOR]. '
+        +'(3a0) SI UNA BÚSQUEDA TRAJO RESULTADOS, ESOS SON EL CATÁLOGO. Está PROHIBIDO responder "no '
+        +'logramos identificar", "no tenemos registrada esa referencia" o explicarle al cliente de qué marca '
+        +'viene el nombre que usó, cuando tienes una lista de productos delante: elige el o los que más se '
+        +'parecen a lo que pidió y ofréceselos con su precio, diciendo que es lo que manejamos. El cliente '
+        +'llama a los productos por nombres comerciales, de marca o de presentación que casi nunca coinciden '
+        +'con el nombre del catálogo (pide "acronal" y lo nuestro es una resina acrílica; pide "tambor" y '
+        +'nosotros lo vendemos en cuñete). Tu trabajo es hacer ese puente, no explicarle por qué no cuadra. '
         +'(3a) OFRECE SIEMPRE LA ALTERNATIVA. Cuando no exista lo que pidió EXACTAMENTE pero sí algo que '
         +'cumple la misma función, NO digas solo "no lo tenemos": muestra lo que SÍ manejamos, con su marca, '
         +'su unidad de venta, su precio y su disponibilidad, igual que cualquier otro producto, y aclara en '
@@ -1074,7 +1082,9 @@ function _cotReq(stC){
         +'con lo que sí sabes: si lo manejamos y si hay disponibilidad. NUNCA digas que no puedes consultarlo. ')
     +'(5) Del inventario di si HAY o NO HAY y, cuando le sirva al cliente, EN QUÉ PUNTO lo tenemos (los '
     +'resultados traen `puntos_de_venta`) — nunca cantidades exactas. Somos UNA sola empresa con varios '
-    +'puntos: "lo tienes en nuestro punto de la 61" le sirve, "hay disponibilidad" a secas no. En LISTAS no '
+    +'puntos: "lo tienes en nuestro punto de la 61" le sirve, "hay disponibilidad" a secas no. El punto se '
+    +'nombra TAL CUAL viene en los datos: PROHIBIDO adornarlo con explicaciones geográficas inventadas '
+    +'("área metropolitana de", "zona industrial de") — si el dato dice Girón, se escribe Girón. En LISTAS no '
     +'repitas "hay disponibilidad" en cada renglón: si TODO tiene, dilo UNA vez al final ("todo con '
     +'disponibilidad en tu ciudad"); renglón por renglón menciona solo lo que NO tenga o lo que esté en otro punto. '
     +'(5b) SI NO HAY EN SU CIUDAD, DILE DÓNDE SÍ. Cuando un artículo salga sin inventario en la ciudad del '
@@ -3584,12 +3594,20 @@ async function _otrasCiudades(itemCode, ciudadCliente){
 const _RELLENO=['de','del','la','el','los','las','un','una','unos','unas','para','por','con','sin','y','o',
   'que','en','al','mi','su','me','necesito','quiero','vale','cuanto','cuánto','cotizar','cotizacion',
   'cotización','precio','precios','valor','tienen','tiene','hay','manejan','maneja','busco','buscando',
-  'x','mm','cm','mt','mts','m2','kg','kilos','kilo','gr','pulgadas','pulgada','metros','metro','unidades'];
-async function _reintentarBusqueda(q0){
+  'x','mm','cm','mt','mts','m2','kg','kilos','kilo','gr','pulgadas','pulgada','metros','metro','unidades','tambor','galon','galón','cuñete','cunete','caneca','balde','bulto','saco','rollo','caja','cajas','lamina','lámina','unidad','und','presentacion','presentación'];
+async function _reintentarBusqueda(q0, textoCliente){
   if(!_H || !_cfg.cfg_mcp_url || !_cfg.cfg_mcp_token) return null;
-  const _pal=String(q0||'').toLowerCase().replace(/[^a-záéíóúñü0-9\s]/g,' ').split(/\s+/)
+  const _limpia = t => String(t||'').toLowerCase().replace(/[^a-záéíóúñü0-9\s]/g,' ').split(/\s+/)
     .filter(function(w){ return w.length>2 && _RELLENO.indexOf(w)<0 && !/^\d+$/.test(w); });
-  if(_pal.length<2) return null;                       // con una sola palabra no hay nada que recortar
+  let _pal=_limpia(q0);
+  // 2026-08-18 ("Tambor de acronal novaflex"): el modelo buscó SOLO "acronal" —una palabra, nada que
+  // recortar— y se rindió, cuando "novaflex" en el mismo mensaje devolvía 25 productos. Si la búsqueda que
+  // falló es corta, se miran también las OTRAS palabras de lo que escribió el cliente: casi siempre una de
+  // ellas es el nombre que sí está en el catálogo, porque la gente mezcla marca, presentación y producto.
+  if(_pal.length<2 && textoCliente){
+    for(const _w of _limpia(textoCliente)) if(_pal.indexOf(_w)<0) _pal.push(_w);
+  }
+  if(_pal.length<2) return null;                       // de verdad no hay nada más que probar
   _pal.sort(function(a,b){ return b.length-a.length; });   // primero las largas: las cortas suelen ser genéricas
   const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
@@ -3661,7 +3679,10 @@ for(let _i=0; _i<_txt.length; _i++){
     const _o=JSON.parse(_txt[_i]);
     if(!_o || _o.total!==0 || !Array.isArray(_o.matches)) continue;
     const _q0=((tuses[_i]||{}).input||{}).q || _o.query || '';
-    const _mejor=await _reintentarBusqueda(_q0);
+    // lo que el cliente escribió de su puño: el primer turno de la conversación con el modelo
+    const _txtCli=(function(){ try{ const m=(req.messages||[])[0];
+      return (m && typeof m.content==='string') ? m.content : ''; }catch(e){ return ''; } })();
+    const _mejor=await _reintentarBusqueda(_q0, _txtCli);
     if(_mejor){ _txt[_i]=_mejor; continue; }
     const _web=await _tiendaBuscar(_q0);
     if(_web){

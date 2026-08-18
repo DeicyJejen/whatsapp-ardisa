@@ -137,6 +137,16 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('Tiene prohibido narrar su propio trabajo antes de responder',
            /Tampoco narres tu propio trabajo/.test(sys) && /ya tengo toda la información consultada/.test(sys),
            sys.slice(0,80));
+  // 18-ago, pruebas de Deicy: el sanitario Laguna repetía "unidad" tres veces en cuatro renglones, la
+  // disponibilidad decía "Bucaramanga (área metropolitana de Girón)" —geografía inventada— y con 25
+  // productos Novaflex delante respondió "no logramos identificar un producto llamado Acronal Novaflex".
+  chequear('La unidad de venta se dice UNA vez, no en cada renglón',
+           /PROHIBIDO repetirla/.test(sys), sys.slice(0,80));
+  chequear('El punto de venta se nombra tal cual, sin geografía inventada',
+           /PROHIBIDO adornarlo con explicaciones geográficas/.test(sys), sys.slice(0,80));
+  chequear('Con resultados en la mano, prohibido decir "no logramos identificar"',
+           /SI UNA BÚSQUEDA TRAJO RESULTADOS, ESOS SON EL CATÁLOGO/.test(sys) &&
+           /nombres comerciales, de marca o de presentación/.test(sys), sys.slice(0,80));
   const fichaDisp = (req.tools||[]).find(t=>t.name==='disponibilidad_ciudad')||{};
   chequear('La ficha de disponibilidad nombra las ciudades donde tenemos punto de venta',
            /Bucaramanga, Bogotá, Barranquilla/.test(fichaDisp.description||''),
