@@ -3052,11 +3052,11 @@ _LUNES = "(CURDATE() - INTERVAL WEEKDAY(CURDATE()) DAY)"
 #    como ref_or_null CUBIERTA por el índice. Si se restaura la BD desde cero, hay que volver a crearlo:
 #    CREATE INDEX idx_pend ON leads (modo_prueba, estado, creado_en);
 _PEND_SQL = ("SELECT "
-    "(SELECT id FROM leads WHERE telefono=CAST($1 AS CHAR) AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_id, "
-    "(SELECT asesor FROM leads WHERE telefono=CAST($2 AS CHAR) AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_asesor, "
-    "(SELECT asesor_tel FROM leads WHERE telefono=CAST($3 AS CHAR) AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_tel, "
+    "(SELECT id FROM leads WHERE telefono=CONVERT($1 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_id, "
+    "(SELECT asesor FROM leads WHERE telefono=CONVERT($2 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_asesor, "
+    "(SELECT asesor_tel FROM leads WHERE telefono=CONVERT($3 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_tel, "
     # ya formateada en SQL: si devolvemos el datetime crudo, n8n lo pasa a ISO/UTC y la fecha se ve corrida
-    "(SELECT DATE_FORMAT(creado_en,'%d/%m a las %H:%i') FROM leads WHERE telefono=CAST($4 AS CHAR) AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_fecha, "
+    "(SELECT DATE_FORMAT(creado_en,'%d/%m a las %H:%i') FROM leads WHERE telefono=CONVERT($4 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_fecha, "
     "(SELECT COUNT(*) FROM leads WHERE modo_prueba=0 AND creado_en >= CURDATE()) AS rep_hoy, "
     "(SELECT COUNT(*) FROM leads WHERE "+_REP_COND+") AS rep_pend, "
     "(SELECT GROUP_CONCAT(CONCAT(a.asesor,' ',a.n) ORDER BY a.n DESC SEPARATOR ' · ') FROM "
@@ -3077,13 +3077,13 @@ _PEND_SQL = ("SELECT "
     #   · si la última fue NO, manda el NO (revocar funciona y pesa más que un SÍ viejo)
     #   · si Ardisa publica una política nueva, la URL cambia y TODOS vuelven a autorizar, solos
     "(SELECT CASE WHEN c.decision='SI' THEN 1 ELSE 0 END FROM consentimientos c "
-      "WHERE c.telefono=CAST($5 AS CHAR) AND c.politica='" + POLITICA_URL + "' ORDER BY c.id DESC LIMIT 1) AS cons_si, "
+      "WHERE c.telefono=CONVERT($5 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND c.politica='" + POLITICA_URL + "' ORDER BY c.id DESC LIMIT 1) AS cons_si, "
     # === ADJUNTOS DE LA CONVERSACIÓN, desde la BD (fix 2026-08-04, caso Mario Saavedra lead #214) ===
     # Los media id vivían SOLO en store.medias (staticData). Mario mandó una foto a las 08:47 y cerró a las 08:59:
     # en esos 12 minutos ~50 ejecuciones de otros clientes pisaron esa memoria y la foto NUNCA le llegó a Karime,
     # solo la lectura de la IA. La BD no se pisa. 45 min = la misma ventana que ya usaba store.medias.
     "(SELECT GROUP_CONCAT(CONCAT(x.media_id,':',COALESCE(x.media_tipo,'')) ORDER BY x.creado_en SEPARATOR ',') "
-      "FROM (SELECT DISTINCT media_id, media_tipo, creado_en FROM mensajes WHERE wa_id=CAST($6 AS CHAR) AND media_id IS NOT NULL "
+      "FROM (SELECT DISTINCT media_id, media_tipo, creado_en FROM mensajes WHERE wa_id=CONVERT($6 USING utf8mb4) COLLATE utf8mb4_general_ci AND media_id IS NOT NULL "
             "AND creado_en >= NOW() - INTERVAL 45 MINUTE ORDER BY creado_en LIMIT 10) x) AS adj, "
     # === ALERTAS PARA EL PANEL DE DEICY (2026-08-03) ===
     # El análisis PESADO (leer conversaciones, cruzar tablas) lo hace vigilante.py en un cron y deja aquí el
@@ -3114,21 +3114,21 @@ _PEND_SQL = ("SELECT "
             "ORDER BY severidad, id DESC LIMIT 6) z) AS alr_det, "
     # === DETALLE del lead pendiente (2026-08-05, caso Kiara #230): para distinguir "insiste en LO MISMO"
     # (-> ⚠️ REINTENTO) de "viene por OTRA cosa" (-> solicitud nueva con nota neutral, mismo asesor). ===
-    "(SELECT LEFT(detalle,300) FROM leads WHERE telefono=CAST($7 AS CHAR) AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_det, "
+    "(SELECT LEFT(detalle,300) FROM leads WHERE telefono=CONVERT($7 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND "+_PEND_COND+" ORDER BY id DESC LIMIT 1) AS pend_det, "
     # === SESIÓN DEL CLIENTE, desde la BD (fix 2026-08-06, caso Sonia #234: "pregunta dos veces") ===
     # El staticData es un blob COMPARTIDO: la ejecución lenta de OTRO cliente lo guarda viejo y pisa los avances
     # de todos. `sesiones` tiene UNA FILA POR CLIENTE (a prueba de vecinos lentos). El Cerebro compara t y gana
     # la más nueva. Misma doctrina de siempre: la BD manda, el staticData es caché.
-    "(SELECT estado FROM sesiones WHERE telefono=CAST($8 AS CHAR) LIMIT 1) AS ses_bd, "
+    "(SELECT estado FROM sesiones WHERE telefono=CONVERT($8 USING utf8mb4) COLLATE utf8mb4_general_ci LIMIT 1) AS ses_bd, "
     # === ¿MURO ENVIADO HACE <45s? (2026-08-12, auditoría: 6 muros dobles desde el 4-ago) ===
     # El freno de staticData no ve lo que otra ejecución aún no guardó; la fila de `mensajes` del primer muro
     # sí existe ~1-3s después. Ambos muros (texto y foto) llevan la URL de la política; los empujones suaves no.
-    "(SELECT COUNT(*) FROM mensajes WHERE wa_id=CAST($9 AS CHAR) AND creado_en >= (NOW() - INTERVAL 45 SECOND) "
+    "(SELECT COUNT(*) FROM mensajes WHERE wa_id=CONVERT($9 USING utf8mb4) COLLATE utf8mb4_general_ci AND creado_en >= (NOW() - INTERVAL 45 SECOND) "
       "AND salida LIKE \'%politica-de-datos-personales%\') AS muro_45s, "
     # === CHAT HÍBRIDO (2026-08-12, pedido Deicy tras ver Wizard Bot): ¿un humano atiende desde el panel? ===
     # La tabla `humano` la escribe el panel (botón "Atender yo" o al responder). Mientras hasta > NOW(),
     # el Cerebro se calla: registra lo que llegue y no contesta ni avisa.
-    "(SELECT CASE WHEN hasta > NOW() THEN 1 ELSE 0 END FROM humano WHERE telefono=CAST($10 AS CHAR) LIMIT 1) AS humano_on, "
+    "(SELECT CASE WHEN hasta > NOW() THEN 1 ELSE 0 END FROM humano WHERE telefono=CONVERT($10 USING utf8mb4) COLLATE utf8mb4_general_ci LIMIT 1) AS humano_on, "
     # === FASE 2 · CONFIG EN LA BD (2026-08-06): interruptores SIN desplegar. `usar_cotiza` prende el piloto
     # de cotización SAP (solo números demo), y la URL/token del MCP viven en la BD (rotables con un UPDATE).
     "(SELECT valor FROM config WHERE clave='usar_cotiza' LIMIT 1) AS cfg_cotiza, "
@@ -3639,7 +3639,7 @@ _LEAD_INSERT_SQL = ("INSERT INTO leads (creado_en,telefono,nombre,marca,ciudad,t
     # El candado solo mira los últimos 45 minutos, así que el daño era invisible salvo cuando un BSUID
     # había entrado en esa ventana — exactamente lo que pasó: BSUID a las 12:23, Ilba perdida a las 13:03.
     # El CAST convierte el PARÁMETRO a texto (no la columna): comparación de cadenas y el índice se sigue usando.
-    "WHERE NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM leads WHERE telefono=CAST($13 AS CHAR) AND creado_en > NOW() - INTERVAL 45 MINUTE LIMIT 1) _dup)")
+    "WHERE NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM leads WHERE telefono=CONVERT($13 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND creado_en > NOW() - INTERVAL 45 MINUTE LIMIT 1) _dup)")
 nodes.append(node("Guardar lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
      "query":_LEAD_INSERT_SQL,
@@ -3651,7 +3651,7 @@ nodes.append(node("Guardar lead (MySQL)", "n8n-nodes-base.mySql", 2.5,
 # quedó solo con 1 de los 4; con esto la fila acumula TODO aunque los avisos corran en paralelo.
 # LOCATE=0 evita duplicar (la fila recién insertada por este mismo cierre ya contiene su detalle -> no-op).
 _SUMAR_SQL = ("UPDATE leads SET detalle = CONCAT(detalle, CHAR(10), '➕ ', $1) "
-    "WHERE telefono=CAST($2 AS CHAR) AND modo_prueba=$3 AND creado_en > NOW() - INTERVAL 45 MINUTE "
+    "WHERE telefono=CONVERT($2 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND modo_prueba=$3 AND creado_en > NOW() - INTERVAL 45 MINUTE "
     "AND $4<>'' AND LOCATE($5, detalle)=0 ORDER BY id DESC LIMIT 1")
 nodes.append(node("Sumar detalle (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
@@ -3679,7 +3679,7 @@ nodes.append(node("¿Lead ya existía?", "n8n-nodes-base.if", 2,
 # más de 90 s" = lo insertó OTRO cierre -> este es un duplicado bloqueado por el candado. Esta es la vara que
 # reemplaza a `affectedRows === 0`: el nodo MySQL 2.5 devuelve {success:true} SIN affectedRows, así que la
 # detección de duplicados llevaba MUERTA EN SILENCIO desde el 29-jul (la nota de adición no salía jamás).
-_BUSCAR_ORIG_WHERE = ("FROM leads WHERE telefono=CAST($%d AS CHAR) AND creado_en > NOW() - INTERVAL 45 MINUTE "
+_BUSCAR_ORIG_WHERE = ("FROM leads WHERE telefono=CONVERT($%d USING utf8mb4) COLLATE utf8mb4_unicode_ci AND creado_en > NOW() - INTERVAL 45 MINUTE "
                       "AND modo_prueba=0 "   # 14-ago: los leads de DEMO no activan el candado (para poder repetir pruebas seguidas)
                       "AND asesor_tel IS NOT NULL AND asesor_tel<>'' ORDER BY id DESC LIMIT 1")
 _BUSCAR_ORIG_SQL = ("SELECT "
@@ -3858,7 +3858,7 @@ nodes.append(node("¿Cierre listo?", "n8n-nodes-base.if", 2,
 # columnas — así el finalizador no depende de $('nodo').first() (el cron emite muchos items por tick).
 # Si MySQL está caído: onError deja seguir un item {error} sin wa_id -> el finalizador responde 'super'
 # SIN borrar pendCierre -> reintento al minuto; a los 10 min la poda de varados entrega igual. Autocurable.
-_LEER_BD_WHERE = ("FROM leads WHERE telefono=CAST($%d AS CHAR) AND modo_prueba=0 AND creado_en > NOW() - INTERVAL 2 HOUR "
+_LEER_BD_WHERE = ("FROM leads WHERE telefono=CONVERT($%d USING utf8mb4) COLLATE utf8mb4_unicode_ci AND modo_prueba=0 AND creado_en > NOW() - INTERVAL 2 HOUR "
                   "AND asesor_tel IS NOT NULL AND asesor_tel<>'' ORDER BY id DESC LIMIT 1")
 _LEER_BD_SQL = ("SELECT $1 AS wa_id, $2 AS pend_token, "
     "(SELECT id "+_LEER_BD_WHERE % 3+") AS bd_id, "
@@ -3955,7 +3955,7 @@ nodes.append(node("¿Guardar seguimiento?", "n8n-nodes-base.if", 2,
 # ese momento — que es exactamente la fila donde el candado acumuló todo.
 nodes.append(node("Guardar seguimiento (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"UPDATE leads SET estado=$1, estado_motivo=$2, valor_venta=COALESCE($3, valor_venta), obs_asesor=TRIM(BOTH ' | ' FROM CONCAT(COALESCE(obs_asesor,''), CASE WHEN COALESCE($4,'')='' THEN '' ELSE CONCAT(' | ', $4) END)), reportado_en=NOW() WHERE telefono=CAST($5 AS CHAR) AND creado_en<=$6 ORDER BY creado_en DESC LIMIT 1",
+     "query":"UPDATE leads SET estado=$1, estado_motivo=$2, valor_venta=COALESCE($3, valor_venta), obs_asesor=TRIM(BOTH ' | ' FROM CONCAT(COALESCE(obs_asesor,''), CASE WHEN COALESCE($4,'')='' THEN '' ELSE CONCAT(' | ', $4) END)), reportado_en=NOW() WHERE telefono=CONVERT($5 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND creado_en<=$6 ORDER BY creado_en DESC LIMIT 1",
      "options":{"queryReplacement":"={{ [$('Cerebro conversacional').item.json.seg_update.estado, $('Cerebro conversacional').item.json.seg_update.motivo, $('Cerebro conversacional').item.json.seg_update.valor, $('Cerebro conversacional').item.json.seg_update.obs, $('Cerebro conversacional').item.json.seg_update.telefono, $('Cerebro conversacional').item.json.seg_update.creado_en] }}"}},
     1980, 1240, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":2000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("¿Hay adjunto 2?", "n8n-nodes-base.if", 2,

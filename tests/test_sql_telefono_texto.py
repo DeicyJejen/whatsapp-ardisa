@@ -14,8 +14,15 @@
 # número oculto había entrado en esa ventana. Ese día: BSUID a las 12:23 -> Ilba perdida a las 13:03.
 #
 # Esta prueba mira el WORKFLOW GENERADO: ninguna comparación de teléfono o wa_id contra un parámetro
-# puede quedar sin CAST(... AS CHAR). Es estática a propósito — el arnés de JS no ejecuta SQL, y este
-# fallo vive justo ahí, en el SQL.
+# puede quedar cruda. Es estática a propósito — el arnés de JS no ejecuta SQL, y el fallo vive justo ahí.
+#
+# ⚠️ SEGUNDA PARTE, aprendida a los golpes el mismo día: el primer intento usó CAST($n AS CHAR) y tumbó
+# la consulta de "Buscar pendiente" con "Illegal mix of collations" — CAST hereda el charset de la
+# CONEXIÓN, y las columnas no son todas iguales (leads y consentimientos son utf8mb4_unicode_ci;
+# sesiones, humano y mensajes, utf8mb4_general_ci). Con esa consulta caída el bot perdió cons_si y los
+# interruptores de config: durante veinte minutos volvió el muro de autorización que habíamos quitado.
+# Por eso la forma correcta es CONVERT($n USING utf8mb4) COLLATE <la de la columna>, y por eso los SELECT
+# se ejecutan contra la base de verdad antes de desplegar — un SQL que compila no es un SQL que corre.
 import json, re, sys, os
 
 RUTA = os.path.join(os.path.dirname(__file__), '..', 'workflow-bot-f1.json')
@@ -33,7 +40,7 @@ for nodo in wf['nodes']:
     sql = json.dumps(nodo.get('parameters', {}), ensure_ascii=False)
     for m in re.finditer(r'(?:telefono|wa_id)\s*=\s*\$\d+', sql):
         crudas.append((nodo['name'], m.group(0)))
-    for m in re.finditer(r'(?:telefono|wa_id)\s*=\s*CAST\(\$\d+ AS CHAR\)', sql):
+    for m in re.finditer(r'(?:telefono|wa_id)\s*=\s*CONVERT\(\$\d+ USING utf8mb4\) COLLATE utf8mb4_\w+', sql):
         protegidas.append((nodo['name'], m.group(0)))
 
 chequear('Ninguna consulta compara telefono/wa_id contra un parámetro sin CAST',
@@ -49,7 +56,7 @@ chequear('Los nodos que insertan el lead existen (Guardar lead y Guardar lead 2)
 for n in candado:
     q = json.dumps(n.get('parameters', {}), ensure_ascii=False)
     chequear('El candado de 45 min de "%s" compara como texto' % n['name'],
-             'telefono=CAST($13 AS CHAR)' in q,
+             'telefono=CONVERT($13 USING utf8mb4) COLLATE utf8mb4_unicode_ci' in q,
              q[q.find('NOT EXISTS'):q.find('NOT EXISTS') + 140])
 
 print('\n%d/%d pruebas pasan' % (ok, total))
