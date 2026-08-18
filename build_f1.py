@@ -1098,6 +1098,7 @@ function _cotReq(stC){
     +'Marca · unidad de venta\n'
     +(_hayPrecio ? '💲 $X.XXX (precio de referencia con IVA)\n' : '')
     +(_hayPrecio ? '🧮 N cajas ≈ $XXX.XXX en total   <- SOLO si el cliente dijo cuánta cantidad necesita\n' : '')
+    +'🔗 Verlo en línea: <url>   <- SOLO si el resultado trae `url_tienda`\n'
     +'✅ Con disponibilidad en '+(stC.ciudad||'tu ciudad')+'\n\n'
     +'Reglas del bloque: SIN guiones ni viñetas al comienzo; máximo DOS renglones de texto libre por '
     +'producto; si algo no lo hallamos, ese bloque lleva solo el nombre y una línea diciéndolo; si NO hay '
@@ -1107,6 +1108,10 @@ function _cotReq(stC){
     +'Nada de párrafos dentro de la lista'
     +(_hayPrecio ? ' y su precio de referencia (o "el valor te lo confirma un asesor" si no aparece en lista)' : '')
     +'. Responde TODOS los productos pedidos en UN solo mensaje: PROHIBIDO responder solo algunos y preguntar si "seguimos con los demás". Da primero TODA la información; las preguntas de detalle (color, referencia) van al final y no reemplazan la información. Cierra con una sola pregunta. '
+    +'(6b) EL ENLACE DE LA TIENDA. Cuando un resultado traiga `url_tienda`, cierra ese bloque con el enlace '
+    +'en un renglón propio: "🔗 Verlo en línea: <url>". Va TAL CUAL, sin acortarlo ni cambiarlo, y solo si '
+    +'viene en los datos — nunca inventes una dirección web ni la deduzcas del nombre. Si un producto no '
+    +'lo trae, simplemente no lleva enlace y no se comenta nada al respecto. '
     +'(7) NUNCA menciones sistemas, herramientas, SAP, códigos internos, ni digas que eres una IA o un bot. '
     +'Tampoco narres tu propio trabajo: PROHIBIDO abrir con "ya tengo toda la información consultada", '
     +'"ya revisé", "aquí va el detalle" o cualquier frase que hable de lo que acabas de consultar. Empieza '
@@ -3532,6 +3537,43 @@ async function _reintentarBusqueda(q0){
            +'manejamos ni vuelvas a buscar lo mismo.';
   return JSON.stringify(_g.o);
 }
+// === LA TIENDA EN LÍNEA COMO SEGUNDO BUSCADOR (2026-08-18, pedido de Deicy) ===
+// Las dos tiendas son Magento y su buscador (OpenSearch) entiende el idioma del cliente, que es justo lo
+// que al de SAP le falta: "pintura drywall" da CERO en SAP y 315 resultados en la web, con la referencia
+// correcta de primera. Y el SKU es EL MISMO en los dos lados, así que sirve de traductor: la web dice qué
+// código es, y el precio y la disponibilidad los sigue mandando SAP, que es el que factura y el único que
+// sabe la lista de cada ciudad. Del catálogo web no se toma NI el precio (a veces está desactualizado:
+// la pintura Pintuco figura en $226.243 y en SAP en $323.205) ni el stock.
+const _TIENDA = {Ardisa:'https://www.ardisa.com', Carpincentro:'https://www.carpincentro.com'};
+const _MARCA_CLI = (function(){
+  try{ const _s=JSON.parse($('Cerebro conversacional').first().json.ses_out||'null'); return (_s&&_s.marca)||'Ardisa'; }
+  catch(e){ return 'Ardisa'; } })();
+const _WEB = _TIENDA[_MARCA_CLI] || _TIENDA.Ardisa;
+// El sitio responde 403 a un cliente sin navegador; con esto pasa. Si algún día lo endurecen, todo esto
+// falla en silencio y la cotización sigue igual que antes (va dentro de try/catch).
+const _UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+async function _gql(query){
+  if(!_H) return null;
+  const r = await _H.httpRequest({method:'POST', url:_WEB+'/graphql', json:true, timeout:9000,
+    headers:{'Content-Type':'application/json','User-Agent':_UA}, body:{query:query} });
+  return (r && r.data && r.data.products) ? r.data.products : null;
+}
+async function _tiendaBuscar(q){
+  const _q=String(q||'').replace(/["\\{}]/g,' ').trim(); if(_q.length<3) return null;
+  const p=await _gql('{products(search:"'+_q+'",pageSize:8){total_count items{sku name url_key}}}');
+  if(!p || !p.items || !p.items.length) return null;
+  return p.items.map(function(i){ return {item_code:i.sku, item_name:i.name, url:_WEB+'/'+i.url_key+'.html'}; });
+}
+async function _tiendaUrl(sku, precioSap){
+  const p=await _gql('{products(filter:{sku:{eq:"'+String(sku).replace(/["\\{}]/g,'')+'"}}){items{sku url_key price_range{minimum_price{final_price{value} } } } }}');
+  const i=(p && p.items && p.items[0]) || null;
+  if(!i || !i.url_key) return null;
+  // El link solo se manda si el precio publicado coincide con el que acabamos de dar. Si no, el cliente
+  // abriría la página y vería OTRO número: peor que no mandar nada.
+  const _pw=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
+  if(!(precioSap>0) || !(_pw>0) || Math.abs(_pw-precioSap)/precioSap > 0.01) return null;
+  return _WEB+'/'+i.url_key+'.html';
+}
 const _txt=items.map(function(it){ return compactar(sacarTexto(it.json)); });
 for(let _i=0; _i<_txt.length; _i++){
   try{
@@ -3539,7 +3581,15 @@ for(let _i=0; _i<_txt.length; _i++){
     if(!_o || _o.total!==0 || !Array.isArray(_o.matches)) continue;
     const _q0=((tuses[_i]||{}).input||{}).q || _o.query || '';
     const _mejor=await _reintentarBusqueda(_q0);
-    if(_mejor) _txt[_i]=_mejor;
+    if(_mejor){ _txt[_i]=_mejor; continue; }
+    const _web=await _tiendaBuscar(_q0);
+    if(_web){
+      _txt[_i]=JSON.stringify({query:_q0, total:0, catalogo_tienda:_web,
+        nota:'Nuestro buscador interno no encontró nada con esas palabras, pero el catálogo de la tienda '
+            +'en línea SÍ. Estos item_code son válidos y son los mismos del sistema: consulta con ellos '
+            +'precio y disponibilidad como con cualquier otro producto. NO le digas al cliente que no lo '
+            +'manejamos, y NO uses los precios de esta lista (no los trae).'});
+    }
   }catch(e){}
 }
 const _sinStock=[];
@@ -3553,6 +3603,14 @@ for(const _f of _sinStock.slice(0,3)){          // tope: el cliente está espera
       o.otras_ciudades=_hall.slice(0,6);
       o.ciudades_revisadas='se revisaron TODAS las ciudades donde tenemos punto de venta';
       _txt[_f.ix]=JSON.stringify(o); }
+  }catch(e){}
+}
+for(let _j=0; _j<_txt.length; _j++){
+  try{
+    const o=JSON.parse(_txt[_j]);
+    if(!o || !o.item_code || !(Number(o.precio_con_iva)>0)) continue;
+    const _u=await _tiendaUrl(o.item_code, Number(o.precio_con_iva));
+    if(_u){ o.url_tienda=_u; _txt[_j]=JSON.stringify(o); }
   }catch(e){}
 }
 const resultados=items.map((it,ix)=>({type:'tool_result', tool_use_id:(tuses[ix]||{}).id||'',

@@ -332,15 +332,99 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   await correrCode(ARMAR, conResultados, nodos, helpers2);
   chequear('Si la búsqueda encontró algo, no se reintenta nada', buscadas2.length === 0, String(buscadas2.length));
 
-  // Una sola palabra ya es lo más corto posible: recortarla no tiene sentido.
-  const buscadas3 = [];
-  const helpers3 = { httpRequest: async () => { buscadas3.push(1); return { headers: {}, body: {} }; } };
+  // Una sola palabra ya es lo más corto posible: en SAP no hay nada que recortar. (La tienda en línea sí
+  // se consulta — es otro buscador, no un recorte del mismo.)
+  const sap3 = [];
+  const helpers3 = { httpRequest: async (o) => {
+    if (String(o.url).indexOf('graphql') >= 0) return { data: { products: { items: [] } } };
+    sap3.push(1); return { headers: {}, body: {} };
+  } };
   const nodos3 = Object.assign({}, nodos, { 'Repartir herramientas R1': [{ tuse: { id: 't1',
     name: 'buscar_producto', input: { q: 'tornillo' } }, historia: [] }] });
   const cero3 = [sse({ result: { content: [{ type: 'text',
     text: JSON.stringify({ query: 'tornillo', total: 0, truncated: false, matches: [] }) }] } })];
   await correrCode(ARMAR, cero3, nodos3, helpers3);
-  chequear('Con una sola palabra no hay nada que recortar: no se reintenta', buscadas3.length === 0, String(buscadas3.length));
+  chequear('Con una sola palabra no hay nada que recortar: no se reintenta en SAP', sap3.length === 0, String(sap3.length));
+}
+
+// ══ 11. LA TIENDA EN LÍNEA COMO SEGUNDO BUSCADOR (2026-08-18) ═══════════════════════════════════
+// El buscador de SAP compara contra el nombre del artículo; el de la tienda (OpenSearch de Magento)
+// entiende el idioma del cliente. "pintura drywall" da CERO en SAP y encuentra la referencia correcta en
+// la web — y el SKU es el mismo, así que sirve de traductor. De la web se toma el CÓDIGO, nunca el precio.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const pedidos = [];
+  const helpers = { httpRequest: async (o) => {
+    if (String(o.url).indexOf('graphql') >= 0) {
+      pedidos.push(o.body.query);
+      if (/search:"[^"]*drywall/i.test(o.body.query)) return { data: { products: { total_count: 315, items: [
+        { sku: '10007436', name: 'Pintura Para Drywall Pintuco Blanco', url_key: 'pintura-drywall-pintuco' } ] } } };
+      return { data: { products: { items: [] } } };
+    }
+    // el MCP: aquí solo se usa para el reintento por palabras, que también vuelve vacío
+    return 'event: message\ndata: ' + JSON.stringify({ result: { content: [{ type: 'text',
+      text: JSON.stringify({ total: 0, matches: [] }) }] } }) + '\n';
+  } };
+  const nodos = { 'Repartir herramientas R1': [{ tuse: { id: 't1', name: 'buscar_producto',
+                    input: { q: 'pintura para drywall' } }, historia: [] }],
+                  'Cerebro conversacional': { cot_req: COT_REQ, ses_out: JSON.stringify({ marca: 'Ardisa' }) },
+                  'Unir pendiente': { cfg_mcp_url: 'https://mcp.ardisa.com/mcp', cfg_mcp_token: 'tok' } };
+  const cero = [sse({ result: { content: [{ type: 'text',
+    text: JSON.stringify({ query: 'pintura para drywall', total: 0, matches: [] }) }] } })];
+  const out = await correrCode(ARMAR, cero, nodos, helpers);
+  const d = JSON.parse(out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Si SAP no encuentra nada, se busca en la tienda de la marca del cliente',
+           Array.isArray(d.catalogo_tienda) && d.catalogo_tienda[0].item_code === '10007436',
+           JSON.stringify(d).slice(0, 200));
+  chequear('Y se le dice al modelo que consulte precio y disponibilidad con ese código, no con la web',
+           /NO uses los precios de esta lista/.test(d.nota || ''), String(d.nota).slice(0, 140));
+  chequear('Se consulta la tienda de ARDISA (la marca que eligió el cliente)',
+           pedidos.length > 0, String(pedidos.length));
+
+  // El cliente de Carpincentro va a la tienda de Carpincentro.
+  const urls = [];
+  const helpers2 = { httpRequest: async (o) => { urls.push(o.url);
+    return String(o.url).indexOf('graphql') >= 0 ? { data: { products: { items: [] } } }
+      : 'event: message\ndata: ' + JSON.stringify({ result: { content: [{ type: 'text',
+          text: JSON.stringify({ total: 0, matches: [] }) }] } }) + '\n'; } };
+  const nodosC = Object.assign({}, nodos, { 'Cerebro conversacional': { cot_req: COT_REQ,
+    ses_out: JSON.stringify({ marca: 'Carpincentro' }) } });
+  await correrCode(ARMAR, cero, nodosC, helpers2);
+  chequear('Un cliente de Carpincentro consulta la tienda de Carpincentro',
+           urls.some(u => /carpincentro\.com\/graphql/.test(u)) && !urls.some(u => /ardisa\.com\/graphql/.test(u)),
+           JSON.stringify(urls));
+}
+
+// ══ 12. EL ENLACE SOLO SI EL PRECIO COINCIDE ════════════════════════════════════════════════════
+// La pintura Pintuco figura en la web a $226.243 y en SAP a $323.205. Mandar ese link sería enseñarle al
+// cliente un precio distinto del que le acabamos de dar: peor que no mandar nada.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const precio = (v) => ({ item_code: '10024109', item_name: 'CEMENTO GRIS ALION BULTO X 25kg',
+                           precio_con_iva: v, unidad_venta: { unidad: 'Und' } });
+  const web = (v) => ({ httpRequest: async (o) => {
+    if (String(o.url).indexOf('graphql') >= 0) return { data: { products: { items: [
+      { sku: '10024109', url_key: 'cemento-gris-alion-bulto-x-25kg',
+        price_range: { minimum_price: { final_price: { value: v } } } } ] } } };
+    return { headers: {}, body: {} };
+  } });
+  const nodos = { 'Repartir herramientas R1': [{ tuse: { id: 't1', name: 'precio_articulo', input: {} }, historia: [] }],
+                  'Cerebro conversacional': { cot_req: COT_REQ, ses_out: JSON.stringify({ marca: 'Ardisa' }) },
+                  'Unir pendiente': { cfg_mcp_url: 'https://mcp.ardisa.com/mcp', cfg_mcp_token: 'tok' } };
+  const pasa = async (vSap, vWeb) => {
+    const e = [sse({ result: { content: [{ type: 'text', text: JSON.stringify(precio(vSap)) }] } })];
+    const o = await correrCode(ARMAR, e, nodos, web(vWeb));
+    return JSON.parse(o[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  };
+  const igual = await pasa(20999.93, 20999.93);
+  const distinto = await pasa(323205.65, 226243.95);
+  chequear('Precio igual en la web -> se manda el enlace del producto',
+           /ardisa\.com\/cemento-gris-alion-bulto-x-25kg\.html/.test(igual.url_tienda || ''), String(igual.url_tienda));
+  chequear('Precio distinto -> NO se manda enlace (el cliente vería otro número)',
+           !distinto.url_tienda, String(distinto.url_tienda));
+  chequear('Y el precio que viaja al modelo sigue siendo el de SAP, nunca el de la web',
+           igual.precio_con_iva === 20999.93 && distinto.precio_con_iva === 323205.65,
+           igual.precio_con_iva + ' / ' + distinto.precio_con_iva);
 }
 
 console.log(ok + '/' + total + ' pruebas pasan');
