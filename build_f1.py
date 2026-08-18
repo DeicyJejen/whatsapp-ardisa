@@ -1013,8 +1013,9 @@ function _cotReq(stC){
     +'PRIMERO que hay que soltar: casi nunca vendemos la marca exacta que el cliente nombra, pero sí el '
     +'producto. Escalar a [ASESOR] tras un solo 0 está PROHIBIDO. '
     +'2º consulta disponibilidad y precio de los elegidos EN PARALELO (todas las llamadas juntas en el mismo '
-    +'turno); 3º responde. Si vas por el 3er turno y aún no has consultado precio ni disponibilidad, hazlo '
-    +'YA en ese turno: es tu última oportunidad de consultar. '
+    +'turno); 3º si algo quedó SIN disponibilidad en la ciudad del cliente, dedica ese turno a mirar las '
+    +'otras ciudades (regla 5b); 4º responde. Si vas por el 3er turno y aún no has consultado precio ni '
+    +'disponibilidad, hazlo YA en ese turno: es tu última oportunidad de consultar. '
     +(_hayPrecio
       ? '(1) Usa las herramientas para identificar el producto y consultar su precio y su disponibilidad en la ciudad del cliente. '
       : '(1) Usa las herramientas para identificar el producto y consultar su disponibilidad en la ciudad del cliente. ')
@@ -1027,7 +1028,19 @@ function _cotReq(stC){
     +'antes haber mirado las demás opciones del catálogo. '
     +'(1c) Di siempre CÓMO SE VENDE cada producto según los datos de las herramientas: la unidad de venta y su '
     +'contenido si aparece (bulto de 42.5kg, caja que cubre X m2, galón, lámina, unidad...), para que el cliente '
-    +'sepa qué está pidiendo. '
+    +'sepa qué está pidiendo. El precio que devuelve la herramienta es SIEMPRE el de UNA unidad de venta '
+    +'COMPLETA (una caja entera, un bulto entero), nunca el del metro ni el del kilo: si la caja de 2.51 m2 '
+    +'vale $36.858, ese es el precio de la caja. Cuando te sirva, puedes decir además cuánto sale la medida '
+    +'(precio de la caja ÷ los m2 que trae), pero deja clarísimo qué es cada número. '
+    +(_hayPrecio
+      ? '(1d) COTIZA POR LA CANTIDAD QUE PIDIÓ. Si el cliente dijo cuánto necesita (20 láminas, 3 bultos, '
+        +'45 m2), pásale esa cantidad al consultar el precio —el sistema aplica ahí los descuentos por '
+        +'volumen— y muéstrale la cuenta hecha: precio por unidad de venta × cantidad = TOTAL aproximado. '
+        +'Si lo que pidió viene en una medida distinta de la unidad de venta (pide m2 y se vende por cajas '
+        +'de X m2), dile cuántas unidades de venta necesita REDONDEANDO HACIA ARRIBA (no vendemos media '
+        +'caja) y saca el total sobre esas. Si NO dijo cantidad, no te la inventes: das el precio de la '
+        +'unidad de venta y le preguntas cuánto necesita para cotizarle el total. '
+      : '')
     +'(2) SOLO afirma datos que devuelvan las herramientas; PROHIBIDO inventar precios, referencias o inventario. '
     +(_hayPrecio
       ? '(3) Si NADA de lo pedido aparece o las herramientas fallan del todo, responde únicamente: [ASESOR]. '
@@ -1048,6 +1061,17 @@ function _cotReq(stC){
         +'cuesta, dile con naturalidad que su asesor le confirma el valor y las condiciones, y sigue ayudándole '
         +'con lo que sí sabes: si lo manejamos y si hay disponibilidad. NUNCA digas que no puedes consultarlo. ')
     +'(5) Del inventario di solamente si HAY o NO HAY disponibilidad en la ciudad, sin cantidades exactas. En LISTAS no repitas "hay disponibilidad" en cada renglón: si TODO tiene, dilo UNA vez al final ("todo con disponibilidad en tu ciudad"); menciona renglón por renglón solo lo que NO tenga. '
+    +'(5b) SI NO HAY EN SU CIUDAD, MIRA LAS DEMÁS ANTES DE DECIRLO. Cuando la disponibilidad de la ciudad '
+    +'del cliente venga sin inventario, NO cierres con un "no hay": en tu siguiente turno consulta ESE mismo '
+    +'item_code en las otras ciudades donde tenemos punto de venta (Bucaramanga, Bogotá, Barranquilla, '
+    +'Cartagena, Cali, Pereira, Ibagué, Tunja, Duitama, Sogamoso, Girardot), TODAS en el mismo turno y en '
+    +'paralelo, y dile en cuáles sí lo tenemos: "en '+(stC.ciudad||'tu ciudad')+' no lo tenemos disponible '
+    +'en este momento, pero sí en Bogotá y en Cali; tu asesor te confirma cómo te lo hacemos llegar". '
+    +'PROHIBIDO prometer traslados, fletes, costos o tiempos de entrega: eso lo confirma el asesor. Haz esta '
+    +'consulta SOLO para lo que quedó sin disponibilidad y como máximo para DOS productos —cada ciudad que '
+    +'consultas es tiempo que el cliente pasa esperando—; si son más, di sin detalle que tu asesor revisa '
+    +'desde qué punto se puede despachar. Si tampoco hay en ninguna otra ciudad, '
+    +'entonces sí dilo claro y ofrece la alternativa equivalente de la regla 3a. '
     +'(6) Escribe en plural (nosotros), tono cálido, tuteo; para 1-2 productos máximo 5 frases más una '
     +'pregunta final. '
     // 2026-08-15 (lista de drywall de Deicy: "se ve todo amontonado, toca dejar espacio entre producto"):
@@ -1059,10 +1083,12 @@ function _cotReq(stC){
     +'*Nombre del producto*\n'
     +'Marca · unidad de venta\n'
     +(_hayPrecio ? '💲 $X.XXX (precio de referencia con IVA)\n' : '')
+    +(_hayPrecio ? '🧮 N cajas ≈ $XXX.XXX en total   <- SOLO si el cliente dijo cuánta cantidad necesita\n' : '')
     +'✅ Con disponibilidad en '+(stC.ciudad||'tu ciudad')+'\n\n'
     +'Reglas del bloque: SIN guiones ni viñetas al comienzo; máximo DOS renglones de texto libre por '
     +'producto; si algo no lo hallamos, ese bloque lleva solo el nombre y una línea diciéndolo; si NO hay '
-    +'disponibilidad, cambia el ✅ por ⚠️. Las aclaraciones largas (que se vende por kits, que hay varios '
+    +'disponibilidad en su ciudad pero SÍ en otras, el renglón va así: "⚠️ En '+(stC.ciudad||'tu ciudad')
+    +' no disponible · 📍 sí en Bogotá y Cali"; si no hay en ninguna, cambia el ✅ por ⚠️ a secas. Las aclaraciones largas (que se vende por kits, que hay varios '
     +'acabados) NO van dentro del bloque: van al final, agrupadas, o se convierten en tu pregunta de cierre. '
     +'Nada de párrafos dentro de la lista'
     +(_hayPrecio ? ' y su precio de referencia (o "el valor te lo confirma tu asesor" si no aparece en lista)' : '')
@@ -1083,12 +1109,12 @@ function _cotReq(stC){
      input_schema:{type:'object', properties:{q:{type:'string'}, limit:{type:'integer', default:25}},
        required:['q'], additionalProperties:false}},
     {name:'disponibilidad_ciudad',
-     description:'Disponibilidad (si HAY o NO HAY inventario) de un artículo en una ciudad. Requiere el item_code exacto (sale de buscar_producto) y el nombre de la ciudad del cliente.',
+     description:'Disponibilidad (si HAY o NO HAY inventario) de un artículo en una ciudad. Requiere el item_code exacto (sale de buscar_producto) y el nombre de la ciudad. Ciudades con punto de venta: Bucaramanga, Bogotá, Barranquilla, Cartagena, Cali, Pereira, Ibagué, Tunja, Duitama, Sogamoso, Girardot. Úsala primero con la ciudad del cliente y, si ahí no hay, vuelve a llamarla para las OTRAS ciudades (todas en paralelo) para poder decirle dónde sí lo tenemos.',
      input_schema:{type:'object', properties:{item_code:{type:'string'}, ciudad:{type:'string'}},
        required:['item_code','ciudad'], additionalProperties:false}}
   ];
   if(_hayPrecio) _tools.push({name:_toolPrecio,
-     description:'Precio de VENTA de un artículo con IVA calculado y unidad de venta (bulto, caja y sus m2, galón...). Requiere item_code; opcional cantidad y ciudad. Si devuelve error de "no hay precio definido", el producto existe pero sin precio en lista: responde disponibilidad y remite el valor al asesor.',
+     description:'Precio de VENTA de un artículo con IVA calculado y unidad de venta (bulto, caja y sus m2, galón...). El precio que devuelve es el de UNA unidad de venta completa (la caja entera, el bulto entero), no el del m2 ni el del kilo. Requiere item_code. Manda SIEMPRE la ciudad del cliente (cada ciudad tiene su lista de precios) y manda `cantidad` con lo que el cliente dijo que necesita: la escala por volumen se resuelve ahí y sin ella cotizas el precio de 1. Si devuelve error de "no hay precio definido", el producto existe pero sin precio en lista: responde disponibilidad y remite el valor al asesor.',
      input_schema:{type:'object', properties:{item_code:{type:'string'}, card_code:{type:'string'},
        cantidad:{type:'number'}, ciudad:{type:'string'}}, required:['item_code'], additionalProperties:false}});
   // max_tokens 1500 -> 4000 (2026-08-15). Con 1500 la lista de 11 productos de Deicy (Viniltex,
@@ -3330,8 +3356,41 @@ function sacarTexto(j){
   }
   return 'ERROR: la herramienta no respondió';
 }
+// 2026-08-18 (pedido de Deicy: "verificar si no hay en esa ciudad y decirle en qué ciudades está").
+// El MCP devuelve la disponibilidad de una ciudad ALMACÉN POR ALMACÉN: los 40 depósitos de Bucaramanga
+// con su centro de costos, sus averías y sus outlets, ~6.000 caracteres por producto. Al modelo le
+// llegaba eso multiplicado por cada producto de la lista y ADEMÁS partido por la mitad por el recorte de
+// 4.000, o sea un JSON roto — cuando lo único que necesita saber es si HAY y en qué puntos. Se resume
+// aquí, en casa: entra menos ruido, la respuesta tarda menos, se pueden consultar varias ciudades sin
+// ahogarlo, y de paso las cantidades exactas de inventario NUNCA salen de nuestra infraestructura.
+function compactar(txt){
+  let d; try{ d=JSON.parse(txt); }catch(e){ return txt; }
+  if(!d || typeof d!=='object') return txt;
+  if(Array.isArray(d.almacenes)){
+    const puntos=[];
+    for(const a of d.almacenes){
+      if(!(Number(a.disponible)>0)) continue;
+      if(/AVER/i.test(String(a.tipo_almacen||''))) continue;   // avería no se vende
+      const p=a.punto_venta||a.nombre_almacen||'';
+      if(p && puntos.indexOf(p)<0) puntos.push(p);
+    }
+    return JSON.stringify({item_code:d.item_code, item_name:d.item_name,
+      ciudad:d.ciudad_oficial||d.ciudad_consultada, unidad:d.unidad,
+      hay_disponibilidad:puntos.length>0, puntos_de_venta:puntos.slice(0,6)});
+  }
+  // Precio con dato malo en SAP: el porcelanato 10030624 tiene $4,77 la caja de 1.44 m2 en la lista de
+  // Bucaramanga (el de al lado, mismo formato, vale $36.858). Un precio así no es una ganga, es un error
+  // de captura, y decírselo al cliente cuesta más caro que no darle precio. El número no viaja.
+  if(d.precio_con_iva!=null && Number(d.precio_con_iva)<100){
+    d.precio_sin_iva=null; d.precio_con_iva=null;
+    d.nota='El precio de lista de este artículo NO es confiable (valor fuera de rango). PROHIBIDO dar '
+          +'precio de este producto: responde su disponibilidad y di que su asesor le confirma el valor.';
+    return JSON.stringify(d);
+  }
+  return txt;
+}
 const resultados=items.map((it,ix)=>({type:'tool_result', tool_use_id:(tuses[ix]||{}).id||'',
-  content:[{type:'text', text:[...sacarTexto(it.json)].slice(0,4000).join('')}]}));
+  content:[{type:'text', text:[...compactar(sacarTexto(it.json))].slice(0,4000).join('')}]}));
 """ + (r"""
 // ÚLTIMA VUELTA (2026-08-15). Antes, si el modelo seguía pidiendo herramientas en la última vuelta, se
 // devolvía type:'error' ("tope de vueltas") y el cliente iba al asesor — aunque ya tuviéramos TODO. Le
@@ -3391,7 +3450,10 @@ nodes.append(_http_mcp_call("SAP consulta R2", "Repartir herramientas R2", 3740,
 _EMPUJE_R3 = ("Este es tu ÚLTIMO turno con herramientas. NO vuelvas a buscar productos: con lo que ya "
   "tienes, elige el item_code que mejor encaje con cada cosa pedida y llama AHORA, en este mismo turno y "
   "en paralelo, precio y disponibilidad de TODOS ellos. Si de algún producto no encontraste nada, "
-  "simplemente lo reportarás como no hallado en tu respuesta final; no gastes este turno buscándolo.")
+  "simplemente lo reportarás como no hallado en tu respuesta final; no gastes este turno buscándolo. "
+  "Y si algo ya te salió SIN disponibilidad en la ciudad del cliente, aprovecha este mismo turno para "
+  "consultar ese item_code en las otras ciudades (regla 5b): es tu única oportunidad de poder decirle "
+  "dónde sí lo tenemos en vez de un 'no hay'.")
 nodes.append(node("Armar consulta R3", "n8n-nodes-base.code", 2, {"jsCode":_code_armar("Repartir herramientas R2", "Armar consulta R2", empuje=_EMPUJE_R3)}, 3960, 560))
 nodes.append(_http_anthropic("💰 IA R3", 4180, 560))
 # 2026-08-15: R3 dejó de ser el final. Antes, si en R3 el modelo pedía herramientas se cortaba y el cliente

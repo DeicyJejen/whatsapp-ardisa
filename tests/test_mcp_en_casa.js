@@ -137,5 +137,73 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   chequear('vuelta final con texto -> pasa derecho', out2[0].json.stop_reason === 'end_turn', JSON.stringify(out2).slice(0, 100));
 }
 
+// ══ 7. LO QUE SE LE MANDA AL MODELO (2026-08-18) ═════════════════════════════════════════════════
+// El MCP devuelve la disponibilidad de una ciudad ALMACÉN POR ALMACÉN: los 40 depósitos de Bucaramanga
+// con centro de costos, averías y outlets — unos 6.000 caracteres POR PRODUCTO. Con 7 productos eso no
+// solo era lento: el recorte de 4.000 partía el JSON por la mitad y el modelo recibía basura. Y para
+// poder mirar las OTRAS ciudades (pedido de Deicy) habría que multiplicar eso por 10. Se resume en casa.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const json = (o) => sse({ result: { content: [{ type: 'text', text: JSON.stringify(o) }] } });
+  const alm = (w, punto, tipo, disp) => ({ warehouse: w, nombre_almacen: tipo + ' · ' + punto,
+                                           punto_venta: punto, tipo_almacen: tipo, on_hand: disp, disponible: disp });
+  const disponibilidad = {
+    item_code: '10011257', item_name: 'GEOTEXTIL NT 1600', ciudad_consultada: 'Bmga', ciudad_oficial: 'Bucaramanga',
+    unidad: 'm2', total_almacenes: 4, on_hand_total: 30, disponible_total: 30,
+    almacenes: [ alm('114501', 'CEDI BUCARAMANGA', 'PRINCIPAL', 25),
+                 alm('117101', 'ARDISA CENTRO CONSTRUCCION', 'PRINCIPAL', 0),
+                 alm('110103', 'CARPINCENTRO 61 BMGA', 'AVERIAS', 5),
+                 alm('118208', 'DRYCENTER 61 BMGA', 'OUTLET', 3) ] };
+  const tuses = [{ tuse: { id: 'tu_1', name: 'disponibilidad_ciudad', input: {} }, historia: [] }];
+  const out = correrCode(ARMAR, [json(disponibilidad)], {
+    'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ } });
+  const txt = out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text;
+  let d = {}; try { d = JSON.parse(txt); } catch (e) {}
+  chequear('La disponibilidad llega RESUMIDA, no con los 40 almacenes',
+           txt.length < 400 && !/warehouse|centro_costos/.test(txt), txt.slice(0, 200));
+  chequear('Conserva lo que el bot necesita: producto, ciudad, unidad y si hay',
+           d.item_code === '10011257' && d.ciudad === 'Bucaramanga' && d.unidad === 'm2' &&
+           d.hay_disponibilidad === true, txt.slice(0, 200));
+  chequear('Nombra los puntos con inventario y descarta las AVERÍAS (eso no se vende)',
+           Array.isArray(d.puntos_de_venta) && d.puntos_de_venta.indexOf('CEDI BUCARAMANGA') >= 0 &&
+           d.puntos_de_venta.indexOf('DRYCENTER 61 BMGA') >= 0 &&
+           d.puntos_de_venta.indexOf('CARPINCENTRO 61 BMGA') < 0, JSON.stringify(d.puntos_de_venta));
+  // Sin inventario vendible = "no hay", aunque el total de la ciudad no sea cero (esas son las averías).
+  const soloAverias = Object.assign({}, disponibilidad,
+    { almacenes: [alm('110103', 'CARPINCENTRO 61 BMGA', 'AVERIAS', 5)] });
+  const out2 = correrCode(ARMAR, [json(soloAverias)], {
+    'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ } });
+  const d2 = JSON.parse(out2[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Si lo único que hay son averías -> no hay disponibilidad',
+           d2.hay_disponibilidad === false && d2.puntos_de_venta.length === 0, JSON.stringify(d2));
+  // Del inventario NO viajan cantidades exactas: la regla dice "hay o no hay", y así ni por accidente.
+  chequear('No viajan cantidades exactas de inventario a un tercero',
+           !/on_hand|disponible_total|"25"|:25/.test(txt), txt.slice(0, 200));
+}
+
+// ══ 8. PRECIO CON DATO MALO EN SAP ═══════════════════════════════════════════════════════════════
+// El porcelanato 10030624 tiene $4,77 la caja de 1.44 m2 en la lista de Bucaramanga; el de al lado, mismo
+// formato, vale $36.858. No es una ganga, es un error de captura — y decírselo al cliente sale más caro
+// que no darle precio. El número no llega al modelo, y en su lugar va la orden de remitirlo al asesor.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const json = (o) => sse({ result: { content: [{ type: 'text', text: JSON.stringify(o) }] } });
+  const tuses = [{ tuse: { id: 'tu_1', name: 'precio_articulo', input: {} }, historia: [] }];
+  const malo = { item_code: '10030624', item_name: '60X120 PORCELANATO MATE CEMENTO BIANCO',
+                 precio_sin_iva: 4.01, iva_pct: 19, precio_con_iva: 4.77,
+                 unidad_venta: { unidad: 'Caja', contenido: 1.44, descripcion: 'Caja de 1.44 m2' } };
+  const bueno = Object.assign({}, malo, { item_code: '10028663', precio_sin_iva: 30973.86, precio_con_iva: 36858.89 });
+  const pasar = (o) => correrCode(ARMAR, [json(o)], {
+    'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ }
+  })[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text;
+  const tMalo = pasar(malo), tBueno = pasar(bueno);
+  chequear('Un precio absurdo NO llega al modelo (no puede decir "$4,77 la caja")',
+           !/4\.77|4,77/.test(tMalo) && /asesor le confirma el valor/.test(tMalo), tMalo.slice(0, 200));
+  chequear('El producto sigue existiendo: se responde disponibilidad, no se borra',
+           /10030624/.test(tMalo) && /PORCELANATO/.test(tMalo), tMalo.slice(0, 120));
+  chequear('Un precio normal pasa intacto (esto no censura precios de verdad)',
+           /36858\.89/.test(tBueno) && !/no es confiable/.test(tBueno), tBueno.slice(0, 160));
+}
+
 console.log(ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

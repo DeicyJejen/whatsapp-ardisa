@@ -91,6 +91,30 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            String(req.system||'').slice(0,200));
   chequear('CON tool de precio: sigue sin ver cartera/ventas',
            !/cartera|ventas|compras|contabilidad|recaudos/.test(nombres), nombres);
+  // 2026-08-18, pedido de Deicy: "debe buscar por unidad, hacerle la cotización, y verificar si no hay
+  // en esa ciudad decirle en qué ciudades está disponible".
+  // (1d) El precio que devuelve SAP es el de UNA unidad de venta completa (la caja entera, no el m2), y
+  // la escala por volumen SOLO se aplica si se manda la cantidad: sin ella el bot cotizaba el precio de 1
+  // y el cliente que pedía 20 cajas se quedaba sin su total.
+  const sys = String(req.system||'');
+  chequear('Cotiza por la CANTIDAD que pidió el cliente (total, no precio de 1)',
+           /COTIZA POR LA CANTIDAD QUE PIDIÓ/.test(sys) && /TOTAL/.test(sys) &&
+           /REDONDEANDO HACIA ARRIBA/.test(sys), sys.slice(0,80));
+  const fichaPrecio = (req.tools||[]).find(t=>t.name==='consultar_precio')||{};
+  chequear('La ficha de la herramienta le exige mandar cantidad y ciudad',
+           /cantidad` con lo que el cliente dijo/.test(fichaPrecio.description||'') &&
+           /SIEMPRE la ciudad/.test(fichaPrecio.description||''), String(fichaPrecio.description||'').slice(0,120));
+  // (5b) "No hay en tu ciudad" es donde se pierde el cliente. Tenemos punto de venta en 11 ciudades: antes
+  // de decirle que no, hay que mirar las otras y decirle dónde SÍ.
+  chequear('Si no hay en su ciudad, mira las demás antes de decir que no',
+           /SI NO HAY EN SU CIUDAD, MIRA LAS DEMÁS/.test(sys) &&
+           /Barranquilla/.test(sys) && /Girardot/.test(sys), sys.slice(0,80));
+  chequear('Pero NO promete traslados, fletes ni tiempos (eso lo confirma el asesor)',
+           /PROHIBIDO prometer traslados, fletes, costos o tiempos/.test(sys), sys.slice(0,80));
+  const fichaDisp = (req.tools||[]).find(t=>t.name==='disponibilidad_ciudad')||{};
+  chequear('La ficha de disponibilidad nombra las ciudades donde tenemos punto de venta',
+           /Bucaramanga, Bogotá, Barranquilla/.test(fichaDisp.description||'') &&
+           /OTRAS ciudades/.test(fichaDisp.description||''), String(fichaDisp.description||'').slice(0,120));
 }
 
 // ══ 2. SEGURIDAD: cliente REAL con todo prendido -> flujo de SIEMPRE ════════════
