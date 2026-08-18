@@ -4680,6 +4680,49 @@ _POS = {
   "Revisar inactivos": (460, 900),
   "Enviar recordatorio (Meta)": (700, 840),
   "Guardar recordatorio (MySQL)": (700, 1040),
+  # === 2026-08-18: los nodos de abajo NO estaban en este mapa, así que se quedaban con la posición que
+  # traían de su llamada node(...), puesta a ojo al irlos agregando. Resultado: el circuito de cotización
+  # corría por y=560 y se dibujaba ENCIMA del carril de leads, y el aviso de datos caía sobre el de visión.
+  # Todo el layout vive aquí; lo que no esté en este diccionario se encima tarde o temprano.
+  # sesión del cliente (se guarda en la BD para que sobreviva a un despliegue)
+  "¿Hay sesión?": (2220, 300),
+  "Guardar sesión (MySQL)": (2440, 300),
+  # aviso de datos: va ENCADENADO delante del mensaje al cliente (el orden importa, ver CONSENT_IMPL)
+  "¿Aviso de datos aparte?": (2330, 140),
+  "Enviar aviso de datos (Meta)": (2550, 140),
+  # carril de ALERTAS (cron propio: le manda a Deicy lo que detecta el vigilante)
+  "Cada 10 min (alertas)": (240, 1700),
+  "Leer alertas nuevas (MySQL)": (460, 1700),
+  "Armar aviso a Deicy": (680, 1700),
+  "Avisar a Deicy (Meta)": (900, 1700),
+  "¿Llegó el aviso?": (1120, 1700),
+  "Marcar avisadas (MySQL)": (1340, 1700),
+  # === FASE 2 · COTIZACIÓN SAP (carril propio, abajo del todo) ===
+  # Cadena lineal: buscar -> consultar -> responder, con tres vueltas de herramientas y una final sin ellas.
+  "¿Cotizar?": (1320, 1980),
+  "💰 IA Cotización (SAP)": (1540, 1980),
+  "Repartir herramientas R1": (1760, 1980),
+  "¿Fin R1?": (1980, 1980),
+  "SAP sesión R1": (2200, 1980),
+  "SAP consulta R1": (2420, 1980),
+  "Armar consulta R2": (2640, 1980),
+  "💰 IA R2": (2860, 1980),
+  "Repartir herramientas R2": (3080, 1980),
+  "¿Fin R2?": (3300, 1980),
+  "SAP sesión R2": (3520, 1980),
+  "SAP consulta R2": (3740, 1980),
+  "Armar consulta R3": (3960, 1980),
+  "💰 IA R3": (4180, 1980),
+  "Repartir herramientas R3": (4400, 1980),
+  "¿Fin R3?": (4620, 1980),
+  "SAP sesión R3": (4840, 1980),
+  "SAP consulta R3": (5060, 1980),
+  "Armar consulta R4": (5280, 1980),
+  "💰 IA R4 (sin herramientas)": (5500, 1980),
+  "Cerrar cotización R4": (5720, 1980),
+  # la respuesta al cliente sale por debajo, para que las tres flechas de "¿Fin Rn?" no crucen la cadena
+  "Entregar cotización": (5940, 2120),
+  "Responder cotización (Meta)": (6160, 2120),
 }
 for _n in nodes:
     if _n["name"] in _POS:
