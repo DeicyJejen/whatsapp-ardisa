@@ -173,7 +173,7 @@ if (!store.ses) store.ses = {};
 const S = store.ses;
 // Detector ÚNICO de producto concreto (14-ago): lo usan la solicitud vaga Y la compuerta de
 // cotización — 'hola necesito asesoria' o un botón de categoría NO son un producto cotizable.
-const RE_PRODCONC = /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|f[oó]rmica|formica|triplex|tripl|contrachap|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|mortero|concreto|hormig[oó]n|aglomerad|herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|cl[oó]set|closet|repisa|entrepa[ñn]o|estante|puerta)/i;
+const RE_PRODCONC = /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|cer[aá]mic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|ba[nñ]o|mes[oó]n|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|f[oó]rmica|formica|triplex|tripl|contrachap|madera|l[aá]mina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|sellador|sellante|sellad|silicona|pegante|pegacor|masilla|pa[ñn]ete|mortero|concreto|hormig[oó]n|aglomerad|herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|cl[oó]set|closet|repisa|entrepa[ñn]o|estante|puerta)/i;
 // 2026-08-15 (prueba de Deicy, 13:46): escribió "quiero cotizar *barilla*" y el bot ni intentó cotizar —
 // cerró y la mandó al asesor. La lista dice "varilla"; "barilla" no está, y así no hay producto concreto.
 // Meter la palabra mal escrita sería tapar UN hueco: la confusión b/v es EL error de escritura más común
@@ -1349,7 +1349,13 @@ function esNombreValido(s){
   // Palabras de FRASE que ningún nombre lleva (2026-08-11). Al recortar la cola por la coma, "Aun no se bien,
   // me podrías asesorar económico" quedaba en "Aun no se bien" y pasaba: el recorte se había llevado la palabra
   // ("asesorar") que lo delataba. Ojo: aquí NO van "de/la/del" — "Juan de la Cruz" es un apellido de lo más común.
-  if(/\b(no|s[ií]|se|bien|mal|nada|algo|todo|todos|m[aá]s|menos|muy|ya|aqu[ií]|d[oó]nde|cu[aá]ndo|c[oó]mo|porque|pero|entonces|favor|gracias|sedes|manejan|maneja|hay)\b/i.test(s)) return false;
+  if(/\b(no|s[ií]|se|es|son|era|eran|bien|mal|nada|algo|todo|todos|m[aá]s|menos|muy|ya|aqu[ií]|d[oó]nde|cu[aá]ndo|c[oó]mo|porque|pero|entonces|favor|gracias|sedes|manejan|maneja|hay|para|con|sin|por|eso|esto|este|esta|ese|esa|los|las|unos|unas|tambi[eé]n|solo|s[oó]lo)\b/i.test(s)) return false;
+  // 2026-08-18 (clienta del sellador Sika): escribió "es aellador para concreto" donde se le pedía el
+  // nombre —estaba aclarando el producto— y quedó registrada como "Es Aellador Para Concreto". Se usa el
+  // vocabulario del catálogo, que ya está calibrado, en vez de ir sumando palabras sueltas a mano.
+  // Solo desde TRES palabras: con una o dos podría ser un nombre real (Juan Pino, Ana Madera, Teca es
+  // apellido en la costa) y rebotar a esa persona sería peor que el problema que se arregla.
+  if(s.split(/\s+/).filter(Boolean).length>=3 && tieneProdConc(s)) return false;
   if(/\b(prueba|pruebas|test|testing|probando|asdf|qwerty|ejemplo|fulano|mengano|zutano|sutano|nadie|ninguno|cualquiera|jaja|jeje|jiji|holis)\b/i.test(s)) return false;   // basura/pruebas: "prueba ti", "test", etc.
   if(/^(.)\1{2,}$/i.test(s.replace(/\s/g,''))) return false;                          // una sola letra repetida: "aaaa", "xxxx"
   const pal=s.split(/\s+/).filter(Boolean);
@@ -2453,10 +2459,27 @@ if(preguntaHorario){
     // valida que parezca un nombre REAL de persona (no un producto, cantidad ni una solicitud). Sin nombre válido NO avanza.
     if(!esNombreValido(_n)){
       st.nombreIntentos=(st.nombreIntentos||0)+1;
-      etapa='nombre';
-      wpp_body= (st.nombreIntentos>=2)
-        ? txt(wa,'Para registrar tu solicitud necesito el *nombre de la persona* (nombre y apellido). ✍️')
-        : txt(wa,'👤 ¿Nos confirmas tu *nombre y apellido*?');
+      // Lo que escribió NO era su nombre, pero SÍ era algo suyo: casi siempre está aclarando el producto
+      // ("es sellador para concreto"). Antes se descartaba y el asesor nunca lo veía.
+      // Ojo: otro guard más arriba ya guarda lo que el cliente escribe donde se le pide el nombre, así que
+      // aquí solo se suma lo que NO haya quedado ya — si no, la asesora ve el producto repetido dos veces.
+      if(tieneProdConc(texto)){
+        const _t=[...String(texto)].slice(0,200).join('');
+        const _yaEsta = String(st.detalle||'').indexOf(_t)>=0 || String(st.notas||'').indexOf(_t)>=0;
+        if(!_yaEsta) st.notas = ((st.notas?(st.notas+' | '):'') + _t).slice(0,1200);
+      }
+      // A la SEGUNDA, en vez de seguir insistiendo, se usa el nombre de su perfil de WhatsApp — lo tenemos
+      // desde el primer mensaje. La clienta del sellador se llamaba Rebeca y el bot la registró como
+      // "Es Aellador Para Concreto" mientras se lo preguntaba por tercera vez.
+      const _pn = limpiaNombre([...String(d.profileName||'')].slice(0,50).join('').trim());
+      if(st.nombreIntentos>=2 && esNombreValido(_pn)){
+        delete st.nombreIntentos; st.nombre=capNombre(_pn); siguientePaso(st);
+      } else {
+        etapa='nombre';
+        wpp_body= (st.nombreIntentos>=2)
+          ? txt(wa,'Para registrar tu solicitud necesito el *nombre de la persona* (nombre y apellido). ✍️')
+          : txt(wa,'👤 Anotamos lo que necesitas. Para asignarte el asesor, ¿nos confirmas tu *nombre y apellido*?');
+      }
     } else { delete st.nombreIntentos; st.nombre=capNombre(_n); siguientePaso(st); } }
 } else if(st.paso==='ciudad'){
   const c=elige(st.marca==='Ardisa'?CIU_ARD:CIU);
