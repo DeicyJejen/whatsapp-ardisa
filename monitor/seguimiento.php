@@ -269,6 +269,10 @@ function lnk($ov=[]){
   .val{font-weight:800;color:var(--ok);white-space:nowrap}
   .empty{padding:50px;text-align:center;color:var(--soft)}
   @media(max-width:640px){ .top h1{font-size:1rem} .card .v{font-size:1.4rem} }
+.testbar{background:#FFF4E0;border:1px solid #F0C87A;color:#7A4E00;border-radius:10px;
+  padding:10px 14px;margin:0 0 14px;font-size:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.testbar a{color:#7A4E00;font-weight:600;text-decoration:underline}
+.btn.mon.teston{background:#7A4E00;border-color:#7A4E00;color:#fff}
 </style></head><body>
 <div class="top"><div class="in">
   <div class="logo">📊</div>
@@ -278,11 +282,15 @@ function lnk($ov=[]){
   </div>
   <div class="acts">
     <a class="btn mon" href="index.php">💬 Chats</a>
-    <a class="btn mon" href="<?php echo lnk(['test'=>$test?'':'1']); ?>"><?php echo $test?'👁️ Solo reales':'🧪 Ver pruebas'; ?></a>
+    <a class="btn mon<?php echo $test?' teston':''; ?>" href="<?php echo lnk(['test'=>$test?'':'1']); ?>"><?php echo $test?'🧪 Ocultar pruebas':'🧪 Incluir pruebas'; ?></a>
     <a class="btn exp" href="<?php echo lnk(['export'=>'1']); ?>">⬇️ Exportar Excel</a>
   </div>
 </div></div>
 <div class="wrap">
+<?php if($test): ?>
+  <div class="testbar">🧪 <b>Estás viendo también las pruebas del equipo.</b> Las filas marcadas con 🧪 no son clientes y no cuentan para los informes.
+    <a href="<?php echo lnk(['test'=>'']); ?>">Ocultarlas</a></div>
+<?php endif; ?>
   <div class="cards">
     <div class="card"><div class="k">Solicitudes</div><div class="v"><?php echo $tot; ?></div><div class="x"><?php echo ['hoy'=>'hoy','ayer'=>'ayer','semana'=>'últimos 7 días','mes'=>'últimos 30 días','todos'=>'histórico'][$per]; ?></div></div>
     <div class="card r"><div class="k">Reportadas</div><div class="v"><?php echo $rep; ?></div><div class="x"><?php echo pct($rep,$tot); ?>% del total</div></div>
