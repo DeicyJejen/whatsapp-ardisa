@@ -108,7 +108,7 @@ $mf = isset($_GET['m']) ? trim($_GET['m']) : '';
 if(!in_array($mf,['','Ardisa','Carpincentro'],true)) $mf='';
 $MW = $mf!=='' ? (" AND marca='".$mf."' ") : "";
 $test = isset($_GET['test']);                                    // 🧪 incluir leads de PRUEBA/demo
-$mp = $test ? " " : " AND COALESCE(modo_prueba,0)=0 ";
+$mp = $test ? " AND COALESCE(modo_prueba,0)=1 " : " AND COALESCE(modo_prueba,0)=0 ";
 
 if (isset($_GET['export'])) {
   $sql="SELECT creado_en,nombre,telefono,ciudad,marca,solicitud,tipo_cliente,detalle,asesor,obs_asesor,valor_venta,estado,estado_motivo
@@ -282,14 +282,14 @@ function lnk($ov=[]){
   </div>
   <div class="acts">
     <a class="btn mon" href="index.php">💬 Chats</a>
-    <a class="btn mon<?php echo $test?' teston':''; ?>" href="<?php echo lnk(['test'=>$test?'':'1']); ?>"><?php echo $test?'🧪 Ocultar pruebas':'🧪 Incluir pruebas'; ?></a>
+    <a class="btn mon<?php echo $test?' teston':''; ?>" href="<?php echo lnk(['test'=>$test?'':'1']); ?>"><?php echo $test?'← Volver a clientes':'🧪 Ver pruebas'; ?></a>
     <a class="btn exp" href="<?php echo lnk(['export'=>'1']); ?>">⬇️ Exportar Excel</a>
   </div>
 </div></div>
 <div class="wrap">
 <?php if($test): ?>
-  <div class="testbar">🧪 <b>Estás viendo también las pruebas del equipo.</b> Las filas marcadas con 🧪 no son clientes y no cuentan para los informes.
-    <a href="<?php echo lnk(['test'=>'']); ?>">Ocultarlas</a></div>
+  <div class="testbar">🧪 <b>Vista de pruebas del equipo.</b> Aquí no hay clientes reales, y nada de esto cuenta para los informes ni para los asesores.
+    <a href="<?php echo lnk(['test'=>'']); ?>">Volver a clientes</a></div>
 <?php endif; ?>
   <div class="cards">
     <div class="card"><div class="k">Solicitudes</div><div class="v"><?php echo $tot; ?></div><div class="x"><?php echo ['hoy'=>'hoy','ayer'=>'ayer','semana'=>'últimos 7 días','mes'=>'últimos 30 días','todos'=>'histórico'][$per]; ?></div></div>
@@ -349,12 +349,12 @@ function lnk($ov=[]){
         <th>Solicitud del cliente</th><th>Asesor</th><th>Estado</th><th>Valor</th><th>Observación</th>
       </tr></thead>
       <tbody>
-      <?php if(!$rows): ?><tr><td colspan="10" class="empty">No hay solicitudes en este período.</td></tr><?php endif; ?>
+      <?php if(!$rows): ?><tr><td colspan="10" class="empty"><?php echo $test?'No hiciste pruebas en este período.':'No hay solicitudes en este período.'; ?></td></tr><?php endif; ?>
       <?php foreach($rows as $x): $carp=(mb_stripos((string)$x['marca'],'carp')!==false); ?>
         <tr>
           <td style="white-space:nowrap"><?php echo date('d/m',strtotime($x['creado_en'])); ?><br><span class="sub2"><?php echo date('g:i a',strtotime($x['creado_en'])); ?></span></td>
           <td><div class="cli"><?php echo h($x['nombre']?:'—'); ?></div><div class="sub2"><?php echo h($x['ciudad']?:''); ?> · <?php echo h(telDisp($x['telefono'])); ?></div></td>
-          <td><span class="pill <?php echo $carp?'carp':''; ?>"><?php echo h($x['marca']?:'—'); ?></span><?php if(!empty($x['mp'])): ?> <span class="pill" style="background:#FCEBD6;color:#B15C00">🧪</span><?php endif; ?></td>
+          <td><span class="pill <?php echo $carp?'carp':''; ?>"><?php echo h($x['marca']?:'—'); ?></span><?php if(!empty($x['mp']) && !$test): ?> <span class="pill" style="background:#FCEBD6;color:#B15C00">🧪</span><?php endif; ?></td>
           <td><?php echo h($x['solicitud']?:'—'); ?></td>
           <td><?php echo h($x['tipo_cliente']?:'—'); ?></td>
           <td class="det"><?php echo h((string)$x['detalle']); ?></td>
