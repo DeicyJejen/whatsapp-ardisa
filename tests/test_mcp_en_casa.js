@@ -19,20 +19,27 @@ if (!REPARTIR || !ARMAR || !ARMAR_FINAL || !CERRAR) {
   process.exit(1);
 }
 
-// Arnés: $('Nodo') resuelve fixtures; $input entrega los items de entrada
-function correrCode(code, entrada, nodos) {
+// Arnés: $('Nodo') resuelve fixtures; $input entrega los items de entrada.
+// 2026-08-18: los nodos "Armar consulta" ya usan `await` (n8n envuelve el código del Code node en una
+// función ASYNC, y ahí sí se puede). `new Function` no admite await de primer nivel, así que el arnés
+// construye una AsyncFunction — si no, el nodo real compilaría y la prueba no.
+// El tercer argumento simula `this.helpers` de n8n (el puente para consultar el MCP desde el nodo).
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+function correrCode(code, entrada, nodos, helpers) {
   const $ = (n) => {
     const v = nodos[n];
     const arr = Array.isArray(v) ? v : [v];
     return { first: () => ({ json: arr[0] }), all: () => arr.map(j => ({ json: j })), item: { json: arr[0] } };
   };
   const $input = { first: () => ({ json: entrada[0] }), all: () => entrada.map(j => ({ json: j })) };
-  return new Function('$', '$input', code)($, $input);
+  return new AsyncFunction('$', '$input', code).call({ helpers: helpers || null }, $, $input);
 }
 
 let ok = 0, total = 0;
 const chequear = (n, cond, det) => { total++; if (cond) ok++;
   console.log((cond ? '  OK  ' : '  FALLA') + ' | ' + n + (cond ? '' : '\n         ' + (det || ''))); };
+
+(async () => {
 
 const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...',
   tools: [{ name: 'buscar_producto', input_schema: {} }],
@@ -41,7 +48,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
 // ══ 1. Repartir: el modelo TERMINÓ (texto) -> pasa derecho (Entregar recibe la respuesta tal cual) ══
 {
   const resp = { content: [{ type: 'text', text: 'Manejamos cemento...' }], stop_reason: 'end_turn' };
-  const out = correrCode(REPARTIR, [resp], { 'Cerebro conversacional': { cot_req: COT_REQ } });
+  const out = await correrCode(REPARTIR, [resp], { 'Cerebro conversacional': { cot_req: COT_REQ } });
   chequear('modelo terminó -> 1 item con la respuesta tal cual (sin tuse)',
            out.length === 1 && !out[0].json.tuse && out[0].json.stop_reason === 'end_turn', JSON.stringify(out).slice(0, 120));
 }
@@ -53,7 +60,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
     { type: 'tool_use', id: 'tu_1', name: 'buscar_producto', input: { q: 'cemento' } },
     { type: 'tool_use', id: 'tu_2', name: 'disponibilidad_ciudad', input: { item_code: '10025215', ciudad: 'Bucaramanga' } },
   ], stop_reason: 'tool_use' };
-  const out = correrCode(REPARTIR, [resp], { 'Cerebro conversacional': { cot_req: COT_REQ } });
+  const out = await correrCode(REPARTIR, [resp], { 'Cerebro conversacional': { cot_req: COT_REQ } });
   chequear('2 tool_use -> 2 items con nombre y argumentos',
            out.length === 2 && out[0].json.tuse.name === 'buscar_producto' && out[1].json.tuse.input.ciudad === 'Bucaramanga',
            JSON.stringify(out).slice(0, 150));
@@ -64,7 +71,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
 
 // ══ 3. Repartir: error del API -> pasa derecho (Entregar lo trata como fallo -> asesor) ══
 {
-  const out = correrCode(REPARTIR, [{ error: { message: 'overloaded' } }], { 'Cerebro conversacional': { cot_req: COT_REQ } });
+  const out = await correrCode(REPARTIR, [{ error: { message: 'overloaded' } }], { 'Cerebro conversacional': { cot_req: COT_REQ } });
   chequear('error del API pasa derecho al fallo', out.length === 1 && !!out[0].json.error, JSON.stringify(out).slice(0, 100));
 }
 
@@ -79,7 +86,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
     sse({ result: { content: [{ type: 'text', text: 'RESULTADO_BUSQUEDA' }] } }),
     sse({ error: { message: 'No hay precio definido para el artículo' } }),
   ];
-  const out = correrCode(ARMAR, entrada, {
+  const out = await correrCode(ARMAR, entrada, {
     'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ } });
   const req2 = out[0].json.cot_req;
   const ultimo = req2.messages[req2.messages.length - 1];
@@ -106,7 +113,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   const tuses = [{ tuse: { id: 'tu_9', name: 'precio_articulo', input: {} }, historia: [{ role: 'user', content: 'x' }] }];
   const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
   const entrada = [sse({ result: { content: [{ type: 'text', text: 'PRECIO_12345' }] } })];
-  const out = correrCode(ARMAR_FINAL, entrada, {
+  const out = await correrCode(ARMAR_FINAL, entrada, {
     'Repartir herramientas R3': tuses, 'Armar consulta R3': { cot_req: COT_REQ } });
   const req = out[0].json.cot_req;
   const ultimo = req.messages[req.messages.length - 1];
@@ -120,7 +127,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
            /Responde AHORA/.test(ultimo.content[ultimo.content.length - 1].text),
            JSON.stringify(ultimo.content).slice(0, 200));
   // Las vueltas intermedias NO deben llevar tool_choice: ahí el modelo sí puede consultar.
-  const medio = correrCode(ARMAR, entrada, {
+  const medio = await correrCode(ARMAR, entrada, {
     'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ } });
   chequear('las vueltas intermedias NO prohíben herramientas',
            !medio[0].json.cot_req.tool_choice, JSON.stringify(medio[0].json.cot_req.tool_choice));
@@ -129,11 +136,11 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
 // ══ 6. Cerrar R4: red de seguridad (ya no debería saltar, pero si salta, el cliente no se pierde) ══
 {
   const conTool = { content: [{ type: 'tool_use', id: 't', name: 'buscar_producto', input: {} }] };
-  const out = correrCode(CERRAR, [conTool], {});
+  const out = await correrCode(CERRAR, [conTool], {});
   chequear('si aun así pidiera herramientas -> type error (mensaje neutro + asesor)',
            out[0].json.type === 'error', JSON.stringify(out).slice(0, 100));
   const final = { content: [{ type: 'text', text: 'Respuesta final' }], stop_reason: 'end_turn' };
-  const out2 = correrCode(CERRAR, [final], {});
+  const out2 = await correrCode(CERRAR, [final], {});
   chequear('vuelta final con texto -> pasa derecho', out2[0].json.stop_reason === 'end_turn', JSON.stringify(out2).slice(0, 100));
 }
 
@@ -155,7 +162,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
                  alm('110103', 'CARPINCENTRO 61 BMGA', 'AVERIAS', 5),
                  alm('118208', 'DRYCENTER 61 BMGA', 'OUTLET', 3) ] };
   const tuses = [{ tuse: { id: 'tu_1', name: 'disponibilidad_ciudad', input: {} }, historia: [] }];
-  const out = correrCode(ARMAR, [json(disponibilidad)], {
+  const out = await correrCode(ARMAR, [json(disponibilidad)], {
     'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ } });
   const txt = out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text;
   let d = {}; try { d = JSON.parse(txt); } catch (e) {}
@@ -171,7 +178,7 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   // Sin inventario vendible = "no hay", aunque el total de la ciudad no sea cero (esas son las averías).
   const soloAverias = Object.assign({}, disponibilidad,
     { almacenes: [alm('110103', 'CARPINCENTRO 61 BMGA', 'AVERIAS', 5)] });
-  const out2 = correrCode(ARMAR, [json(soloAverias)], {
+  const out2 = await correrCode(ARMAR, [json(soloAverias)], {
     'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ } });
   const d2 = JSON.parse(out2[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
   chequear('Si lo único que hay son averías -> no hay disponibilidad',
@@ -193,10 +200,10 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
                  precio_sin_iva: 4.01, iva_pct: 19, precio_con_iva: 4.77,
                  unidad_venta: { unidad: 'Caja', contenido: 1.44, descripcion: 'Caja de 1.44 m2' } };
   const bueno = Object.assign({}, malo, { item_code: '10028663', precio_sin_iva: 30973.86, precio_con_iva: 36858.89 });
-  const pasar = (o) => correrCode(ARMAR, [json(o)], {
+  const pasar = async (o) => (await correrCode(ARMAR, [json(o)], {
     'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ }
-  })[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text;
-  const tMalo = pasar(malo), tBueno = pasar(bueno);
+  }))[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text;
+  const tMalo = await pasar(malo), tBueno = await pasar(bueno);
   chequear('Un precio absurdo NO llega al modelo (no puede decir "$4,77 la caja")',
            !/4\.77|4,77/.test(tMalo) && /asesor le confirma el valor/.test(tMalo), tMalo.slice(0, 200));
   chequear('El producto sigue existiendo: se responde disponibilidad, no se borra',
@@ -205,5 +212,80 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
            /36858\.89/.test(tBueno) && !/no es confiable/.test(tBueno), tBueno.slice(0, 160));
 }
 
+
+// ══ 9. "¿Y EN QUÉ PUNTO SÍ LO TIENEN?" (2026-08-18) ══════════════════════════════════════════════
+// Deicy, sobre la cotización del triplex fenólico: "acá debe decirle en cuál punto tiene, porque es una
+// SOLA empresa". La regla estaba escrita, pero el modelo nunca llegó a usarla: en esa conversación gastó
+// R1 y R2 buscando y en R3 —su último turno con herramientas— preguntó disponibilidad y precio. Se entera
+// de que no hay justo cuando ya no puede consultar nada. Así que la consulta la hace n8n: si un artículo
+// sale sin inventario en la ciudad del cliente, aquí se preguntan las demás y el hallazgo viaja PEGADO a
+// ese resultado, listo para usarse aunque sea la última vuelta.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const disp = (ciudad, hay) => ({ item_code: '10017102', item_name: 'TRIPLEX FENOLICO CMPC 9MM',
+    ciudad_consultada: ciudad, ciudad_oficial: ciudad, unidad: 'Lámina', total_almacenes: 3,
+    almacenes: hay ? [{ warehouse:'1', nombre_almacen:'CEDI ' + ciudad, punto_venta:'CEDI ' + ciudad,
+                        tipo_almacen:'PRINCIPAL', on_hand:40, disponible:40 }]
+                   : [{ warehouse:'1', nombre_almacen:'CEDI ' + ciudad, punto_venta:'CEDI ' + ciudad,
+                        tipo_almacen:'PRINCIPAL', on_hand:0, disponible:0 }] });
+  const CON_STOCK = ['Bogotá', 'Cali'];
+  const llamadas = [];
+  // `this.helpers.httpRequest` de mentira: initialize devuelve la sesión, y cada consulta responde según
+  // la ciudad. Así se prueba la lógica sin tocar SAP.
+  const helpers = { httpRequest: async (o) => {
+    const body = typeof o.body === 'string' ? JSON.parse(o.body) : o.body;
+    if (body.method === 'initialize') return { headers: { 'mcp-session-id': 'sid-123' }, body: {} };
+    const ciu = body.params.arguments.ciudad;
+    llamadas.push(ciu);
+    return 'event: message\ndata: ' + JSON.stringify(
+      { result: { content: [{ type: 'text', text: JSON.stringify(disp(ciu, CON_STOCK.indexOf(ciu) >= 0)) }] } }) + '\n';
+  } };
+  const tuses = [{ tuse: { id: 'tu_1', name: 'disponibilidad_ciudad', input: {} }, historia: [] }];
+  const entrada = [sse({ result: { content: [{ type: 'text', text: JSON.stringify(disp('Bucaramanga', false)) }] } })];
+  const nodos = { 'Repartir herramientas R1': tuses, 'Cerebro conversacional': { cot_req: COT_REQ },
+                  'Unir pendiente': { cfg_mcp_url: 'https://mcp.ardisa.com/mcp', cfg_mcp_token: 'tok' } };
+  const out = await correrCode(ARMAR, entrada, nodos, helpers);
+  const d = JSON.parse(out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Sin stock en su ciudad -> n8n pregunta por TODAS las demás, sin gastarle un turno al modelo',
+           llamadas.length === 10 && llamadas.indexOf('Bucaramanga') < 0, JSON.stringify(llamadas));
+  chequear('El resultado llega con las ciudades donde SÍ lo tenemos',
+           Array.isArray(d.otras_ciudades) && d.otras_ciudades.length === 2 &&
+           d.otras_ciudades.map(x => x.ciudad).join(',') === 'Bogotá,Cali', JSON.stringify(d.otras_ciudades));
+  chequear('Y con el PUNTO de venta, que es lo que preguntó Deicy',
+           /CEDI Bogotá/.test(JSON.stringify(d.otras_ciudades)), JSON.stringify(d.otras_ciudades));
+
+  // Si no hay en ninguna parte, el campo llega VACÍO — que es distinto de "no se miró".
+  const CERO = [];
+  const helpers2 = { httpRequest: async (o) => {
+    const body = typeof o.body === 'string' ? JSON.parse(o.body) : o.body;
+    if (body.method === 'initialize') return { headers: { 'mcp-session-id': 's' }, body: {} };
+    return 'event: message\ndata: ' + JSON.stringify({ result: { content: [{ type: 'text',
+      text: JSON.stringify(disp(body.params.arguments.ciudad, false)) }] } }) + '\n';
+  } };
+  const out2 = await correrCode(ARMAR, entrada, nodos, helpers2);
+  const d2 = JSON.parse(out2[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Si no hay en ninguna ciudad, el campo llega vacío (no ausente)',
+           Array.isArray(d2.otras_ciudades) && d2.otras_ciudades.length === 0 && CERO.length === 0,
+           JSON.stringify(d2));
+
+  // Con stock en su propia ciudad NO se molesta a SAP: son 10 consultas que nadie necesita.
+  const llamadas3 = [];
+  const helpers3 = { httpRequest: async (o) => { llamadas3.push(1);
+    return { headers: {}, body: {} }; } };
+  const conStock = [sse({ result: { content: [{ type: 'text', text: JSON.stringify(disp('Bucaramanga', true)) }] } })];
+  await correrCode(ARMAR, conStock, nodos, helpers3);
+  chequear('Con inventario en su ciudad no se consulta nada más', llamadas3.length === 0, String(llamadas3.length));
+
+  // Si el MCP se cae en mitad de la consulta, la cotización sigue: nunca peor que antes.
+  const helpers4 = { httpRequest: async () => { throw new Error('ECONNREFUSED'); } };
+  const out4 = await correrCode(ARMAR, entrada, nodos, helpers4);
+  const d4 = JSON.parse(out4[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Si el MCP falla, el resultado original sigue llegando (sin otras_ciudades)',
+           d4.item_code === '10017102' && d4.hay_disponibilidad === false && !d4.otras_ciudades,
+           JSON.stringify(d4).slice(0, 160));
+}
+
 console.log(ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);
+
+})();

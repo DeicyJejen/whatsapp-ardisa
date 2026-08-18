@@ -106,15 +106,29 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            /SIEMPRE la ciudad/.test(fichaPrecio.description||''), String(fichaPrecio.description||'').slice(0,120));
   // (5b) "No hay en tu ciudad" es donde se pierde el cliente. Tenemos punto de venta en 11 ciudades: antes
   // de decirle que no, hay que mirar las otras y decirle dónde SÍ.
-  chequear('Si no hay en su ciudad, mira las demás antes de decir que no',
-           /SI NO HAY EN SU CIUDAD, MIRA LAS DEMÁS/.test(sys) &&
-           /Barranquilla/.test(sys) && /Girardot/.test(sys), sys.slice(0,80));
+  chequear('Si no hay en su ciudad, usa el dato de dónde SÍ (ya resuelto por n8n)',
+           /SI NO HAY EN SU CIUDAD, DILE DÓNDE SÍ/.test(sys) && /otras_ciudades/.test(sys), sys.slice(0,80));
+  // Lo que Deicy vio en el triplex: "tu asesor deberá confirmarte disponibilidad en otras plazas". Somos
+  // UNA empresa con varios puntos; ese dato lo tiene el bot, no se le devuelve el trabajo al cliente.
+  chequear('Tiene PROHIBIDO mandar al asesor a averiguar en qué otra plaza hay',
+           /confirmará disponibilidad en otras plazas o /.test(sys), sys.slice(0,80));
   chequear('Pero NO promete traslados, fletes ni tiempos (eso lo confirma el asesor)',
            /PROHIBIDO prometer traslados, fletes, costos o tiempos/.test(sys), sys.slice(0,80));
+  chequear('Dice en qué PUNTO lo tenemos, no solo si hay',
+           /EN QUÉ PUNTO lo tenemos/.test(sys) && /puntos_de_venta/.test(sys), sys.slice(0,80));
+  // Y nunca le cuenta al cliente el motivo interno de que falte un precio (regla de redacción de Deicy).
+  chequear('Nunca dice "no está en nuestra lista de precios"',
+           /nunca digas "no está en nuestra lista de precios"/.test(sys), sys.slice(0,80));
+  // 18-ago, Deicy: "no tiene un asesor, diga UN asesor". Mientras cotiza, al cliente todavía no se le ha
+  // asignado nadie —eso pasa al cerrar el lead—, así que "tu asesor" nombra a alguien que él no conoce.
+  // (La única aparición permitida es en MAYÚSCULA dentro de la propia regla que lo prohíbe.)
+  chequear('En cotización se dice "un asesor", nunca "tu asesor"',
+           !/tu asesor/.test(sys) && /un asesor/.test(sys),
+           (sys.match(/.{0,70}tu asesor.{0,70}/)||[''])[0]);
   const fichaDisp = (req.tools||[]).find(t=>t.name==='disponibilidad_ciudad')||{};
   chequear('La ficha de disponibilidad nombra las ciudades donde tenemos punto de venta',
-           /Bucaramanga, Bogotá, Barranquilla/.test(fichaDisp.description||'') &&
-           /OTRAS ciudades/.test(fichaDisp.description||''), String(fichaDisp.description||'').slice(0,120));
+           /Bucaramanga, Bogotá, Barranquilla/.test(fichaDisp.description||''),
+           String(fichaDisp.description||'').slice(0,120));
 }
 
 // ══ 2. SEGURIDAD: cliente REAL con todo prendido -> flujo de SIEMPRE ════════════
