@@ -1826,6 +1826,35 @@ if(!es_media && texto && !id){
     if(_ult!==_t){ _a.push({t:NOW, m:_t}); if(_a.length>20) store.cliMsgs[wa]=_a.slice(-20); }
   }
 }
+// === CANDADO POR CLIENTE (2026-08-18) =========================================================
+// Meta manda un webhook por mensaje y n8n los corre EN PARALELO. Con dos mensajes seguidos —28 de 64
+// personas escribieron así esta semana— las dos ejecuciones leen el MISMO pasado: cada una responde por su
+// lado, se contradicen, y la segunda pisa la sesión de la primera. staticData no puede arbitrarlo (es
+// justo lo que llega tarde); la clave primaria de `bloqueos` sí, porque serializa de verdad.
+// Aquí solo se LEE quién ganó: el INSERT lo hizo el nodo 'Tomar candado' antes de la IA.
+// Lo que el perdedor traía NO se pierde: ya quedó arriba en store.cliMsgs (y abajo se suma a st.notas),
+// así que le llega al asesor igual. Lo único que no hace es responder.
+// PERO SOLO PARA TEXTO LIBRE: un botón o una opción de menú SIEMPRE se procesa — ahí el cliente está
+// contestando la pregunta en curso y callarse le rompería el formulario.
+const _lockDueno = String(PEND.lock_dueno||'');
+const PERDIO_CARRERA = !!(_lockDueno && msg_id && _lockDueno !== String(msg_id) && !id && !es_media && !!texto);
+if(PERDIO_CARRERA){
+  try{
+    const _st0 = S[wa];
+    if(_st0 && texto){
+      const _t2=[...String(texto)].slice(0,400).join('');
+      if(String(_st0.notas||'').indexOf(_t2)<0) _st0.notas=((_st0.notas?(_st0.notas+' | '):'')+_t2).slice(0,1200);
+      _st0.t=NOW;
+    }
+  }catch(e){}
+  return [{json:{etapa:'carrera_acumula', wa_id:wa, wpp_body:null, aviso_body:null, aviso_medias:null,
+    hay_aviso:false, hay_media:false, lead:null, consent_log:null, pend_cierre:false, pend_token:0,
+    chat:{creado_en:fechaCol(), wa_id:wa, nombre:(d.profileName||''),
+          entrada:[...String(texto||'')].slice(0,300).join(''),
+          salida:'(mensaje simultáneo: se sumó a su solicitud, respondió la otra ejecución)',
+          etapa:'carrera_acumula'},
+    ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
+}
 // Captura de DETALLE EXTRA: si el cliente escribe algo tipo producto/solicitud MIENTRAS el bot pide otro dato
 // (nombre/ciudad/perfil), no se pierde -> lo guardamos en st.notas y se suma al detalle que ve el asesor.
 // `!id`: SOLO texto libre — un TOQUE de botón trae su etiqueta como texto ("🛋️ Proyecto a tu medida" contiene "medida")
@@ -3214,6 +3243,8 @@ _PEND_SQL = ("SELECT "
     # La tabla `humano` la escribe el panel (botón "Atender yo" o al responder). Mientras hasta > NOW(),
     # el Cerebro se calla: registra lo que llegue y no contesta ni avisa.
     "(SELECT CASE WHEN hasta > NOW() THEN 1 ELSE 0 END FROM humano WHERE telefono=CONVERT($10 USING utf8mb4) COLLATE utf8mb4_general_ci LIMIT 1) AS humano_on, "
+    # de quién es el candado AHORA: si no es de este mensaje, otra ejecución del mismo cliente va adelante
+    "(SELECT dueno FROM bloqueos WHERE clave=CONVERT($11 USING utf8mb4) COLLATE utf8mb4_general_ci AND hasta>NOW(3) LIMIT 1) AS lock_dueno, "
     # === FASE 2 · CONFIG EN LA BD (2026-08-06): interruptores SIN desplegar. `usar_cotiza` prende el piloto
     # de cotización SAP (solo números demo), y la URL/token del MCP viven en la BD (rotables con un UPDATE).
     "(SELECT valor FROM config WHERE clave='usar_cotiza' LIMIT 1) AS cfg_cotiza, "
@@ -3233,9 +3264,25 @@ _PEND_SQL = ("SELECT "
     # Interruptor del AVISO IMPLÍCITO de datos (2026-08-15). Vive en la BD, no en el código: encenderlo o
     # apagarlo es un UPDATE, sin desplegar — si algún día hay que volver al muro, se vuelve en segundos.
     "(SELECT valor FROM config WHERE clave='consent_implicito' LIMIT 1) AS cfg_consent_impl")
+# === CANDADO POR CLIENTE (2026-08-18, pedido de Deicy) ===
+# Meta manda un webhook por mensaje y n8n los corre EN PARALELO. Cuando alguien escribe dos veces seguidas
+# —28 de 64 personas lo hicieron esta semana— las dos ejecuciones leen el MISMO pasado y responden cada una
+# por su lado: sale una contestación que contradice a la otra y la segunda pisa la sesión de la primera
+# (caso Claudia Parra #224, y el "ya se lo pasamos" repetido a Ilba). staticData NO puede arbitrar esto:
+# es justo lo que llega tarde. La BD sí, porque la clave primaria serializa de verdad.
+# Gana el primero que inserte; los demás lo ven ocupado y no responden (su texto igual se guarda).
+_CANDADO_SQL = ("INSERT INTO bloqueos (clave,dueno,hasta) "
+    "VALUES (CONVERT($1 USING utf8mb4) COLLATE utf8mb4_general_ci, $2, NOW(3)+INTERVAL 4 SECOND) "
+    "ON DUPLICATE KEY UPDATE dueno=IF(hasta<NOW(3), VALUES(dueno), dueno), "
+                            "hasta=IF(hasta<NOW(3), VALUES(hasta), hasta)")
+nodes.append(node("Tomar candado (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery", "query":_CANDADO_SQL,
+     "options":{"queryReplacement":"={{ [$json.wa_id, $json.msg_id] }}"}},
+    860, 200, {"onError":"continueRegularOutput","retryOnFail":False,
+               "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id, $json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [$('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -4565,7 +4612,8 @@ connections = {
  "Verificar firma": {"main":[[{"node":"¿Firma válida?","type":"main","index":0}]]},
  "¿Firma válida?": {"main":[[{"node":"Extraer datos","type":"main","index":0}],[{"node":"Descartado (firma inválida)","type":"main","index":0}]]},
  "Extraer datos": {"main":[[{"node":"¿Es mensaje?","type":"main","index":0}]]},
- "¿Es mensaje?": {"main":[[{"node":"Buscar pendiente (MySQL)","type":"main","index":0}],[{"node":"Fin (no es mensaje)","type":"main","index":0}]]},
+ "¿Es mensaje?": {"main":[[{"node":"Tomar candado (MySQL)","type":"main","index":0}],[{"node":"Fin (no es mensaje)","type":"main","index":0}]]},
+ "Tomar candado (MySQL)": {"main":[[{"node":"Buscar pendiente (MySQL)","type":"main","index":0}]]},
  "Buscar pendiente (MySQL)": {"main":[[{"node":"Unir pendiente","type":"main","index":0}]]},
  "Unir pendiente": {"main":[[{"node":"¿Es imagen?","type":"main","index":0}]]},
  "¿Es imagen?": {"main":[[{"node":"Obtener URL imagen (Meta)","type":"main","index":0}],[{"node":"¿Usar IA?","type":"main","index":0}]]},
@@ -4653,6 +4701,7 @@ _POS = {
   "Descartado (firma inválida)": (560, 580),
   "Extraer datos": (720, 380),
   "¿Es mensaje?": (900, 380),
+  "Tomar candado (MySQL)": (1000, 140),
   "Buscar pendiente (MySQL)": (1000, 260),
   "Unir pendiente": (1220, 260),
   "Fin (no es mensaje)": (900, 600),
