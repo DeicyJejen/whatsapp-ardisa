@@ -71,9 +71,13 @@ def q(sql):
     return [ln.split("\t") for ln in out.strip().split("\n") if ln.strip()]
 
 def build_xlsx(path, marca, titulo):
+    # 18-ago (Deicy: "veo las pruebas en los reportes"): este Excel sale por correo a Comercial, así que
+    # las pruebas del equipo NO pueden ir dentro — un "Deicy Jejen" en la lista de clientes de la semana
+    # desprestigia todo el informe. El bot ya las marca al crearlas (modo_prueba=1); solo faltaba filtrar.
     rows = q("SELECT DATE_FORMAT(creado_en,'%%Y-%%m-%%d %%H:%%i'), nombre, telefono, ciudad, marca, "
              "tipo_cliente, solicitud, detalle, asesor FROM leads "
-             "WHERE creado_en >= (NOW() - INTERVAL %d DAY) AND marca='%s' ORDER BY creado_en DESC" % (DIAS, marca))
+             "WHERE creado_en >= (NOW() - INTERVAL %d DAY) AND marca='%s' "
+             "AND COALESCE(modo_prueba,0)=0 ORDER BY creado_en DESC" % (DIAS, marca))
     COLS = ["Fecha","Cliente","Teléfono","Ciudad","Marca","Perfil","Solicitud","Detalle","Asesor"]
     WRAP = {7,8}; CAP = {7:22,8:50}
     thin = Side(style="thin", color="D9DEE4"); border = Border(thin,thin,thin,thin)

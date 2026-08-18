@@ -26,12 +26,14 @@ def q(sql):
     out=subprocess.check_output(['sudo','mysql','--default-character-set=utf8mb4','bot_ardisa','-N','-B','-e',sql], encoding='utf-8', errors='replace')
     return [ln.split('\t') for ln in out.strip().split('\n') if ln.strip()]
 
-zones=q("SELECT DISTINCT marca,ciudad FROM leads ORDER BY marca,ciudad")
+# 18-ago: fuera las pruebas del equipo (modo_prueba=1). Van a la misma BD a propósito —así se prueba el
+# flujo completo— pero no son clientes y no pueden aparecer en un informe que sale del área.
+zones=q("SELECT DISTINCT marca,ciudad FROM leads WHERE COALESCE(modo_prueba,0)=0 ORDER BY marca,ciudad")
 COLS=['Fecha','Cliente','Telefono','Tipo de cliente','Solicitud','Detalle','Asesor que atendio']
 WRAP={5,6}; CAP={5:20,6:45}
 thin=Side(style='thin', color='D9DEE4'); border=Border(thin,thin,thin,thin); made=[]
 for marca,ciudad in zones:
-    rows=[[clean(v) for v in r] for r in q('SELECT creado_en,nombre,telefono,tipo_cliente,solicitud,detalle,asesor FROM leads WHERE marca="%s" AND ciudad="%s" ORDER BY creado_en'%(marca,ciudad))]
+    rows=[[clean(v) for v in r] for r in q('SELECT creado_en,nombre,telefono,tipo_cliente,solicitud,detalle,asesor FROM leads WHERE marca="%s" AND ciudad="%s" AND COALESCE(modo_prueba,0)=0 ORDER BY creado_en'%(marca,ciudad))]
     accent = TEAL if marca=='Ardisa' else AMBER
     wb=Workbook(); ws=wb.active; ws.title='Reporte'; ws.sheet_view.showGridLines=False
     ws.row_dimensions[1].height=46

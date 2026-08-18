@@ -285,6 +285,64 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
            JSON.stringify(d4).slice(0, 160));
 }
 
+// ══ 10. BUSCAR CON LO QUE HAY EN SAP, NO CON LO QUE DIJO EL CLIENTE (2026-08-18) ══════════════════
+// El buscador compara contra el NOMBRE del artículo: "pintura drywall" devuelve CERO (el nuestro se llama
+// "vinilo drywall") y el cliente se va creyendo que no la manejamos. Ahora, ante un cero, n8n reintenta
+// solo: parte la frase y prueba palabra por palabra, de la más específica a la más general.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const CATALOGO = {                       // lo que el SAP de mentira sabe responder
+    drywall: { total: 2, truncated: false, matches: [
+      { item_code: '10025609', item_name: 'NOVAFLEX VINILO DRYWALL CIELOS 1G', unidad: 'Und' },
+      { item_code: '10025610', item_name: 'NOVAFLEX VINILO DRYWALL CIELOS 5G', unidad: 'Und' }] },
+    // "pintura" a secas arrastra media ferretería; "drywall" apunta a lo que el cliente quiere.
+    pintura: { total: 25, truncated: true, matches: [
+      { item_code: '10024839', item_name: 'ADAPTADOR 4 NAVES PINTURA BLANCA', unidad: 'Und' }] },
+  };
+  const buscadas = [];
+  const helpers = { httpRequest: async (o) => {
+    const body = typeof o.body === 'string' ? JSON.parse(o.body) : o.body;
+    if (body.method === 'initialize') return { headers: { 'mcp-session-id': 's' }, body: {} };
+    const q = body.params.arguments.q;
+    buscadas.push(q);
+    const r = CATALOGO[q] || { query: q, total: 0, truncated: false, matches: [] };
+    return 'event: message\ndata: ' + JSON.stringify(
+      { result: { content: [{ type: 'text', text: JSON.stringify(r) }] } }) + '\n';
+  } };
+  const nodos = { 'Repartir herramientas R1': [{ tuse: { id: 't1', name: 'buscar_producto',
+                    input: { q: 'pintura para drywall', limit: 25 } }, historia: [] }],
+                  'Cerebro conversacional': { cot_req: COT_REQ },
+                  'Unir pendiente': { cfg_mcp_url: 'https://mcp.ardisa.com/mcp', cfg_mcp_token: 'tok' } };
+  const cero = [sse({ result: { content: [{ type: 'text',
+    text: JSON.stringify({ query: 'pintura para drywall', total: 0, truncated: false, matches: [] }) }] } })];
+  const out = await correrCode(ARMAR, cero, nodos, helpers);
+  const d = JSON.parse(out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Una búsqueda en cero se reintenta sola con el vocabulario del catálogo',
+           d.total === 2 && d.busqueda_usada === 'drywall', JSON.stringify(d).slice(0, 180));
+  chequear('Gana la palabra específica sobre la genérica, y el relleno ni se busca',
+           buscadas.indexOf('drywall') >= 0 && buscadas.indexOf('para') < 0, JSON.stringify(buscadas));
+  chequear('Y le dice al modelo que NO responda "no lo manejamos"',
+           /NO le digas al cliente que no lo manejamos/.test(d.nota || ''), String(d.nota).slice(0, 120));
+
+  // Una búsqueda CON resultados no se toca: reintentar ahí solo traería ruido.
+  const buscadas2 = [];
+  const helpers2 = { httpRequest: async () => { buscadas2.push(1); return { headers: {}, body: {} }; } };
+  const conResultados = [sse({ result: { content: [{ type: 'text',
+    text: JSON.stringify(CATALOGO.drywall) }] } })];
+  await correrCode(ARMAR, conResultados, nodos, helpers2);
+  chequear('Si la búsqueda encontró algo, no se reintenta nada', buscadas2.length === 0, String(buscadas2.length));
+
+  // Una sola palabra ya es lo más corto posible: recortarla no tiene sentido.
+  const buscadas3 = [];
+  const helpers3 = { httpRequest: async () => { buscadas3.push(1); return { headers: {}, body: {} }; } };
+  const nodos3 = Object.assign({}, nodos, { 'Repartir herramientas R1': [{ tuse: { id: 't1',
+    name: 'buscar_producto', input: { q: 'tornillo' } }, historia: [] }] });
+  const cero3 = [sse({ result: { content: [{ type: 'text',
+    text: JSON.stringify({ query: 'tornillo', total: 0, truncated: false, matches: [] }) }] } })];
+  await correrCode(ARMAR, cero3, nodos3, helpers3);
+  chequear('Con una sola palabra no hay nada que recortar: no se reintenta', buscadas3.length === 0, String(buscadas3.length));
+}
+
 console.log(ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);
 

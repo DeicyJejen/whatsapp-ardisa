@@ -1283,7 +1283,11 @@ function intentaCotizar(){
     // ACUSE INMEDIATO (pedido Deicy 13-ago, "se demoró mucho"): la consulta a SAP toma 5-10s; este texto
     // sale al instante por la rama normal mientras la cotización corre EN PARALELO por la rama ¿Cotizar?.
     cot_req=_cotReq(st); etapa='cotizacion';
-    wpp_body=txt(wa,'¡Con gusto! 🔍 Estamos consultando *disponibilidad y precios* — un momentico...');
+    // 18-ago (Deicy: "esa respuesta de un momentico hazla más profesional"): el diminutivo y los puntos
+    // suspensivos sonaban a chat improvisado en el mensaje que el cliente lee JUSTO antes de una
+    // cotización con precios. Se dice qué estamos haciendo y para qué, en plural y sin diminutivos.
+    wpp_body=txt(wa,'Con gusto. 🔍 Estamos verificando *disponibilidad y precios actualizados* para darte '
+                   +'información exacta. En un momento te confirmamos.');
     return true;
   }catch(e){ return false; }
 }
@@ -3427,7 +3431,61 @@ async function _otrasCiudades(itemCode, ciudadCliente){
   }));
   return _r.filter(Boolean);
 }
+// === BUSCAR CON EL VOCABULARIO DE SAP, NO CON EL DEL CLIENTE (2026-08-18, Deicy: "hay que buscar no con
+// lo que dice sino con lo que hay en SAP"). El buscador compara contra el NOMBRE del artículo en el
+// catálogo: "pintura drywall" devuelve CERO porque ningún artículo se llama así (el nuestro es "vinilo
+// drywall"), y el cliente que preguntó por pintura se va creyendo que no la manejamos. El modelo tenía la
+// instrucción de reintentar con menos palabras, pero eso le gasta un turno y no siempre lo hace. Aquí, en
+// cuanto una búsqueda vuelve en cero, n8n reintenta solo: parte la frase y prueba palabra por palabra —de
+// la más específica a la más general— hasta que el catálogo responde. Se descartan medidas, marcas y
+// palabras de relleno, que es justo lo que sobra en la frase de un cliente.
+const _RELLENO=['de','del','la','el','los','las','un','una','unos','unas','para','por','con','sin','y','o',
+  'que','en','al','mi','su','me','necesito','quiero','vale','cuanto','cuánto','cotizar','cotizacion',
+  'cotización','precio','precios','valor','tienen','tiene','hay','manejan','maneja','busco','buscando',
+  'x','mm','cm','mt','mts','m2','kg','kilos','kilo','gr','pulgadas','pulgada','metros','metro','unidades'];
+async function _reintentarBusqueda(q0){
+  if(!_H || !_cfg.cfg_mcp_url || !_cfg.cfg_mcp_token) return null;
+  const _pal=String(q0||'').toLowerCase().replace(/[^a-záéíóúñü0-9\s]/g,' ').split(/\s+/)
+    .filter(function(w){ return w.length>2 && _RELLENO.indexOf(w)<0 && !/^\d+$/.test(w); });
+  if(_pal.length<2) return null;                       // con una sola palabra no hay nada que recortar
+  _pal.sort(function(a,b){ return b.length-a.length; });   // primero las largas: las cortas suelen ser genéricas
+  const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
+              'Authorization':'Bearer '+_cfg.cfg_mcp_token};
+  const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
+    body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
+      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:8000});
+  const _sid=(_ini && _ini.headers && (_ini.headers['mcp-session-id']||_ini.headers['Mcp-Session-Id']))||'';
+  // Se prueban las candidatas y gana la que MENOS resultados devuelva: en un catálogo de ferretería la
+  // palabra genérica ("pintura") arrastra cientos de referencias y la específica ("drywall") unas pocas,
+  // así que el conteo es un buen termómetro de cuál de las dos describe lo que el cliente pidió.
+  const _cand=await Promise.all(_pal.slice(0,3).map(function(_w){
+    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:8000,
+        headers:Object.assign({'mcp-session-id':_sid}, _hdr),
+        body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
+          params:{name:'buscar_producto', arguments:{q:_w, limit:25} } })})
+      .then(function(t){ const o=JSON.parse(sacarTexto(t)); return (o && o.total>0) ? {w:_w, o:o} : null; })
+      .catch(function(){ return null; });
+  }));
+  const _vivos=_cand.filter(Boolean);
+  if(!_vivos.length) return null;
+  _vivos.sort(function(a,b){ return a.o.total-b.o.total; });
+  const _g=_vivos[0];
+  _g.o.busqueda_original=q0; _g.o.busqueda_usada=_g.w;
+  _g.o.nota='La búsqueda "'+q0+'" no existe con esas palabras en el catálogo; se repitió con "'+_g.w
+           +'" y estos son los resultados reales. Trabaja con ellos: NO le digas al cliente que no lo '
+           +'manejamos ni vuelvas a buscar lo mismo.';
+  return JSON.stringify(_g.o);
+}
 const _txt=items.map(function(it){ return compactar(sacarTexto(it.json)); });
+for(let _i=0; _i<_txt.length; _i++){
+  try{
+    const _o=JSON.parse(_txt[_i]);
+    if(!_o || _o.total!==0 || !Array.isArray(_o.matches)) continue;
+    const _q0=((tuses[_i]||{}).input||{}).q || _o.query || '';
+    const _mejor=await _reintentarBusqueda(_q0);
+    if(_mejor) _txt[_i]=_mejor;
+  }catch(e){}
+}
 const _sinStock=[];
 _txt.forEach(function(t,ix){ try{ const o=JSON.parse(t);
   if(o && o.hay_disponibilidad===false && o.item_code) _sinStock.push({ix:ix, item:o.item_code, ciudad:o.ciudad});
@@ -4218,6 +4276,12 @@ if(store.segPend){
     const _porAses={};                            // agrupa los pendientes por asesor
     for(const tok in store.segPend){
       const sp=store.segPend[tok]; if(!sp) continue;
+      // 18-ago (Deicy: "veo las pruebas en el monitor y en los reportes"): las demos del equipo entran a la
+      // BD a propósito —así se prueba el flujo completo, aviso incluido—, pero no son clientes: pedirle a
+      // Deicy que "reporte el resultado" de sus propias pruebas es ruido que además infla su lista de
+      // pendientes (iba en 5). El botón sigue ahí por si quiere probar el reporte; lo que se apaga es la
+      // insistencia diaria. Lista repetida a propósito: este nodo no comparte variables con el Cerebro.
+      if(['573205662947','573156251656','CO.1352055013679988'].indexOf(String(sp.telefono||''))>=0) continue;
       const dest = sp.asesor_num || '573205662947';                 // asesor real; Deicy si el lead no tenía número
       // REGLA DEICY 2026-08-03: se insiste UNA SEMANA (8 días calendario) y se acabó. El Excel sale cada lunes;
       // si no lo reportaron en su semana, el lead deja de aparecer en el recordatorio PARA SIEMPRE. No se pierde:

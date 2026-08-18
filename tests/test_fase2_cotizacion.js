@@ -46,6 +46,13 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const sd = base(); sd.ses[DEMO] = sesion();
   const r = correr({ datos: ev(DEMO,{ texto:'Cuánto vale la lámina duratex de 18mm?' }), sd, pend:CFG });
   chequear('Entra a cotización (hay_cot) en vez de cerrar', r.hay_cot===true && r.etapa==='cotizacion', 'etapa='+r.etapa);
+  // El acuse sale AL INSTANTE mientras la consulta a SAP corre en paralelo (puede tardar 40 s). Es el
+  // último mensaje que el cliente lee antes de ver precios, así que va en plural, sin diminutivos y sin
+  // puntos suspensivos (pedido de Deicy, 18-ago: "esa respuesta hazla más profesional").
+  const acuse = (r.wpp_body && r.wpp_body.text) ? r.wpp_body.text.body : '';
+  chequear('El acuse de espera se lee profesional (sin "momentico" ni "...")',
+           /disponibilidad y precios/.test(acuse) && !/momentico|momentito/.test(acuse) &&
+           !/\.\.\./.test(acuse) && /confirmamos/.test(acuse), acuse.slice(0,160));
   const req = r.cot_req||{};
   // === MCP EN CASA (13-ago, decisión Deicy por auditoría): el token JAMÁS viaja a Anthropic ===
   chequear('SEGURIDAD: el token del MCP NO aparece en el body que va a Anthropic',
