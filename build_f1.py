@@ -158,6 +158,12 @@ const ADJ_BD = String(PEND.adj||'').split(',').filter(Boolean).map(s=>{
 if(!d || !d.wa_id) return [{json:{etapa:'noop'}}];
 const store = $getWorkflowStaticData('global');
 if (!store.rot) store.rot = {};   // contadores de rotación (round-robin) por grupo/ciudad
+// 2026-08-18 (Deicy): "cuando son pruebas no debería enviar a ningún asesor, le está quitando la
+// oportunidad de atender clientes reales y algunos quedan con menos". Y era cierto: el aviso de una demo
+// nunca salía al asesor real, pero el TURNO sí se gastaba — cada prueba corría la rotación y el asesor al
+// que le tocó perdía su cliente siguiente. En la demo se sigue MOSTRANDO a quién le habría tocado (si no,
+// la prueba no probaría el ruteo), pero el contador no se mueve.
+var ROT_DEMO = false;   // se enciende abajo, en cuanto se conoce el número que escribe
 if (!store.lastId) store.lastId = {};   // último id de mensaje por cliente (anti-duplicado)
 if (!store.consent) store.consent = {};   // Habeas Data: números que YA autorizaron (persistente, NO expira con la sesión) -> no re-preguntar
 if (!store.sent) store.sent = {};   // última tarjeta enviada por cliente (anti-ráfaga: 1 sola tarjeta por lista de mensajes)
@@ -258,6 +264,7 @@ const PRUEBA_NUM = '573205662947'; // número de PRUEBA del asesor (Deicy)
 // CLIENTES DE PRUEBA/DEMO: si el que ESCRIBE (el cliente) es uno de estos números, la solicitud se crea normal
 // pero el aviso va SOLO a DEMO_DEST (a TI), NO a ningún asesor real, y el lead se marca como prueba (no ensucia reportes).
 const CLIENTES_PRUEBA = ['573205662947','573156251656','CO.1352055013679988'];   // números (o BSUID de usuario privado) desde los que se hacen demos (14-ago: Oscar usa username de WhatsApp -> Meta manda su BSUID, no su 315)
+ROT_DEMO = CLIENTES_PRUEBA.indexOf(String(wa||'')) >= 0;   // ver ROT_DEMO arriba: la demo mira el turno, no lo gasta
 const DEMO_DEST = '573205662947';           // a dónde llega el aviso de la demo (Deicy)
 // APAGADO 2026-08-03 (Deicy: "ya sé que funciona, ya quítalo; solo que me lleguen las alertas de problemas").
 // Durante el arranque le llegaba COPIA de cada aviso a asesor para verificar que el reparto funcionaba. Ya no.
@@ -397,6 +404,8 @@ function elige(opts){
 // esa cantidad de turnos, para que el total quede parejo (Miguel/Yormy no se atrasan).
 function rota(key,arr){
   store.rotDeuda = store.rotDeuda || {};
+  // En DEMO se calcula a quién le tocaría, pero sin tocar el contador ni la deuda: la prueba mira, no gasta.
+  if(ROT_DEMO){ return arr[(store.rot[key]||0)%arr.length]; }
   for(let _t=0;_t<arr.length;_t++){
     const c=store.rot[key]||0; store.rot[key]=c+1;
     const a=arr[c%arr.length];
