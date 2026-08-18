@@ -132,6 +132,11 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('En cotización se dice "un asesor", nunca "tu asesor"',
            !/tu asesor/.test(sys) && /un asesor/.test(sys),
            (sys.match(/.{0,70}tu asesor.{0,70}/)||[''])[0]);
+  // 18-ago, prueba de la varilla roscada: abrió con "Ya tengo toda la información consultada para
+  // responder. Aquí va el detalle:". Un asesor no anuncia que fue a mirar el inventario; entrega.
+  chequear('Tiene prohibido narrar su propio trabajo antes de responder',
+           /Tampoco narres tu propio trabajo/.test(sys) && /ya tengo toda la información consultada/.test(sys),
+           sys.slice(0,80));
   const fichaDisp = (req.tools||[]).find(t=>t.name==='disponibilidad_ciudad')||{};
   chequear('La ficha de disponibilidad nombra las ciudades donde tenemos punto de venta',
            /Bucaramanga, Bogotá, Barranquilla/.test(fichaDisp.description||''),

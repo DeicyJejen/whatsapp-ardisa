@@ -88,6 +88,23 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            !!r.consent_log.creado_en, JSON.stringify(r.consent_log));
 }
 
+// ══ 2b. Y SE LE NOTA QUE LO TOMAMOS (18-ago) ═══════════════════════════════════════════════════
+// Deicy escribió "varilla roscada de 1/2 y de 5/8" en su primer mensaje y recibió el menú de marcas a
+// secas. El texto sí se había guardado, pero ella no tenía cómo saberlo: lo volvió a escribir. ("Yo
+// coloco de una lo que necesito, no lo toma, me toca volver a escribirle.") El acuse de la IA existía,
+// pero llegaba en el mensaje SIGUIENTE porque el veredicto venía en camino; el eco usa su propio texto.
+{
+  const r = correr({ datos: msg('varilla roscada de 1/2 y de 5/8'), sd: base(), pend: ON });
+  chequear('El menú de marcas le repite lo que pidió, para que sepa que quedó anotado',
+           /Anotamos/.test(cuerpo(r)) && /varilla roscada/.test(cuerpo(r)), cuerpo(r).slice(0, 200));
+  chequear('Y aun así avanza a la marca (el eco no frena el flujo)', r.etapa === 'marca', 'etapa=' + r.etapa);
+}
+{
+  // Un saludo pelado no trae nada que anotar: ahí el eco sobra y no debe salir.
+  const r = correr({ datos: msg('Buenas tardes'), sd: base(), pend: ON });
+  chequear('Un saludo sin producto NO genera eco', !/Anotamos/.test(cuerpo(r)), cuerpo(r).slice(0, 160));
+}
+
 // ══ 3. Lo que el cliente ya había escrito NO se pierde (caso Emma Sierra: "malla geotextil") ══
 {
   const r = correr({ datos: msg('Buen día. Costo de la malla geotextil'), sd: base(), pend: ON });
