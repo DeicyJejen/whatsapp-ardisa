@@ -2305,7 +2305,18 @@ if(preguntaHorario){
     // escribirlo. El acuse existía, solo que la IA todavía venía en camino y salía en el mensaje
     // SIGUIENTE. Aquí se usa su propio texto, que no hay que esperar a nadie para tenerlo.
     const _eco = st.pendTexto ? ('📝 Anotamos: *'+[...String(st.pendTexto)].slice(0,110).join('')+'*\n\n') : '';
+    // 2026-08-18 (Deicy, cliente del sellador Sika): "ya con eso debió saber qué línea es, ¿por qué le
+    // sigue preguntando?". Y tenía razón: en ese PRIMER mensaje la IA ya había respondido marca=Ardisa,
+    // grupo=ACABADOS y los dos productos — y el bot igual le mostró el menú de marcas. La regla de no
+    // re-preguntar la línea cuando la IA ya la sabe (04-ago) existía, pero solo en la rama del cliente que
+    // YA había autorizado; esta rama, la del primer contacto, nació con el muro delante y nunca la tuvo.
+    // Con el aviso implícito el primer mensaje ya trae veredicto, así que se arranca igual que allá:
+    // arrancarIA rutea y pregunta SOLO lo que falta, y si no logra identificar la línea cae al menú sola.
+    if(ia && ia.en_alcance===true && !es_media && texto && !reinicia && !esDespedida){
+      st.paso=''; arrancarIA(st, ia, texto);   // el acuse de la IA ("Claro, buscas…") ya le repite lo pedido
+    } else {
     wpp_body=boton(wa, avisoInicioHorario()+_eco+(es_media?('Recibimos tu '+(MTYPE_ES[d.mtype]||'archivo')+', ¡gracias! 📷\n\n'):'')+'Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇', MARCA);
+    }
   } else {
     // === HABEAS DATA (Opción B, decisión Deicy 2026-07-09): consentimiento EXPLÍCITO como primer paso ===
     st=S[wa]={paso:'consent',t:NOW}; etapa='consent';
