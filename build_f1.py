@@ -1181,7 +1181,15 @@ const KW_RECLAMO=/(reclamo|reclamar|queja|quejar|pqrs?|inconform|no me (ha|han|a
 // prioridad". Esta lista vivía DUPLICADA en dos sitios con textos distintos, y a ninguno de los dos le cabía
 // "nunca me escribió" — por eso ni siquiera se le avisaba a la asesora. Ahora es UNA sola, por raíces de verbo
 // (escrib- cubre escribió/escribieron/escrito), que es lo que aguanta el idioma real.
-const KW_ESPERA_ASESOR=/(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nunca me (ha |han )?(escrib|contest|contact|respond|llam|atend)|no me (escrib|contest|contact|respond|llam|atend)\w* (nadie|nunca|a[uú]n|todav)|nadie me|sigo esperando|sigo sin (respuesta|noticias|que me)|no he recibido (respuesta|noticias|nada|llamada)|no me ha llegado (nada|respuesta)|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|muy demorad|cu[aá]ndo me (atienden|contestan|llaman)|tampoco responden)/i;
+// ¿El cliente nos reenvió NUESTRO propio mensaje? (caso Ilba, 18-ago: reenvió el "Recibido… ya se lo
+// pasamos" y el bot lo trató como un dato nuevo). Se compara contra lo último que le dijimos, guardado en
+// la sesión: si arranca igual en sus primeros 40 caracteres, es un eco.
+const _norm40 = t => [...String(t||'').replace(/[*_~`]/g,'').replace(/\s+/g,' ').trim()].slice(0,40).join('').toLowerCase();
+function _esEcoDelBot(t, st){
+  if(!st || !st.lastOut || !t) return false;
+  const a=_norm40(t); return a.length>=20 && a===_norm40(st.lastOut);
+}
+const KW_ESPERA_ASESOR=/(no me (han|has|an)? ?(atend|contest|contact|respond|llam|escri|buscad|dado respuesta|dicho nada)|nunca me (ha |han )?(escrib|contest|contact|respond|llam|atend)|no me (escrib|contest|contact|respond|llam|atend)\w* (nadie|nunca|a[uú]n|todav)|nadie me|sigo esperando|sigo sin (respuesta|noticias|que me)|no he recibido (respuesta|noticias|nada|llamada)|no me ha llegado (nada|respuesta)|urge|urgente|todav[ií]a no|a[uú]n no me|por favor at|tan dif[ií]cil|muy (dif[ií]cil|complicad)|complicad[ao] esta|me dejaron esperando|muy demorad|\bcu[aá]ndo\b|tampoco responden|a qu[eé] hora|qu[eé] hora (me|lo|la|llaman|contestan|escriben)|se demora|se demoran|cu[aá]nto (se |me )?(demora|tarda)|en cu[aá]nto (tiempo|me)|(contestan|responden|llaman|escriben|atienden|me contactan) hoy|es para hoy|para cu[aá]ndo)/i;
 // Mensaje PQRS (voz de marca, profesional y empático).
 const MSG_RECLAMO='¡Hola! 🙏 Lamentamos mucho el inconveniente.\n\nEn *Grupo Ardisa* queremos ayudarte a resolverlo. Este canal es nuestra *línea comercial*, por eso tu *reclamo, queja, sugerencia o solicitud* la atenderá con gusto nuestro equipo de *Servicio al Cliente*:\n\n💬 *WhatsApp:* 3176643045\n📧 *Correo:* ayuda@ardisa.com\n\nAllí le darán trámite a tu caso lo antes posible. Gracias por tu confianza en *Grupo Ardisa*. 🤝';
 const MSG_RECLAMO_CORTO='Con gusto te ayudamos. Recuerda que tu caso lo atiende nuestro equipo de *Servicio al Cliente*:\n💬 *WhatsApp:* 3176643045   ·   📧 ayuda@ardisa.com 🤝';
@@ -2735,6 +2743,14 @@ if(preguntaHorario){
       st.paso='marca';
       wpp_body=boton(wa,'¡Hola de nuevo'+_nom+'! ¿Tu *nueva consulta* es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
     }
+  } else if(texto && _esEcoDelBot(texto, st)){
+    // 2026-08-18 (caso Ilba): frustrada porque le repetíamos lo mismo, REENVIÓ nuestro propio mensaje —y el
+    // bot lo tomó como un detalle nuevo de su pedido y volvió a contestarle igual, dos veces más. Un mensaje
+    // que es literalmente lo último que dijimos no es información del cliente: no se le suma a la solicitud
+    // ni se le reenvía al asesor. Se responde como lo que es, alguien esperando.
+    etapa='eco_bot'; st.t=NOW;
+    const _asNom2 = st.asesorNom ? ((st.asesorF?'nuestra asesora *':'nuestro asesor *')+st.asesorNom+'*') : 'tu asesor';
+    wpp_body=txt(wa,'Entiendo'+_nom+'. 🙏 Tu solicitud está *priorizada* con '+_asNom2+'.\n\nSi necesitas algo puntual —una medida, una cantidad, otro producto— escríbelo y se lo sumamos. 🤝');
   } else if(texto && low.length>=2 && !/^\d$/.test(low) && !_soloSaludoTxt && !_esperaAsesor && _mismoDia){
     // `!_esperaAsesor` (2026-08-11, caso Alfonso Crismatt): "la asesora nunca me escribió" NO es un detalle
     // que agregarle al pedido. Se le respondía "Ya se lo pasamos a Karime para que lo tenga en cuenta en tu
@@ -2764,7 +2780,19 @@ if(preguntaHorario){
     etapa='seguimiento'; st.t=NOW;
     const _asNom = st.asesorNom ? ((st.asesorF?'nuestra asesora *':'nuestro asesor *')+st.asesorNom+'*') : 'nuestro equipo de asesores';
     const _quien = st.asesorNom ? 'quien' : 'que';
-    wpp_body=txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud ya está *en gestión* con '+_asNom+', '+_quien+' te contactará dentro del horario de atención. ¿Hay *algo más* en lo que te podamos ayudar? 🤝');
+    // 2026-08-18 (caso Ilba): "dentro del horario de atención" no responde "¿a qué hora?" — el cliente ya
+    // sabe que hay un horario, lo que quiere es SABER CUÁL. Se le dice, y punto: prometer una hora exacta
+    // no lo podemos hacer (no controlamos cuándo llama la asesora), pero el horario sí es un dato nuestro.
+    const _hMarca = (st.marca==='Carpincentro')
+      ? 'Lun–Vie 8:00 a.m. – 5:00 p.m. · Sáb 8:00 a.m. – 12:00 m.'
+      : 'Lun–Sáb 8:00 a.m. – 5:00 p.m.';
+    const _preguntaCuando = !!texto && /(a qu[eé] hora|qu[eé] hora|cu[aá]ndo|cuanto (se |me )?(demora|tarda)|se demora|hoy\?|(contestan|responden|llaman|escriben|atienden) hoy|para cu[aá]ndo)/i.test(low);
+    wpp_body = _preguntaCuando
+      ? txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud está *priorizada* con '+_asNom+'.\n\n🕗 *Atendemos:* '+_hMarca
+              +'\nDentro de ese horario '+_quien+' se comunica contigo. 🤝\n\n¿Quieres agregarle *algo más* a tu solicitud?')
+      : txt(wa,'¡Hola'+_nom+'! 👋 Tu solicitud ya está *en gestión* con '+_asNom+', '+_quien+' te contactará dentro del horario de atención. ¿Hay *algo más* en lo que te podamos ayudar? 🤝');
+    // (El aviso a la asesora no va aquí: unas líneas más abajo, el carril de "el cliente insiste" ya manda
+    // uno con más contexto. Dos recordatorios por el mismo mensaje serían ruido para ella.)
     // DÍA SIGUIENTE (2026-07-24, pedido Deicy; 2026-08-06, decisión Deicy: SIN tarjetas de alarma): si el cierre
     // fue OTRO día (y <48h) y el cliente vuelve a escribir, se RE-REGISTRA como solicitud NUEVA normal (MISMO
     // asesor, sale en el reporte) con nota neutral del pendiente. Máximo 1 vez por día por cliente.
@@ -2796,7 +2824,7 @@ if(preguntaHorario){
       // como si nada — se le dice que ya le recordamos a SU asesora y que queda priorizado. Y es verdad: el
       // recordatorio sale en este mismo mensaje (abajo). No se le cuenta el problema interno ni se le promete
       // una hora que no controlamos.
-      wpp_body=txt(wa,'¡Hola'+_nom+'! 🙏 Gracias por avisarnos.\n\nYa le recordamos a '+_asNom+' que se comunique contigo, y tu solicitud queda *priorizada*. Te contactará dentro del horario de atención. 🤝');
+      wpp_body=txt(wa,'¡Hola'+_nom+'! 🙏 Gracias por avisarnos.\n\nYa le recordamos a '+_asNom+' que se comunique contigo, y tu solicitud queda *priorizada*.\n\n🕗 *Atendemos:* '+_hMarca+'\nDentro de ese horario se comunica contigo. 🤝');
       aviso_body=txt(_dest,
         '⏰ *Recordatorio — el cliente insiste*\n\n'+
         '👤 *Cliente:* '+(st.nombre||'—')+'\n'+
@@ -2841,6 +2869,15 @@ try{
 // Si el lead YA se cerró en este mensaje, se descarta el rescate (no hay nada que rescatar).
 // Si la conversación sigue a medias pero ya sabemos LÍNEA + qué necesita, se deja el paquete listo:
 // si el cliente se va sin terminar, el cron lo entrega igual en vez de perderlo.
+// Guardamos lo ÚLTIMO que le dijimos, para reconocerlo si el cliente nos lo reenvía (ver _esEcoDelBot).
+try{
+  const _stOut = S[wa];
+  if(_stOut && wpp_body){
+    const _b = wpp_body.text ? wpp_body.text.body
+             : ((wpp_body.interactive && wpp_body.interactive.body) ? wpp_body.interactive.body.text : '');
+    if(_b) _stOut.lastOut = [..._b].slice(0,120).join('');
+  }
+}catch(e){}
 try{
   const _stNow = S[wa];
   if(leadRow || pend_cierre || (_stNow && (_stNow.paso==='cerrado'||_stNow.paso==='porCerrar'))){
