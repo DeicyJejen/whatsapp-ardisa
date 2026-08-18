@@ -118,5 +118,40 @@ if (!INACTIVOS) { console.log('  OK   | (n_inactivos.js no disponible en este ar
            S(cM.map(x => (x.m||{}).type)));
 }
 
+// ══ NADA LLEGA DOS VECES, Y CON UN SOLO ENCABEZADO (2026-08-18, pantallazo de Deicy) ══════════════
+// Las dos fotos de María Tarazona le llegaron a las 11:44 por el escalado de 24h y OTRA VEZ a las 16:30
+// por la poda de los 7 días. Y con dos encabezados seguidos: "te los reenvío ahora 👇" e inmediatamente
+// "van a continuación 👇", sin nada en medio.
+{
+  const NOW = Date.now();
+  const sd = base();
+  const yaEscalado = doc(ASE, 'María Tarazona', NOW - 8*DIA); yaEscalado.esc = 1;
+  sd.mediaPend[ASE] = [yaEscalado, doc(ASE, 'Nunca escalado', NOW - 8*DIA)];
+  correr(sd);
+  const cM = sd.mediaPend[MON] || [];
+  const archivos = cM.filter(x => x.m && x.m.type === 'document');
+  chequear('Lo que ya se escaló a las 24h NO se reenvía al podarse',
+           archivos.length === 1 && archivos[0].cliente === 'Nunca escalado',
+           JSON.stringify(cM.map(x => x.cliente + ':' + (x.m||{}).type)));
+  chequear('Y la cola del asesor queda limpia igual (la poda sí lo descarta)',
+           !(sd.mediaPend[ASE] || []).length, JSON.stringify(sd.mediaPend[ASE]));
+}
+{
+  // Al entregarse una cola que YA trae su nota explicativa, no se le antepone el encabezado genérico.
+  const NOW = Date.now();
+  const sd = base(); sd.win[MON] = NOW;
+  sd.mediaPend[MON] = [
+    { m: { messaging_product:'whatsapp', to:MON, type:'text', text:{ body:'⚠️ *Adjuntos rescatados de la cola* (2)…' } }, cliente:'María Tarazona', t:NOW },
+    doc(MON, 'María Tarazona', NOW), doc(MON, 'María Tarazona', NOW) ];
+  const out = correr(sd);
+  const textos = (out||[]).map(o => { try { return o.json.msg.text.body; } catch(e) { return ''; } }).filter(Boolean);
+  chequear('Un solo encabezado: no se suma "te los reenvío ahora" encima de la nota',
+           !textos.some(t => /te los reenv[íi]o ahora/.test(t)), JSON.stringify(textos).slice(0, 200));
+  chequear('La nota propia sí sale, y los archivos detrás',
+           textos.some(t => /rescatados de la cola/.test(t)) &&
+           (out||[]).filter(o => { try { return o.json.msg.type === 'document'; } catch(e) { return false; } }).length === 2,
+           JSON.stringify(textos).slice(0, 160));
+}
+
 console.log(ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

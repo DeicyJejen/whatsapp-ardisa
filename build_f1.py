@@ -4292,7 +4292,7 @@ for(const _dst in store.mediaPend){
   // de monitoreo (Deicy) con el reloj reiniciado (t=NOW), para que ella lo reenvíe a mano. Si el destino
   // YA es la línea de monitoreo, ahí sí se descarta de verdad — reintentarle para siempre solo acumula, y
   // el media_id queda en la tabla `mensajes` como último respaldo (~30 días de vida en Meta).
-  if(_dst!==_MON){ _cola.forEach(function(x){ if(x&&x.m&&(NOW-(x.t||0))>=7*24*3600000){
+  if(_dst!==_MON){ _cola.forEach(function(x){ if(x&&x.m&&!x.esc&&(NOW-(x.t||0))>=7*24*3600000){
     const _m=JSON.parse(JSON.stringify(x.m)); _m.to=_MON;
     _vencidos.push({m:_m, cliente:(x.cliente||''), t:NOW});
   }}); }
@@ -4309,8 +4309,11 @@ for(const _dst in store.mediaPend){
     continue;   // sigue cerrada -> esperar (pero ya con el empujón enviado)
   }
   const _cls=_q.map(function(x){return x.cliente;}).filter(function(c,i,a){return c&&a.indexOf(c)===i;}).slice(0,3).join(', ');
-  out.push({json:{msg:{messaging_product:'whatsapp', to:_dst, type:'text', text:{body:'📎 *Adjuntos del cliente'+(_cls?(' '+_cls):'')+'* que estaban pendientes — te los reenvío ahora 👇'}},
-    chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjuntos en cola)', salida:'📎 Adjuntos diferidos entregados ('+_q.length+')', etapa:'media_diferida'}}});
+  const _yaHayNota = !!(_q[0] && _q[0].m && _q[0].m.type==='text');
+  if(!_yaHayNota){
+    out.push({json:{msg:{messaging_product:'whatsapp', to:_dst, type:'text', text:{body:'📎 *Adjuntos del cliente'+(_cls?(' '+_cls):'')+'* que estaban pendientes — te los reenvío ahora 👇'}},
+      chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjuntos en cola)', salida:'📎 Adjuntos diferidos entregados ('+_q.length+')', etapa:'media_diferida'}}});
+  }
   _q.forEach(function(x){ out.push({json:{msg:x.m, chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjunto en cola)', salida:'📎 Adjunto reenviado al abrirse la ventana del asesor', etapa:'media_diferida'}}}); });
   delete store.mediaPend[_dst];
 }
