@@ -3999,8 +3999,26 @@ const _tplNudge = function(to, cuerpo){
 };
 const _MON='573205662947';
 const _vencidos=[];   // lo que la poda de 7 días iba a BOTAR — se re-dirige a la línea de monitoreo (pedido Deicy 13-ago)
+// === ESCALADO A LAS 24 HORAS (2026-08-18, Deicy: "lo de enviar las fotos cuando los clientes envían no
+// está funcionando, debe llegarle a los asesores"). El mecanismo SÍ funciona —apenas el asesor escribe,
+// la cola le sale sola en dos minutos; hoy mismo se comprobó con Karina— pero con un asesor que no abre
+// el canal la foto se quedaba SIETE DÍAS ahí antes de que un humano la tuviera en la mano (las de María
+// Tarazona llevan 163 horas). Un día hábil y una plantilla de destrabe es toda la espera razonable:
+// pasadas 24 h se manda una COPIA a la línea de monitoreo. COPIA, no traslado: el adjunto SIGUE en la
+// cola del asesor, así que si mañana abre su ventana lo recibe igual. La marca `esc` vive en staticData,
+// o sea que la copia sale UNA sola vez por archivo. Lo que ya pasó de 7 días no se copia: de eso se
+// encarga la poda con rescate de abajo, y si no, el mismo archivo llegaría dos veces.
+const _copias=[];
 for(const _dst in store.mediaPend){
   const _cola=(store.mediaPend[_dst]||[]);
+  if(_dst!==_MON){ _cola.forEach(function(x){
+    const _edad = NOW-(x&&x.t||NOW);
+    if(x && x.m && !x.esc && _edad>=24*3600000 && _edad<7*24*3600000){
+      x.esc=1;
+      const _mc=JSON.parse(JSON.stringify(x.m)); _mc.to=_MON; if(_mc.recipient) delete _mc.recipient;
+      _copias.push({m:_mc, cliente:(x.cliente||''), t:NOW, ase:_dst, horas:Math.round(_edad/3600000)});
+    }
+  }); }
   let _q=_cola.filter(function(x){return x&&x.m&&(NOW-(x.t||0))<7*24*3600000;});   // poda >7 días
   // === PODA CON RESCATE (2026-08-13, caso Arq Omar González en la cola de Karime): antes, el adjunto que
   // cumplía 7 días se borraba EN SILENCIO — si el asesor nunca abría su ventana (Karime: 1 interacción
@@ -4033,6 +4051,25 @@ for(const _dst in store.mediaPend){
 // Los adjuntos vencidos se ENCOLAN para la línea de monitoreo (no se envían directo: si la ventana de
 // Deicy está cerrada fallarían con 131047 — la cola ya sabe esperar a que abra). Primero una nota que
 // explica qué son, luego los archivos. Salen en el siguiente tick si su ventana está abierta.
+// Las copias del escalado de 24 h entran a la cola de la línea de monitoreo (no se envían directo: si su
+// ventana está cerrada fallarían con 131047; la cola ya sabe esperar). Primero la nota que dice de quién
+// es y a qué asesor se le atascó, luego los archivos.
+if(_copias.length){
+  const _cM2=(store.mediaPend[_MON]=store.mediaPend[_MON]||[]);
+  const _porAse={};
+  _copias.forEach(function(x){ (_porAse[x.ase]=_porAse[x.ase]||[]).push(x); });
+  for(const _a in _porAse){
+    const _g=_porAse[_a];
+    const _cl=_g.map(function(x){return x.cliente;}).filter(function(c,i,ar){return c&&ar.indexOf(c)===i;}).join(', ');
+    const _hm=Math.max.apply(null,_g.map(function(x){return x.horas;}));
+    _cM2.push({m:{messaging_product:'whatsapp', to:_MON, type:'text', text:{body:
+      '📎 *Adjuntos atascados* — '+_g.length+' archivo(s) de '+(_cl||'un cliente')+' llevan hasta '+_hm
+      +' horas esperando al asesor *+'+_a+'*, que no ha abierto el chat del bot. Te los paso para que le lleguen '
+      +'por otra vía; siguen en su cola por si abre su ventana. 👇'}}, cliente:_cl, t:NOW});
+    _g.forEach(function(x){ _cM2.push({m:x.m, cliente:x.cliente, t:NOW}); });
+  }
+  if(_cM2.length>30) store.mediaPend[_MON]=_cM2.slice(-30);
+}
 if(_vencidos.length){
   const _cls=_vencidos.map(function(x){return x.cliente;}).filter(function(c,i,a){return c&&a.indexOf(c)===i;}).slice(0,3).join(', ');
   const _cM=(store.mediaPend[_MON]=store.mediaPend[_MON]||[]);

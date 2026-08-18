@@ -79,5 +79,44 @@ if (!INACTIVOS) { console.log('  OK   | (n_inactivos.js no disponible en este ar
            (sd.mediaPend[ASE] || []).length === 1, S(sd.mediaPend[ASE]));
 }
 
+// ══ ESCALADO A LAS 24 HORAS (2026-08-18) ═════════════════════════════════════════════════════════
+// Esperar siete días a que un asesor abra su chat es demasiado: las fotos de María Tarazona llevaban 163
+// horas en la cola de Karime. A las 24 h se manda una COPIA al monitoreo — copia, no traslado: si el
+// asesor abre mañana, el archivo sigue en su cola y lo recibe igual.
+{
+  const NOW = Date.now();
+  const sd = base();
+  sd.mediaPend[ASE] = [doc(ASE, 'María Tarazona', NOW - 30*3600000), doc(ASE, 'Cliente de hoy', NOW - 3600000)];
+  correr(sd);
+  const cM = sd.mediaPend[MON] || [];
+  chequear('A las 24h la foto atascada se COPIA al monitoreo (nota + archivo)',
+           cM.length === 2 && cM[1].cliente === 'María Tarazona' && cM[1].m.to === MON,
+           S(cM.map(x => x.cliente)));
+  chequear('La nota dice de quién es, cuántas horas lleva y a qué asesor',
+           /María Tarazona/.test(S(cM[0].m)) && /30 horas/.test(S(cM[0].m)) && new RegExp(ASE).test(S(cM[0].m)),
+           S(cM[0] && cM[0].m).slice(0, 200));
+  chequear('El adjunto SIGUE en la cola del asesor (si abre mañana, igual le llega)',
+           (sd.mediaPend[ASE] || []).length === 2, S((sd.mediaPend[ASE]||[]).map(x => x.cliente)));
+  chequear('Lo de hace una hora NO se escala (el asesor tiene su día hábil)',
+           !cM.some(x => x.cliente === 'Cliente de hoy'), S(cM.map(x => x.cliente)));
+  // Segunda corrida del cron: la marca `esc` evita repetir la copia cada dos minutos.
+  const antes = (sd.mediaPend[MON] || []).length;
+  correr(sd);
+  chequear('La copia sale UNA sola vez, no en cada tick del cron',
+           (sd.mediaPend[MON] || []).length === antes, antes + ' -> ' + (sd.mediaPend[MON]||[]).length);
+}
+
+// El que ya cumplió 7 días NO se copia además de rescatarse: llegaría dos veces el mismo archivo.
+{
+  const NOW = Date.now();
+  const sd = base();
+  sd.mediaPend[ASE] = [doc(ASE, 'Cliente Viejísimo', NOW - 9*DIA)];
+  correr(sd);
+  const cM = sd.mediaPend[MON] || [];
+  chequear('Un adjunto de 9 días llega UNA vez (por el rescate), no dos',
+           cM.filter(x => x.m && x.m.type === 'document').length === 1,
+           S(cM.map(x => (x.m||{}).type)));
+}
+
 console.log(ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);
