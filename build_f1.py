@@ -707,7 +707,13 @@ function cerrarLead(st,opts){
     // 2026-07-29 (Deicy, tajante): "Alexander NO atiende nada de construcción, de cemento entre otras, ni acabados.
     // Si son proyectos sí." -> además de ES_PROYECTO (frases estrictas) aceptamos señales SUELTAS de proyecto
     // ("un proyecto para mi casa", "a la medida"), que antes se escapaban y mandaban el lead lejos de Alexander.
-    const _proyLoose = /(\bproyect|a (la |su |tu )?medida|dise[nñ]o de (cocina|closet|mueble))/i.test(_txtP);
+    // 2026-08-19 (caso Leidy López): "mueble de entretenimiento" es mobiliario a medida, pero no decía la
+    // palabra "proyecto" ni "a la medida", así que se re-enrutaba a Acabados — después de que ella eligiera
+    // DOS VECES "Proyecto a tu medida". Cuando la elección es explícita (grupoElegido) y lo que describe es un
+    // MUEBLE, se respeta: es justo lo que la propia opción promete ("cocinas, closets, muebles de baño").
+    // Sin elección explícita todo sigue igual: la regla de Deicy es que Alexander NO recibe mostrador.
+    const _muebleMedida = /(mueble|modular|closet|cl[oó]set|vestier|cocina integral|biblioteca|escritorio|barra|bar[ -]?ba|isla de cocina|repostero)/i.test(_txtP);
+    const _proyLoose = /(\bproyect|a (la |su |tu )?medida|dise[nñ]o de (cocina|closet|mueble))/i.test(_txtP) || (st.grupoElegido && _muebleMedida);
     if(!ES_PROYECTO.test(_txtP) && !_proyLoose && _txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=4){
       const _Rp = ruteoIA(ia, _txtP);
       if(_Rp && _Rp.grupo && _Rp.grupo!=='MOBILIARIO'){ st.grupo=_Rp.grupo; st.interes=_gInt(_Rp.grupo); }
@@ -2657,7 +2663,7 @@ if(preguntaHorario){
   const o=elige(OAR);
   if(!o){ wpp_body=lista(wa,CAB_PERFIL_ARD,'Elegir opción','Tipo de cliente',OAR); }
   else { st.ocupacion=o[1];
-    if(o[0]==='OAR_MOBIL'){ st.grupo='MOBILIARIO'; st.interes=_gInt('MOBILIARIO'); }   // elección EXPLÍCITA del cliente -> manda sobre lo que hubiera deducido la IA
+    if(o[0]==='OAR_MOBIL'){ st.grupo='MOBILIARIO'; st.interes=_gInt('MOBILIARIO'); st.grupoElegido=1; }   // elección EXPLÍCITA del cliente -> manda sobre lo que hubiera deducido la IA (y NO se le vuelve a preguntar: caso Leidy López 19-ago)
     if(st.iaPend){   // la IA ya tomó la solicitud al inicio -> el PRODUCTO define el grupo; si no lo definió, la ocupación es el respaldo -> cerramos
       if(!st.grupo){ st.grupo=OAR_GRUPO[o[0]]||'ACABADOS'; st.interes=_gInt(st.grupo); }
       finalizeIA(st);
@@ -2671,6 +2677,8 @@ if(preguntaHorario){
         if(R2 && R2.grupo) _g=R2.grupo; else if(st.notasGrupo) _g=st.notasGrupo;
         if(_g){   // clasificación CLARA -> cerramos con el asesor correcto
           st.grupo=_g; st.interes=_gInt(_g); delete st.notas;
+          if(!intentaCotizar()){ const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
+        } else if(st.grupoElegido && st.grupo){   // ya lo eligió él: no se le repite la pregunta (19-ago)
           if(!intentaCotizar()){ const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
         } else {   // SEGURIDAD: no estamos seguros del grupo -> PREGUNTAMOS (1 toque), NUNCA adivinamos el asesor
           st.paso='confirmGrupo'; etapa='confirmGrupo';
@@ -2809,10 +2817,17 @@ if(preguntaHorario){
     }
     if(st.marca==='Ardisa' && rutTxt){
       const R2 = ruteoIA(ia, ((ia && ia.productos)?ia.productos.join(' '):'') + ' ' + rutTxt);
-      if(R2.grupo){ st.grupo=R2.grupo; st.interes=_gInt(R2.grupo); }
+      // 19-ago: si el grupo lo ELIGIÓ el cliente (tocó "Proyecto a tu medida" o respondió el menú), la lectura
+      // de la IA no lo pisa — a Leidy le cambiaron su elección por "Acabados" porque su mueble decía "mueble".
+      // El filtro de Alexander (en el cierre) sigue mandando el mostrador a su grupo aunque haya elegido.
+      if(R2.grupo && !st.grupoElegido){ st.grupo=R2.grupo; st.interes=_gInt(R2.grupo); }
       // Solo interrogamos Construcción/Acabados en TEXTO puro ambiguo. Si el cliente mandó imagen/archivo (foto, reclamo, PDF)
       // NO lo interrogamos: lo pasamos ya al asesor con todo + el adjunto (el asesor lo reubica si hace falta).
-      else if(ia && !es_media && !st.mediaId){ st.paso='confirmGrupo'; etapa='confirmGrupo'; cerrarDet=false;
+      // 2026-08-19 (caso Leidy López #323): ella tocó "🛋️ Proyecto a tu medida" en el perfil, escribió "mueble de
+      // entretenimiento" y el bot le preguntó LO MISMO otra vez —"¿Construcción, Acabados o Proyecto a tu medida?"—
+      // con la opción que acababa de elegir. Si el cliente YA eligió el grupo, esa pregunta sobra: preguntar dos
+      // veces lo mismo hace ver al bot como si no escuchara.
+      else if(ia && !es_media && !st.mediaId && !st.grupoElegido){ st.paso='confirmGrupo'; etapa='confirmGrupo'; cerrarDet=false;
         wpp_body=grupoMenu(); }
     }
     // desdeDetalle: el cliente completó TODO el flujo y escribió esto como su producto en el paso final ->
@@ -2876,7 +2891,7 @@ if(preguntaHorario){
       st.notas=(st.notas?(st.notas+' | '):'')+[...texto].slice(0,300).join('');
     }
     wpp_body=grupoMenu(); }
-  else { st.grupo=(g[0]==='GRP_CONS')?'CONSTRUCCION':(g[0]==='GRP_MOBIL'?'MOBILIARIO':'ACABADOS'); st.interes=_gInt(st.grupo);
+  else { st.grupo=(g[0]==='GRP_CONS')?'CONSTRUCCION':(g[0]==='GRP_MOBIL'?'MOBILIARIO':'ACABADOS'); st.interes=_gInt(st.grupo); st.grupoElegido=1;
     if(!st.tiposol) st.tiposol='Cotización / Info';
     if(!intentaCotizar()){ const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; } }
 } else if(st.paso==='cerrado'){
