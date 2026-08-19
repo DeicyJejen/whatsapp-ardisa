@@ -1302,10 +1302,19 @@ const RE_SALUDO=/^((muy|buen|buen[oa]s?|d[ií]as?|tardes?|noches?|hola|holis?|ol
 //      entusiasta convierta un "buenas tardes" pelado en la solicitud del cliente.)
 //   3. Si la IA dice que hay compra, consulta o reclamo -> es una solicitud.
 //   4. Sin IA y sin saludo reconocido -> se guarda (mejor de más que perder lo que escribió).
+// 2026-08-19 (Deicy, caso David Ávila): el cliente escribió "Buen día, como vas?" y el bot le contestó
+// "📝 Anotamos: *Buen día, como vas?*" — como si eso fuera lo que necesita. RE_SALUDO solo reconoce el saludo
+// pelado; en cuanto la persona añade la cortesía normal ("¿cómo vas?", "¿qué tal?", "¿todo bien?") dejaba de
+// verse como saludo. Aquí va la frase de cortesía COMPLETA: si TODAS sus palabras son de saludo/cortesía, no
+// hay solicitud que anotar. Basta con que aparezca una palabra de contenido ("necesito", "lámina", "precio",
+// una cifra) para que deje de serlo — el riesgo de tragarse un pedido real es lo que se evita así.
+const RE_CORTESIA=/^((hola+|holis|ola+|buen|buen[oa]s?|d[ií]as?|tardes?|noches?|saludos?|hi+|hey+|hello+|q'?hubo|quiubo|qu[eé]|como|c[oó]mo|va|vas|van|est[aá]|est[aá]s|est[aá]n|tal|todo|bien|se[nñ]or(es|a|ita)?|don|do[nñ]a|feliz|gracias|amable|cordial|muy|mucho|gusto|y|tu|usted|ustedes|por|all[ií]|ah[ií]|le|les|me|saluda|habla|con|el|la)[\s,.!¡¿?:;\-]*)+$/i;
+function esSoloCortesia(t){ return RE_CORTESIA.test(String(t||'').trim()); }
 function traeSolicitud(txt, low2, ia2){
   if(!txt) return false;
   if(ia2 && ia2.productos && ia2.productos.length) return true;          // 1
   if(RE_SALUDO.test(low2)) return false;                                 // 2
+  if(esSoloCortesia(low2)) return false;                                 // 2b: "buen día, ¿cómo vas?" tampoco es una solicitud
   if(ia2 && (ia2.en_alcance===true || ia2.es_info===true || ia2.es_reclamo===true)) return true;   // 3
   return true;                                                           // 4
 }
@@ -2456,7 +2465,12 @@ if(preguntaHorario){
     // asesor—, pero él no veía ninguna señal de eso: recibía el menú de marcas a secas y volvía a
     // escribirlo. El acuse existía, solo que la IA todavía venía en camino y salía en el mensaje
     // SIGUIENTE. Aquí se usa su propio texto, que no hay que esperar a nadie para tenerlo.
-    const _eco = st.pendTexto ? ('📝 Anotamos: *'+[...String(st.pendTexto)].slice(0,110).join('')+'*\n\n') : '';
+    // 19-ago: si lo que escribió es largo (una lista de obra), repetirlo cortado a la mitad se ve peor que
+    // no repetirlo: se le confirma que quedó anotado y ya. El texto completo viaja igual al asesor.
+    const _ecoTxt = String(st.pendTexto||'');
+    const _eco = !_ecoTxt ? '' : ([..._ecoTxt].length>110
+      ? '📝 Anotamos lo que necesitas ✅\n\n'
+      : ('📝 Anotamos: *'+_ecoTxt+'*\n\n'));
     // 2026-08-18 (Deicy, cliente del sellador Sika): "ya con eso debió saber qué línea es, ¿por qué le
     // sigue preguntando?". Y tenía razón: en ese PRIMER mensaje la IA ya había respondido marca=Ardisa,
     // grupo=ACABADOS y los dos productos — y el bot igual le mostró el menú de marcas. La regla de no
