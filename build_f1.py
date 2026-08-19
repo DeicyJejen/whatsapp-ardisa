@@ -221,6 +221,30 @@ const ventanaAbierta = (num) => !!(num && store.win && store.win[num] && (NOW - 
 // inactivos se los entrega apenas el asesor escriba o toque un botón (su ventana se abre y el drenaje corre en <=2 min).
 if (!store.mediaPend) store.mediaPend = {};
 const encolarMedia = (o, cliente) => { if(!o||!o.to) return; (store.mediaPend[o.to]=store.mediaPend[o.to]||[]).push({m:o, cliente:(cliente||''), t:NOW}); if(store.mediaPend[o.to].length>30) store.mediaPend[o.to]=store.mediaPend[o.to].slice(-30); };
+// === LA FOTO TAMBIÉN ENTRA CON LA VENTANA CERRADA (2026-08-19, decisión de Deicy) ===
+// Meta deja mandar PLANTILLAS a cualquier hora, pero NO reenviar el archivo del cliente como mensaje libre:
+// eso exige que el asesor haya escrito en las últimas 24 h. Karime lleva 8 días sin escribirle al bot, así que
+// sus clientes llegaban con el pedido (plantilla, sí entra) pero SIN la foto (a la cola). Una plantilla con
+// ENCABEZADO DE IMAGEN sí puede llevarla. El nombre de la plantilla vive en la BD (`config.tpl_foto`): mientras
+// esté vacío nada cambia; en cuanto Meta la apruebe se pone el nombre y funciona sin desplegar.
+const TPL_FOTO = String(PEND.cfg_tpl_foto||'').trim();
+try{ store.cfg = store.cfg || {}; store.cfg.tplFoto = TPL_FOTO; }catch(e){}   // el cron de la cola no ve PEND: lo lee de aquí
+const tplFoto = (o, cliente) => {
+  if(!TPL_FOTO || !o || !o.to) return null;
+  const _id = (o.type && o[o.type] && o[o.type].id) ? o[o.type].id : null;
+  if(!_id || o.type!=='image') return null;            // solo fotos: el encabezado de la plantilla es de imagen
+  return {messaging_product:'whatsapp', to:o.to, type:'template', template:{name:TPL_FOTO, language:{code:'es'},
+    components:[{type:'header', parameters:[{type:'image', image:{id:_id}}]},
+                {type:'body',   parameters:[{type:'text', text:_tpv(cliente||'un cliente')}]}]}};
+};
+// Manda la foto por la vía que se pueda: mensaje libre si la ventana está abierta, plantilla si está cerrada,
+// y a la cola solo si no hay plantilla configurada. Devuelve el objeto a enviar (o null si quedó encolado).
+const enviarFoto = (o, cliente, abierta) => {
+  if(!o || !o.to) return null;
+  if(abierta) return o;
+  const _t = tplFoto(o, cliente); if(_t) return _t;
+  encolarMedia(o, cliente); return null;
+};
 const TTL = 6*3600*1000;           // 6h: sesión vieja se reinicia sola
 const hoyCol = new Date(NOW-5*3600000).toISOString().slice(0,10);   // fecha de HOY en Colombia (UTC-5)
 // Consentimiento por DÍA (decisión Deicy 2026-07-10): mismo día = no re-preguntar; otro día = pedir autorización + datos de nuevo.
@@ -667,7 +691,7 @@ function cerrarLead(st,opts){
     let _dm=null; const _dest3=_pv.destino||(MODO_PRUEBA?PRUEBA_NUM:null);
     if(_dest3 && st.mediaId && ['image','audio','video','document','sticker'].includes(st.mediaType) && store.fwd[st.mediaId]!==NOW && !store.fwd[st.mediaId]){
       store.fwd[st.mediaId]=NOW; const _o={messaging_product:'whatsapp', to:_dest3, type:st.mediaType}; _o[st.mediaType]={id:st.mediaId};
-      if(ventanaAbierta(_dest3)||MODO_PRUEBA||CLIENTES_PRUEBA.indexOf(wa)>=0) _dm=_o; else encolarMedia(_o, st.nombre||_pv.nombre||'');   // ventana cerrada -> a la cola (131047)
+      _dm = enviarFoto(_o, st.nombre||_pv.nombre||'', ventanaAbierta(_dest3)||MODO_PRUEBA||CLIENTES_PRUEBA.indexOf(wa)>=0);   // cerrada: plantilla con foto si la hay, si no a la cola (131047)
     }
     // Ráfaga de segundos -> silencio. MISMA solicitud repetida (minutos después) -> confirmamos al cliente para no ignorarlo.
     const _rw = _repeat ? txt(wa,'Ya tenemos tu solicitud registrada'+(st.nombre?(', '+st.nombre.split(' ')[0]):'')+'. Nuestro asesor te contactará dentro del horario de atención. 🤝') : null;
@@ -2069,8 +2093,8 @@ if(es_media && d.media_id && st && st.destino && !(store.pendCierre && store.pen
   if(!store.fwd[d.media_id]){
     store.fwd[d.media_id]=NOW;
     const _o={messaging_product:'whatsapp', to:_dest, type:(d.mtype||'image')}; _o[d.mtype||'image']={id:d.media_id};
-    if(ventanaAbierta(_dest)) _am.push(_o); else encolarMedia(_o, st.nombre||'');   // ventana del asesor cerrada -> a la cola (131047)
-    if(COPIA_MONITOR && _dest!==COPIA_MONITOR){ const _o2={messaging_product:'whatsapp', to:COPIA_MONITOR, type:(d.mtype||'image')}; _o2[d.mtype||'image']={id:d.media_id}; if(ventanaAbierta(COPIA_MONITOR)) _am.push(_o2); else encolarMedia(_o2, st.nombre||''); }   // copia de monitoreo a Deicy
+    { const _q=enviarFoto(_o, st.nombre||'', ventanaAbierta(_dest)); if(_q) _am.push(_q); }   // cerrada: plantilla con foto si la hay, si no a la cola (131047)
+    if(COPIA_MONITOR && _dest!==COPIA_MONITOR){ const _o2={messaging_product:'whatsapp', to:COPIA_MONITOR, type:(d.mtype||'image')}; _o2[d.mtype||'image']={id:d.media_id}; const _q2=enviarFoto(_o2, st.nombre||'', ventanaAbierta(COPIA_MONITOR)); if(_q2) _am.push(_q2); }   // copia de monitoreo a Deicy
   }
   const _r2=(d.mtype==='image'&&ia)?resumenIA(ia):''; const _cap=(d.media_caption||'').trim();
   const _ab=_am.some(function(x){return x&&x.to===_dest;}) ? txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó '+(MTYPE_ES[d.mtype]||'un archivo')+'* a su solicitud'+(_r2?(': '+[...(_r2)].slice(0,300).join('')):'')+(_cap?(' — "'+[...(_cap)].slice(0,160).join('')+'"'):'')+'\n📱 +'+wa) : null;   // el texto solo si el adjunto SÍ sale ya hacia el asesor
@@ -2896,7 +2920,12 @@ if(preguntaHorario){
       if(ventanaAbierta(_dest)||MODO_PRUEBA){
         aviso_medias=[_o];
         aviso_body=txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó un '+(MTYPE_ES[d.mtype]||'archivo')+'* a su solicitud'+(_r?(': '+_r):'')+(_cap?(' — "'+[...(_cap)].slice(0,160).join('')+'"'):'')+'\n📱 +'+wa);
-      } else { encolarMedia(_o, st.nombre||''); }   // ventana del asesor cerrada -> a la cola (131047); se entrega cuando escriba
+      } else {
+        // 19-ago: con la plantilla de foto configurada, la imagen sale de una aunque su ventana esté cerrada;
+        // el texto de la adición no puede ir por esa vía, así que la plantilla lleva el nombre del cliente.
+        const _q=tplFoto(_o, st.nombre||'');
+        if(_q) aviso_medias=[_q]; else encolarMedia(_o, st.nombre||'');   // sin plantilla -> a la cola (131047), se entrega cuando escriba
+      }
     }
     wpp_body = (st.addN<=1) ? txt(wa,'Gracias'+_nom+'. Agregamos esta información a tu solicitud para que tu asesor la tenga en cuenta. 🤝') : null;
   } else if(nuevaConsulta && (NOW-(st.closedAt||0) >= 5*60*1000)){
@@ -2978,7 +3007,7 @@ if(preguntaHorario){
         solicitud:'Nueva solicitud (cliente recurrente)', detalle:'El cliente volvió a escribir hoy.'+(st.detalle?(' Solicitud: '+[...String(st.detalle)].slice(0,300).join('')):'')+' · Nota: también tiene pendiente la solicitud #'+PEND_ID+' sin reporte (mismo asesor).',
         asesor:(st.asesorNom||''), asesor_tel:(st.destino||''), fuera_horario:0, modo_prueba:(MODO_PRUEBA?1:0)};
       const _rec2=txt(_dest,'📌 Este cliente también tiene la solicitud *#'+PEND_ID+'* pendiente de reporte — aprovecha y resuélvele las dos. 🙌\n\n➕ *Nueva solicitud de un cliente que YA tienes*\n\n👤 *Cliente:* '+(st.nombre||'—')+'\n📱 *WhatsApp:* '+waDisp+'\n📝 *Solicitud:* '+(st.detalle||'—')+'\n\n📲 *Escríbele:* '+waLink);
-      if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else encolarMedia(_rec2, st.nombre||'');
+      if(ventanaAbierta(_dest)||MODO_PRUEBA) aviso_body=_rec2; else { const _q3=tplFoto(_rec2, st.nombre||''); if(_q3) aviso_medias=[_q3]; else encolarMedia(_rec2, st.nombre||''); }
       // 2026-07-29 (Deicy): NUNCA contarle al cliente que hubo que recordarle al asesor — es un problema interno.
       // 2026-08-06 (caso Fundación Mujer y Futuro #235): tampoco DISCULPARSE por una demora que el bot no puede
       // comprobar — el asesor pudo haberlo atendido por fuera (aquí Yormy ya le había enviado cotización). El bot
@@ -3395,7 +3424,13 @@ _PEND_SQL = ("SELECT "
     "(SELECT valor FROM config WHERE clave='cotiza_alcance' LIMIT 1) AS cfg_cotiza_alcance, "
     # Interruptor del AVISO IMPLÍCITO de datos (2026-08-15). Vive en la BD, no en el código: encenderlo o
     # apagarlo es un UPDATE, sin desplegar — si algún día hay que volver al muro, se vuelve en segundos.
-    "(SELECT valor FROM config WHERE clave='consent_implicito' LIMIT 1) AS cfg_consent_impl")
+    "(SELECT valor FROM config WHERE clave='consent_implicito' LIMIT 1) AS cfg_consent_impl, "
+    # 2026-08-19 (decisión Deicy): NOMBRE de la plantilla aprobada con encabezado de IMAGEN. Vacío = no existe
+    # todavía y todo sigue como hoy (la foto espera en la cola a que el asesor escriba). Con el nombre puesto,
+    # la foto sale de una aunque la ventana de 24 h esté cerrada — que es justo lo que Meta no deja hacer con
+    # un mensaje libre. Igual que `mcp_precio_tool`: se guarda el NOMBRE, no un sí/no, para que no se pueda
+    # quedar apuntando a una plantilla que se llama distinto.
+    "(SELECT valor FROM config WHERE clave='tpl_foto' LIMIT 1) AS cfg_tpl_foto")
 # === CANDADO POR CLIENTE (2026-08-18, pedido de Deicy) ===
 # Meta manda un webhook por mensaje y n8n los corre EN PARALELO. Cuando alguien escribe dos veces seguidas
 # —28 de 64 personas lo hicieron esta semana— las dos ejecuciones leen el MISMO pasado y responden cada una
@@ -3435,6 +3470,7 @@ return [{ json: Object.assign({}, d, {
   cfg_precio_tool: p.cfg_precio_tool ? String(p.cfg_precio_tool).trim() : '',
   cfg_cotiza_alcance: p.cfg_cotiza_alcance ? String(p.cfg_cotiza_alcance) : '',   // 'demo' | 'todos' (en vivo)
   cfg_consent_impl:   p.cfg_consent_impl   ? String(p.cfg_consent_impl)   : '',   // 'si' = aviso implícito en vez del muro
+  cfg_tpl_foto:       p.cfg_tpl_foto       ? String(p.cfg_tpl_foto).trim() : '',  // plantilla con foto (2026-08-19)
   rep_hoy:      p.rep_hoy      || 0,
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',
@@ -4489,6 +4525,24 @@ for(const _dst in store.mediaPend){
   }}); }
   if(!_q.length){ delete store.mediaPend[_dst]; continue; }
   if(!_wOpen(_dst)){
+    // === LA FOTO SALE IGUAL, POR PLANTILLA (2026-08-19, decisión de Deicy) ===
+    // Meta no deja reenviar el archivo del cliente con la ventana cerrada, pero una PLANTILLA con encabezado
+    // de imagen sí entra. En cuanto `config.tpl_foto` tenga el nombre de la plantilla aprobada, la cola deja
+    // de esperar a que el asesor escriba: cada foto se entrega de una y solo queda encolado lo que no es foto.
+    const _TPLF = String((store.cfg && store.cfg.tplFoto) || '').trim();
+    if(_TPLF){
+      const _resto=[];
+      _q.forEach(function(x){
+        const _m = x && x.m; const _id = (_m && _m.type==='image' && _m.image) ? _m.image.id : null;
+        if(!_id){ _resto.push(x); return; }
+        out.push({json:{msg:{messaging_product:'whatsapp', to:_dst, type:'template', template:{name:_TPLF, language:{code:'es'},
+            components:[{type:'header', parameters:[{type:'image', image:{id:_id}}]},
+                        {type:'body',   parameters:[{type:'text', text:String(x.cliente||'un cliente').replace(/[\r\n\t]+/g,' ').slice(0,700)||'un cliente'}]}]}},
+          chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjunto en cola)', salida:'📎 Foto entregada por plantilla (ventana cerrada)', etapa:'media_diferida'}}});
+      });
+      if(_resto.length){ store.mediaPend[_dst]=_resto; } else { delete store.mediaPend[_dst]; }
+      continue;
+    }
     store.mediaPend[_dst]=_q;
     const _viejo = Math.min.apply(null, _q.map(function(x){return x.t||NOW;}));
     if((NOW-_viejo) > 6*3600000 && (NOW-(store.mediaNudge[_dst]||0)) > 24*3600000 && _dst!=='573205662947'){
