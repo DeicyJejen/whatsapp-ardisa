@@ -215,6 +215,13 @@ const NOW = Date.now();
 // si el asesor tiene su ventana abierta, el aviso le sale GRATIS (mensaje de servicio) en vez de plantilla pagada.
 if (!store.win) store.win = {};
 if (wa) { store.win[wa] = NOW; for (const _w in store.win) { if (NOW - store.win[_w] > 26*3600000) delete store.win[_w]; } }
+// === ¿EL CIERRE FUE HOY? (2026-08-19) ===
+// Tres ramas distintas decidían "esto es una consulta NUEVA" con 5 MINUTOS desde el cierre, y por eso a un
+// cliente que ya tenía asesora se le volvía a pedir nombre, ciudad y perfil veinte minutos después (caso
+// Paoal). La regla de Deicy es por DÍA: hoy se suma a lo que ya pidió; otro día entra como cliente nuevo.
+// Una sola definición para las tres ramas, para que no vuelvan a divergir.
+const _diaCol = e => { const c=new Date(e-5*3600000); return c.getUTCFullYear()+'-'+(c.getUTCMonth()+1)+'-'+c.getUTCDate(); };
+const cerroHoy = ts => !ts || _diaCol(ts)===_diaCol(NOW) || (NOW-ts)<3*3600000;   // 3 h de gracia tras la medianoche
 const ventanaAbierta = (num) => !!(num && store.win && store.win[num] && (NOW - store.win[num]) < 23*3600000);   // <23h: margen frente a la ventana de 24h de Meta
 // BLINDAJE 131047 (2026-07-22, caso lead 87 Yuly/Natalia): los reenvíos de adjuntos al asesor son mensajes LIBRES ->
 // a ventana 24h CERRADA fallan en silencio. En vez de enviarlos, se ENCOLAN en store.mediaPend[destino] y el cron de
@@ -2342,7 +2349,7 @@ if(preguntaHorario){
 // NOTA (2026-07-09): la IA NO cierra en frío ni se salta la recolección de datos. Cuando ENTIENDE
 // la solicitud (p.ej. "necesito cemento"), acusa recibo y pide SOLO lo que falta (nombre/ciudad/ocupación),
 // sin re-preguntar la marca ni "¿qué necesitas?". El grupo (Construcción/Acabados) lo decide el PRODUCTO.
-} else if( es_media && d.mtype==='image' && ia && ia.en_alcance && (!st || (st.paso==='cerrado' && (NOW-(st.closedAt||0) >= 5*60*1000)) || st.paso==='marca') ){
+} else if( es_media && d.mtype==='image' && ia && ia.en_alcance && (!st || (st.paso==='cerrado' && !cerroHoy(st.closedAt)) || st.paso==='marca') ){
   // 📷 VISIÓN: el cliente mandó una FOTO y la IA la "vio" y entendió -> la tratamos como una solicitud real
   const _res = [...(resumenIA(ia) || 'lo que se ve en la imagen')].slice(0,600).join('');
   if(yaConsintio){   // ya autorizó HOY -> arrancamos el flujo inteligente con la foto
@@ -2379,7 +2386,7 @@ if(preguntaHorario){
       wpp_body=boton(wa,'¡'+saludo+'! '+emoji+'\n\nRecibimos tu foto, ¡gracias! 📷\n\nPara revisarla y atenderte necesitamos tu *autorización para el tratamiento de tus datos personales* 🔒. Revisa y acepta nuestra política:\n📄 https://www.ardisa.com/politica-de-datos-personales/',[['CONSENT_SI','✅ Sí, autorizo'],['CONSENT_NO','❌ No autorizo']]);
     }
   }
-} else if( ia && ia.en_alcance && !id && !es_media && texto && !reinicia && !esDespedida && yaConsintio && (!st || (st.paso==='cerrado' && (NOW-(st.closedAt||0) >= 5*60*1000)) || st.paso==='marca') ){
+} else if( ia && ia.en_alcance && !id && !es_media && texto && !reinicia && !esDespedida && yaConsintio && (!st || (st.paso==='cerrado' && !cerroHoy(st.closedAt)) || st.paso==='marca') ){
   // Cliente que YA autorizó y escribe libre algo que la IA entiende -> flujo inteligente (pide solo lo que falta)
   const prev = st || {};
   // pidioProd e iaBest DEBEN sobrevivir a la reconstrucción: sin ellos el bot repetía la misma
@@ -2957,8 +2964,16 @@ if(preguntaHorario){
       }
     }
     wpp_body = (st.addN<=1) ? txt(wa,'Gracias'+_nom+'. Agregamos esta información a tu solicitud para que tu asesor la tenga en cuenta. 🤝') : null;
-  } else if(nuevaConsulta && (NOW-(st.closedAt||0) >= 5*60*1000)){
-    // NUEVA consulta (producto nuevo claro y ya pasó rato) -> arrancamos conservando nombre/ciudad.
+  } else if(nuevaConsulta && !_mismoDia){
+    // === 2026-08-19 (Deicy, caso Paoal): "corrige el proceso completo, no un solo chat" ===
+    // Ella cerró a las 10:22 con Karime y a las 10:42 escribió "¿tienen la lámina Velvet Touch Camel?".
+    // El bot la trató como consulta NUEVA —bastaban 5 minutos desde el cierre— y le volvió a preguntar el
+    // perfil, la ciudad y todo, cuando ya tenía asesora asignada hacía veinte minutos. Eso contradecía dos
+    // reglas que ya existían: "lo que el cliente escriba después de cerrar se le suma a su solicitud" (12-ago)
+    // y "otro día = cliente nuevo" (12-ago). El corte correcto no son 5 minutos: es el DÍA.
+    // Mismo día -> se le suma a lo que ya pidió, se le avisa a SU asesora y se le confirma. Otro día -> entra
+    // como cliente nuevo y llena el formulario otra vez (con nombre y ciudad heredados).
+    // NUEVA consulta de OTRO día -> arrancamos conservando nombre/ciudad.
     st.paso=''; etapa='marca'; delete st.escape; delete st.fuera; delete st.detalle; delete st.tiposol; delete st.ocupacion; delete st.grupo; delete st.interes; delete st.marca; delete st.cuando; delete st.pidioHumano; delete st.puntoIdx; delete st.iaPend; delete st.revalidos; delete st.addN; delete st.closedAt;
     if(_iaVeProducto){
       // Regla de Deicy (2026-08-04): "si ya identificó qué necesita, NO hay que volver a preguntar si es
@@ -3665,8 +3680,13 @@ def _http_mcp_call(nombre, repartir, x, y):
          "sendBody":True,"specifyBody":"json",
          # ⚠️ mismo cuidado que en _http_mcp_init: "} }" separados para no formar "}}" dentro de la expresión
          "jsonBody":"={{ JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:$('" + repartir + "').item.json.tuse.name, arguments:$('" + repartir + "').item.json.tuse.input} }) }}",
-         "options":{"timeout":20000,"response":{"response":{"responseFormat":"text"}}}},
-        x, y, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000})
+         # 2026-08-19 (Deicy: "el MCP no está dando los precios"): la cotización de David se cayó en
+         # `precio_articulo` con "timeout of 20000ms exceeded" y el modelo tuvo que responder "un asesor te lo
+         # confirma" en TODOS los ítems. La consulta de precio resuelve la cascada completa (precio especial del
+         # cliente -> lista -> escala por cantidad) y no siempre cabe en 20 s. Se le da aire y un intento más:
+         # esperar unos segundos de más es infinitamente mejor que entregar una cotización sin precios.
+         "options":{"timeout":45000,"response":{"response":{"responseFormat":"text"}}}},
+        x, y, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500})
 
 def _code_repartir(fuente_req):
     # Decide si el modelo TERMINÓ (texto/error -> pasa derecho a Entregar) o PIDIÓ herramientas
@@ -3757,11 +3777,11 @@ async function _otrasCiudades(itemCode, ciudadCliente){
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
   const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
     body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
-      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:8000});
+      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:15000});
   const _sid=(_ini && _ini.headers && (_ini.headers['mcp-session-id']||_ini.headers['Mcp-Session-Id']))||'';
   const _otras=_CIU_PV.filter(function(c){ return String(c).toLowerCase()!==String(ciudadCliente||'').toLowerCase(); });
   const _r=await Promise.all(_otras.map(function(c){
-    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:8000,
+    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:15000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
           params:{name:'disponibilidad_ciudad', arguments:{item_code:itemCode, ciudad:c} } })})
@@ -3801,13 +3821,13 @@ async function _reintentarBusqueda(q0, textoCliente){
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
   const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
     body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
-      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:8000});
+      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:15000});
   const _sid=(_ini && _ini.headers && (_ini.headers['mcp-session-id']||_ini.headers['Mcp-Session-Id']))||'';
   // Se prueban las candidatas y gana la que MENOS resultados devuelva: en un catálogo de ferretería la
   // palabra genérica ("pintura") arrastra cientos de referencias y la específica ("drywall") unas pocas,
   // así que el conteo es un buen termómetro de cuál de las dos describe lo que el cliente pidió.
   const _cand=await Promise.all(_pal.slice(0,3).map(function(_w){
-    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:8000,
+    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:15000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
           params:{name:'buscar_producto', arguments:{q:_w, limit:25} } })})
