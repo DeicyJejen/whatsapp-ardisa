@@ -573,21 +573,34 @@ function cerrarLead(st,opts){
     // producto -> el cierre lo veía "vago" y pedía el producto en bucle aunque el cliente YA lo dijo. Se
     // suma la familia de la madera y "tabl" (cubre tablero Y el typo "tableo"). Mismo cambio que en la
     // captura de arriba: el bot debe reconocer que una madera/tablero/herraje ES un producto concreto.
-    const _tieneProd = !!(st.iaProd && String(st.iaProd).trim()) || /\d/.test(_dv) || tieneProdConc(_dv);
-    const _pareceVago = /(cotiz|cotizar|cotizaci|precio|presupuesto|asesor[ií]a|asesoren|me asesor|ayuda|ay[uú]den|orientaci[oó]n|informaci[oó]n|informes?|colabor|comprar|adquirir|interesad)/i.test(_dv) && !_tieneProd;
-    // GENÉRICO SIN PRODUCTO (2026-07-17, caso Arley "Un producto"): el cliente no dio un producto concreto -> NO cerramos a medias.
-    const _dvLimpio = _dv.replace(/[^a-z0-9áéíóúñ]/gi,'');
-    // SOLO SALUDO (2026-07-21, caso Lorena #77): el detalle es únicamente un saludo/cortesía y NO trae producto -> pedirlo antes de cerrar.
-    const _soloSaludo = /^((hola+|ola+|q'?hubo|buen(os|as)?|buen|d[ií]as?|tardes|noches|saludos|hi+|hey+|hello+|cordial|feliz|gracias|se[ñn]or(es|a|ita)?|don|do[ñn]a|dr|ing|arq)[\s,.!¡:;-]*)+$/i.test(_dv.trim());
-    const _generico = !_tieneProd && (
-        /\b(un|unos|una|unas|varios|varias|alg[uú]n|alguna|algo|de todo|producto|productos|material|materiales|art[ií]culo|art[ií]culos|mercanc[ií]a|surtido|una cosa|unas cosas|cosita)\b/i.test(_dv)
-        || _dvLimpio.length < 5   // respuesta demasiado corta y sin producto reconocible
-        || _soloSaludo             // el detalle es solo un saludo -> no hay solicitud real
-    );
+    // 2026-08-19 (caso Andrea Mendoza #317): el vocabulario NUNCA va a listar todo lo que se vende (recebo,
+    // geotextil, caballete, acronal...). La IA sí reconoce esos productos y ya los guardaba en `iaBest`, pero
+    // aquí solo se miraba `iaProd`, que se llena en UNA sola ruta. Se suma el mejor veredicto de la IA de toda
+    // la conversación, descartando las palabras que NO son un producto ('asesoría', 'cotización',
+    // 'información'): si no, la IA se contesta sola y el bot cierra creyendo que ya sabe qué necesita.
+    const _GEN_IA = /^(asesor[ií]a|asesoramiento|ayuda|informaci[oó]n|informes?|cotizaci[oó]n|cotizar|precio|precios|presupuesto|producto|productos|material|materiales|art[ií]culos?|varios|surtido|mercanc[ií]a)$/i;
+    const _iaProds = []
+      .concat(st.iaProd ? String(st.iaProd).split(/[,;]/) : [])
+      .concat((st.iaBest && st.iaBest.productos) ? st.iaBest.productos : [])
+      .concat((ia && ia.productos) ? ia.productos : [])
+      .map(function(x){ return String(x||'').trim(); })
+      .filter(function(x){ return x && !_GEN_IA.test(x); });
+    const _tieneProd = _iaProds.length>0 || /\d/.test(_dv) || tieneProdConc(_dv);
+    // === LA REGLA (2026-08-19, caso Andrea Mendoza #317) ===
+    // Hasta hoy la pregunta se disparaba solo si el texto SONABA vago ('cotización', 'asesoría') o genérico
+    // ('un producto', muy corto, solo un saludo). Cualquier otra cosa sin producto se colaba por el medio:
+    // a Karime le llegó un lead cuyo *detalle* era «Medellín» — la ciudad que la clienta había escrito.
+    // Se invierte la regla: lo que habilita el cierre es TENER PRODUCTO, no que el texto se parezca a una
+    // lista de palabras. Así queda cubierto todo lo que no imaginamos ('para mi casa', 'es urgente', una
+    // ciudad, un 'cómo está'), sin volver a ampliar listas caso por caso.
     // 2026-08-12 (caso Daniela "Tapa luz"): si el cliente ESCRIBIÓ esto como su producto en el paso final
     // (opts.desdeDetalle), ya completó todo el flujo y respondió "qué necesitas" -> se confía en su palabra y
     // NO se le vuelve a interrogar. El chequeo vago es para quien pide "cotización" SIN haber concretado nada.
-    if((_pareceVago || _generico) && !opts.desdeDetalle && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){   // describir un proyecto/a-medida NO es vago (2026-07-23)
+    // Exentos (ya hay contexto suficiente para el asesor): trae adjunto, pidió hablar con un humano, describe
+    // un proyecto a medida (2026-07-23), ya se le preguntó una vez, él mismo acaba de escribirlo en el paso
+    // final (2026-08-12, caso Daniela 'Tapa luz'), o es el SIMULACRO del rescate: ahí el cliente ya se fue y
+    // entregarle al asesor lo poco que hay es mejor que no entregarle nada.
+    if(!_tieneProd && !opts.rescate && !opts.desdeDetalle && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){
       st.asesoriaAsk=true; st.paso='detalle';
       return {wpp_body: txt(wa,'¡Con gusto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 🤝 Para pasarte con el asesor correcto y darte una cotización precisa, cuéntame: *¿qué producto(s) necesitas cotizar?*\nPor ejemplo: cemento, cerámica, grifería, tableros, láminas, sanitarios, pintura...'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
     }
@@ -792,8 +805,13 @@ function cerrarLead(st,opts){
   st.tiposol = (st.marca==='Carpincentro') ? 'Cotización Carpincentro'
              : (st.grupo==='MOBILIARIO' ? 'Cotización Proyecto Arquitectónico'
              : ((st.interes==='Acabados' || st.grupo==='ACABADOS') ? 'Cotización Acabados' : 'Cotización Ferretería'));
-  // DETALLE = TODO lo que el cliente escribió en ESTA consulta (últimos 25 min), concatenado. Si no escribió nada, respaldo.
-  let _cliArr = (store.cliMsgs && store.cliMsgs[wa]) ? store.cliMsgs[wa].filter(x=>x && (NOW-((typeof x==='object'?x.t:0)||0))<25*60*1000).map(x=>typeof x==='object'?x.m:x) : [];
+  // DETALLE = TODO lo que el cliente escribió en ESTA consulta, concatenado. Si no escribió nada, respaldo.
+  // 2026-08-19 (casos Andrea Mendoza #317 y Jose Silva #316): la ventana era de 25 minutos POR MENSAJE, y una
+  // conversación normal dura más: Andrea escribió «Estoy buscando asesoría» a las 4:40 y cerró a las 5:09 —
+  // 29 minutos —, así que su solicitud se descartó y al asesor le llegó lo último que quedaba escrito. La
+  // conversación NO se mide mensaje a mensaje: este log ya se borra al reiniciar el flujo y al cerrar, y se
+  // poda a las 2 h del ÚLTIMO mensaje (arriba). La ventana queda alineada con esa poda.
+  let _cliArr = (store.cliMsgs && store.cliMsgs[wa]) ? store.cliMsgs[wa].filter(x=>x && (NOW-((typeof x==='object'?x.t:0)||0))<2*3600*1000).map(x=>typeof x==='object'?x.m:x) : [];
   // Tarjetas PULIDAS (2026-07-23, pedido Deicy: "Hola! Estoy buscando asesoría · Formica"): si hay contenido real,
   // el relleno saludo/"busco asesoría" (sin producto ni cifras) se omite del detalle que ve el asesor.
   if(_cliArr.length>1){
@@ -967,7 +985,7 @@ function armarRescate(stReal){
     const _leadRowPrev = leadRow;
     let paquete = null;
     try{
-      cerrarLead(stC, {});                                     // cierre REAL, sobre la copia
+      cerrarLead(stC, {rescate:true});                         // cierre REAL, sobre la copia (rescate: no pregunta, el cliente ya se fue)
       if(store.pendCierre && store.pendCierre[wa]) paquete = JSON.parse(JSON.stringify(store.pendCierre[wa]));
       // el "pendiente de seguimiento" que armó se guarda junto al paquete y se aplica solo si el rescate se usa
       if(paquete && store.segPend){
@@ -1438,6 +1456,36 @@ function matchCiudad(marca, txt){   // convierte "bucaramanga"/"bogotá"... al i
   const lista = (marca==='Ardisa')? CIU_ARD : CIU;
   for(const c of lista){ if(c[0]==='OTRA') continue; const nom=_norm(c[1]); if(t===nom || t.includes(nom) || nom.includes(t)) return c; }
   return null;
+}
+// === LA CIUDAD QUE EL CLIENTE ESCRIBE EN VEZ DE TOCAR EL MENÚ (2026-08-19, caso Andrea Mendoza #317) ===
+// Andrea escribió «Medellín» donde había botones. El bot le repitió el menú y —lo grave— guardó «Medellín»
+// como si fuera lo que quería comprar: ese texto viajó al asesor como su solicitud. Aquí se reconoce la
+// ciudad escrita: si es una de las tiendas, se toma esa; si es otra ciudad del país, entra como «Otra
+// ciudad» con su nombre y el flujo sigue (dos mensajes menos para el cliente). Nunca se guarda como producto.
+// Solo mira frases CORTAS, sin cifras ni producto: «Medellín», «medellin antioquia», «estoy en Yopal».
+const CIU_CO=['medellin','envigado','itagui','bello','sabaneta','rionegro','caldas','copacabana','girardota','apartado','turbo','caucasia','cali','palmira','yumbo','jamundi','buenaventura','tulua','buga','cartago','popayan','pasto','ipiales','tumaco','neiva','pitalito','villavicencio','acacias','granada','yopal','arauca','saravena','armenia','manizales','dosquebradas','santa rosa de cabal','riohacha','maicao','uribia','fonseca','valledupar','aguachica','codazzi','bosconia','curumani','monteria','cerete','lorica','sahagun','planeta rica','sincelejo','corozal','magangue','turbaco','el carmen de bolivar','soledad','malambo','sabanalarga','baranoa','puerto colombia','cienaga','fundacion','el banco','plato','pivijay','aracataca','cucuta','pamplona','ocana','tibu','los patios','villa del rosario','barrancabermeja','san gil','socorro','malaga','velez','giron','piedecuesta','lebrija','sabana de torres','cimitarra','barbosa','tunja','duitama','sogamoso','chiquinquira','paipa','villa de leyva','moniquira','puerto boyaca','espinal','melgar','honda','girardot','fusagasuga','soacha','zipaquira','chia','cajica','facatativa','madrid','mosquera','funza','ubate','la calera','tocancipa','la dorada','puerto berrio','quibdo','florencia','mocoa','leticia','san andres','san jose del guaviare','inirida','mitu','puerto carreno','san juan de pasto','buga la grande','bogota dc'];
+const _RELL_CIU=/^(hola|holis|buen|buenos|buenas|dia|dias|tarde|tardes|noche|noches|senor|senora|estoy|vivo|somos|soy|escribo|desde|para|en|de|del|la|el|los|las|ciudad|municipio|aqui|me|encuentro|ubicado|ubicada|zona|barrio|pero|y|es|mi)$/i;
+function ciudadEscrita(marca, txt){
+  let t=String(txt||'');
+  if(!t.trim() || [...t].length>45) return null;
+  if(/\d/.test(t) || tieneProdConc(t)) return null;                    // «lámina para Medellín» NO es una respuesta de ciudad
+  t=_norm(t).replace(/[^a-z\s]/g,' ').replace(/\s+/g,' ').trim();
+  const pal=t.split(' ').filter(w=>w && !_RELL_CIU.test(w));
+  if(!pal.length || pal.length>3) return null;
+  const cand=pal.join(' ');
+  const mc=matchCiudad(marca, cand); if(mc) return mc;                 // ciudad CON tienda -> se rutea normal
+  for(const c of CIU_CO){ if(cand===c) return ['OTRA', capNombre(cand)]; }
+  if(pal.length>1){ for(const c of CIU_CO){ if(pal[0]===c) return ['OTRA', capNombre(cand)]; } }   // «medellin antioquia»
+  return null;
+}
+// Si el cliente escribió su ciudad donde le pedimos la ciudad, esa frase NO es su solicitud: se saca de las
+// notas que le llegan al asesor (arrastraba cosas como «Para la ciudad de ibague» en el campo Detalle).
+function limpiaNotaCiudad(st){
+  if(!st || !st.notas || !st.ciudad) return;
+  const _c=_norm(st.ciudad);
+  const _ok = x => { const n=_norm(x).replace(/[^a-z\s]/g,' ').replace(/\s+/g,' ').trim().split(' ').filter(w=>w && !_RELL_CIU.test(w)).join(' '); return n && n!==_c; };
+  const _n=String(st.notas).split(' | ').filter(_ok).join(' | ');
+  if(_n) st.notas=_n; else delete st.notas;
 }
 const TIPO_OAR={cliente_final:'OAR_FINAL', especialista:'OAR_ESP', ferretero:'OAR_FERRE', empresa:'OAR_EMP'};
 // La IA escribe el ACUSE humano (voz cálida y variada). Blindaje: si menciona precios/plata/promesas de tiempo, se descarta y se usa la plantilla (nunca dejamos que invente cifras).
@@ -2521,8 +2569,11 @@ if(preguntaHorario){
       }
     } else { delete st.nombreIntentos; st.nombre=capNombre(_n); siguientePaso(st); } }
 } else if(st.paso==='ciudad'){
-  const c=elige(st.marca==='Ardisa'?CIU_ARD:CIU);
-  if(!c){
+  let c=elige(st.marca==='Ardisa'?CIU_ARD:CIU);
+  // 2026-08-19 (caso Andrea Mendoza #317): antes de repetir el menú, mirar si lo que escribió ES su ciudad.
+  const _cEsc = (!c && texto && !id) ? ciudadEscrita(st.marca, texto) : null;
+  if(_cEsc && _cEsc[0]!=='OTRA') c=_cEsc;                     // ciudad con tienda -> sigue el camino de siempre
+  if(!c && !_cEsc){
     // CATCH-ALL (2026-08-12, caso Teca): lo que el cliente escribe donde pedimos CIUDAD y NO es una ciudad,
     // casi siempre es su producto ("Tableo roble"). Se guarda como nota antes de repetir el menú, así el
     // rescate ya tiene qué entregarle al asesor aunque el cliente abandone. Se excluye saludo/ruido suelto.
@@ -2530,9 +2581,10 @@ if(preguntaHorario){
       const _n=[...texto].slice(0,300).join(''); if(!st.notas || st.notas.indexOf(_n)<0) st.notas=(st.notas?(st.notas+' | '):'')+_n;
     }
     wpp_body=ciudadMenu('Por favor selecciona tu *ciudad* en la lista. Si no aparece, elige *Otra ciudad*. 👇', (st.marca==='Ardisa'?CIU_ARD:CIU)); }
-  else if(c[0]==='OTRA'){ st.ciudadId='OTRA'; st.paso='ciudadOtra'; etapa='ciudadOtra';
+  else if(c && c[0]==='OTRA'){ st.ciudadId='OTRA'; st.paso='ciudadOtra'; etapa='ciudadOtra';
     wpp_body=txt(wa,'📍 ¿En qué *ciudad* te encuentras? Escríbela aquí (ciudad y departamento).'); }
-  else { st.ciudad=c[1]; st.ciudadId=c[0];
+  else { if(c){ st.ciudad=c[1]; st.ciudadId=c[0]; } else { st.ciudad=_cEsc[1]; st.ciudadId='OTRA'; }   // ciudad ESCRITA sin tienda -> 'Otra ciudad', sin volver a preguntar
+    limpiaNotaCiudad(st);
     if(st.escape){ if(!st.detalle) st.detalle='(el cliente pidió hablar con un asesor)'; const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
     else if(st.marca==='Ardisa'){ st.paso='ocuArd'; etapa='ocuArd';
       wpp_body=lista(wa,CAB_PERFIL_ARD,'Elegir opción','Tipo de cliente',OAR); }
@@ -2543,6 +2595,7 @@ if(preguntaHorario){
     // Si escribió una ciudad CONOCIDA (p.ej. "Floridablanca", "Bucaramanga") aunque haya entrado por "Otra ciudad",
     // la mapeamos a su ID -> se rutea al asesor correcto de esa sede (Floridablanca -> María Delia), NO al de Bucaramanga por defecto.
     const _mc=matchCiudad(st.marca, st.ciudad); if(_mc){ st.ciudad=_mc[1]; st.ciudadId=_mc[0]; }
+    limpiaNotaCiudad(st);   // 2026-08-19: si la escribió antes en el menú, esa frase no es su solicitud (caso #317 «Medellín», #247 «Para la ciudad de ibague»)
     if(st.escape){ if(!st.detalle) st.detalle='(el cliente pidió hablar con un asesor)'; const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
     else if(st.marca==='Ardisa'){ st.paso='ocuArd'; etapa='ocuArd';
       wpp_body=lista(wa,CAB_PERFIL_ARD,'Elegir opción','Tipo de cliente',OAR); }
@@ -3090,7 +3143,8 @@ if(gastar){
   // Así la IA clasifica la CONVERSACIÓN, no un mensaje suelto (la info suele venir repartida en varios mensajes).
   let ctx='';
   try{
-    const _prev=((store.cliMsgs&&store.cliMsgs[wa])||[]).filter(x=>x&&(NOW-((typeof x==='object'?x.t:0)||0))<25*60*1000).map(x=>String(typeof x==='object'?x.m:x).replace(/[<>]/g,' ')).slice(-6);
+    // misma ventana que el detalle (2026-08-19): la IA tiene que ver el primer mensaje aunque el cliente se demore
+    const _prev=((store.cliMsgs&&store.cliMsgs[wa])||[]).filter(x=>x&&(NOW-((typeof x==='object'?x.t:0)||0))<2*3600*1000).map(x=>String(typeof x==='object'?x.m:x).replace(/[<>]/g,' ')).slice(-6);
     if(_prev.length) ctx+='<mensajes_previos_cliente>\n'+_prev.join('\n')+'\n</mensajes_previos_cliente>\n';
     const _s=(store.ses&&store.ses[wa])||null;
     if(_s){ const _f=[]; if(_s.paso) _f.push('paso='+_s.paso); if(_s.marca) _f.push('marca='+_s.marca); if(_s.nombre) _f.push('nombre='+String(_s.nombre).replace(/[<>]/g,' ')); if(_s.ciudad) _f.push('ciudad='+String(_s.ciudad).replace(/[<>]/g,' ')); if(_s.grupo) _f.push('grupo='+_s.grupo);
