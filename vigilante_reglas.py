@@ -62,3 +62,39 @@ def etapa_cola(horas_espera, horas_para_poda):
     if horas_espera >= 24:
         return "grave", 1
     return "nueva", 2
+
+
+# ── LEAD SIN SOLICITUD (2026-08-19) ───────────────────────────────────────────
+# Pedido de Deicy: "estamos corrigiendo todos los días los mismos errores". El error se repetía porque
+# solo se descubría cuando ELLA leía un chat. Esta regla lo vuelve automático: cada hora el vigilante
+# mira los leads del día y avisa de los que llegaron al asesor SIN decir qué necesita el cliente —el
+# caso Andrea Mendoza (#317, "Detalle: Medellín")— para poderlo recuperar el mismo día, no la semana
+# siguiente. Es la misma vara que usa el bot al cerrar: ¿hay un producto, una cifra o un adjunto?
+_PROD = (r"cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|"
+         r"superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|ceramic|cerámic|porcelan|enchape|azulejo|"
+         r"baldosa|grifer|sanitario|inodoro|lavamanos|ducha|baño|bano|meson|mesón|pintura|esmalte|estuco|"
+         r"vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|formica|fórmica|triplex|tripl|contrachap|madera|"
+         r"lamina|lámina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|"
+         r"calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|sellador|"
+         r"sellante|sellad|silicona|pegante|pegacor|masilla|pañete|panete|mortero|concreto|hormig|aglomerad|"
+         r"herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|wengue|cerezo|"
+         r"abedul|caoba|maple|closet|clóset|repisa|entrepaño|entrepano|estante|puerta|recebo|geotextil|"
+         r"acronal|caneca|toma|tanque|caballete|extractor|campana|cifon|sifon|sifón")
+
+
+def lead_sin_solicitud(detalle):
+    """¿Este lead salió al asesor SIN decir qué necesita el cliente? Devuelve True/False.
+
+    Vale como solicitud: un producto del catálogo, cualquier cifra (cantidad/medida/referencia) o un
+    adjunto (la foto va aparte y el asesor la ve). Todo lo demás —un saludo, una ciudad, un "cómo
+    está", el nombre— significa que al asesor le llegó una tarjeta que no puede atender.
+    """
+    import re
+    t = str(detalle or "").strip().lower()
+    if not t:
+        return True
+    if "📎" in t or "imagen:" in t:          # trae adjunto: el asesor tiene con qué
+        return False
+    if re.search(r"\d", t):                   # cantidad, medida o referencia
+        return False
+    return not re.search(_PROD, t)

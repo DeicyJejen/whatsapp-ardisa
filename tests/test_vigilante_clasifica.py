@@ -11,7 +11,7 @@
 #    víspera de la poda) — nunca "cada día por calendario".
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from vigilante_reglas import clasifica_perdido, etapa_cola
+from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud
 
 fallos = 0
 
@@ -69,4 +69,27 @@ caso_cola("borde: quedan exactamente 24h de poda", 100, 24, "final", 1)
 if fallos:
     print("test_vigilante_clasifica: HAY PRUEBAS FALLANDO (%d)" % fallos)
     sys.exit(1)
+# ── 3) lead_sin_solicitud: ¿al asesor le llegó una tarjeta que no puede atender? ──
+# Caso Andrea Mendoza (#317): Detalle "Medellín". Antes esto solo se descubría cuando Deicy leía el chat.
+print("")
+for _det, _esperado, _por in [
+    ("Medellín",                              True,  "la ciudad que escribió la clienta (caso #317)"),
+    ("Hola buenos días",                      True,  "solo un saludo"),
+    ("Para la ciudad de ibague",               True,  "otra ciudad (caso #247)"),
+    ("tienen disponible",                     True,  "pregunta sin producto (caso Nelson #313)"),
+    ("",                                      True,  "vacío"),
+    ("Recebo para base final",                False, "recebo es producto"),
+    ("Tambor de acronal novaflex",            False, "acronal es producto"),
+    ("230 unds LAMINA DE TRIPLEX",            False, "trae cantidad"),
+    ("📎 Imagen: caneca de reciclaje",         False, "trae adjunto"),
+    ("melamina rh blanca",                    False, "producto del catálogo"),
+]:
+    _r = lead_sin_solicitud(_det)
+    _ok = _r == _esperado
+    print("  %s %-42s -> %s  (%s)" % ("✅" if _ok else "❌", '"%s"' % (_det or "(vacío)"),
+          "SIN SOLICITUD" if _r else "tiene solicitud", _por))
+    if not _ok:
+        fallos += 1
+
+
 print("test_vigilante_clasifica: TODAS PASAN")

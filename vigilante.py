@@ -20,7 +20,7 @@
 #                                          (con --seco lo imprime en pantalla en vez de enviarlo)
 import subprocess, os, sys, ssl, smtplib, datetime, base64, json
 from email.message import EmailMessage
-from vigilante_reglas import clasifica_perdido, etapa_cola   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
+from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
 
 BASE      = "/home/ubuntu/whatsapp-ardisa"
 KEY_N8N   = "/home/ubuntu/.config/ardisa/n8n_api_key"
@@ -327,6 +327,27 @@ for _cuando, _tel_ase, _salida in q("""
           "El asesor %s reportó a *%s* el %s y el bot le confirmó '✅ ¡Registrado!', pero ese lead sigue "
           "SIN estado en la base: el reporte se perdió y no aparece en el informe%s"
           % (_tel_ase, _cliente, _cuando, "" if _cands else " (y no existe ningún lead con ese nombre)"))
+
+# ═══ 2d. LEAD ENTREGADO SIN SOLICITUD ════════════════════════════════════════
+# 2026-08-19, pedido de Deicy: "estamos corrigiendo todos los días los mismos errores". Se repetían
+# porque solo se descubrían cuando ella leía un chat, días después. El caso Andrea Mendoza (#317) llegó
+# a Karime con el Detalle en "Medellín" —la ciudad que la clienta escribió— y nadie se enteró hasta el
+# día siguiente. Ahora el vigilante lo mira SOLO, cada hora: si un lead salió al asesor sin producto,
+# sin cifra y sin adjunto, hay una persona esperando a la que se le puede preguntar el mismo día.
+# La alerta se cierra sola cuando el lead deja de estar sin solicitud (se corrige el detalle) o cuando
+# el asesor lo reporta: en ambos casos ya nadie está esperando por culpa nuestra.
+for _lid, _lnom, _lcre, _lase, _ldet, _lest in q("""
+    SELECT id, COALESCE(nombre,''), DATE_FORMAT(creado_en,'%d/%m %H:%i'), COALESCE(asesor,''),
+           COALESCE(REPLACE(REPLACE(detalle, CHAR(13), ' '), CHAR(10), ' '),''), COALESCE(estado,'')
+    FROM leads WHERE creado_en >= NOW() - INTERVAL 2 DAY ORDER BY id"""):
+    if _lest:                       # el asesor ya lo reportó: dejó de estar esperando
+        continue
+    if not lead_sin_solicitud(_ldet):
+        continue
+    anota("lead_sin_solicitud", 1, "lead|" + str(_lid),
+          "El lead #%s (%s, %s) salió a %s SIN decir qué necesita — Detalle: \"%s\". "
+          "Hay que preguntarle al cliente qué necesita antes de que se enfríe"
+          % (_lid, _lnom or "sin nombre", _lcre, _lase or "su asesor", (_ldet or "(vacío)")[:90]))
 
 # ═══ 3. PIDIÓ EMPLEO ═════════════════════════════════════════════════════════
 # No es cliente ni proveedor: el bot le insiste con el permiso de datos y el menú de marcas.

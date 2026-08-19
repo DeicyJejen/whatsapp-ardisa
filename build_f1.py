@@ -812,6 +812,19 @@ function cerrarLead(st,opts){
   // conversación NO se mide mensaje a mensaje: este log ya se borra al reiniciar el flujo y al cerrar, y se
   // poda a las 2 h del ÚLTIMO mensaje (arriba). La ventana queda alineada con esa poda.
   let _cliArr = (store.cliMsgs && store.cliMsgs[wa]) ? store.cliMsgs[wa].filter(x=>x && (NOW-((typeof x==='object'?x.t:0)||0))<2*3600*1000).map(x=>typeof x==='object'?x.m:x) : [];
+  // Ahora el log guarda TAMBIÉN lo que escribió en los pasos de nombre/ciudad/teléfono (ver arriba, caso
+  // Nelson #313). Aquí se descarta lo que resultó ser justamente ese dato —ya lo sabemos— para que el
+  // asesor no reciba «Andrea Mendoza» o «Bucaramanga» como si fuera el pedido. Lo que trae cifras o un
+  // producto se conserva SIEMPRE: «varilla roscada de 1/2 y de 5/8» dicho en el paso del nombre es el pedido.
+  {
+    const _nz = x => String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+    const _dados = [st.nombre, st.ciudad, st.telContacto, st.puntoNom].map(_nz).filter(function(x){ return x && x.length>2; });
+    if(_dados.length) _cliArr = _cliArr.filter(function(m){
+      const n=_nz(m); if(!n) return false;
+      if(/\d/.test(n) || tieneProdConc(n)) return true;                       // trae cifra o producto -> es pedido
+      return !_dados.some(function(dd){ return n===dd || n.indexOf(dd)>=0 || dd.indexOf(n)>=0; });
+    });
+  }
   // Tarjetas PULIDAS (2026-07-23, pedido Deicy: "Hola! Estoy buscando asesoría · Formica"): si hay contenido real,
   // el relleno saludo/"busco asesoría" (sin producto ni cifras) se omite del detalle que ve el asesor.
   if(_cliArr.length>1){
@@ -1872,16 +1885,18 @@ if(!es_media && texto && !id){
   // sépticos, filtro anaerobio, trampa de grasas). Un pedido real cabe en 1200; la plantilla de Meta
   // sigue protegida por _tpv (700) y la tarjeta por su propio tope.
   const _t=[...texto].slice(0,1200).join('').trim();
-  // 14-ago (caso Edinson): 'telContacto' también se excluye — "por aquí" o el número que regala el
-  // cliente oculto son respuestas a NUESTRA pregunta, no parte de su pedido (rompían la fusión y el
-  // detalle salía repetido: "producto · por aqui · producto")
-  const _esNomCiu = st && ['nombre','ciudad','ciudadOtra','telContacto'].includes(st.paso);
+  // 2026-08-19 (caso Nelson #313): los pasos 'nombre'/'ciudad'/'telContacto' se EXCLUÍAN de este log para que
+  // el nombre del cliente no terminara listado como su solicitud. Pero el cliente no habla por turnos: Nelson
+  // escribió «varilla roscada de 1/2 y de 5/8» justo cuando se le pedía el nombre, y a Natalia le llegó
+  // «Hola buenas tardes · tienen disponible» — sin la varilla. La regla nueva: **se guarda TODO** (menos el
+  // ruido de cortesía) y la limpieza se hace AL CERRAR, cuando ya sabemos cuál fue su nombre y su ciudad y
+  // podemos descartar exactamente esas frases. Guardar primero, decidir después.
   const _esRuido = /^((ok(ay)?|listo|dale|vale|bueno|buen[oa]s|perfecto|de acuerdo|gracias|muchas|mil|muy|amable|va|hecho|entendido|correcto|s[ií]|no|autorizo|acepto|hola|men[uú]|👍|🙏|👌)[\s.,!👍🙏👌]*)+$/i.test(low);
-  if(_t.length>=2 && !reinicia && !_esNomCiu && !_esRuido){
+  if(_t.length>=2 && !reinicia && !_esRuido){
     store.cliMsgs = store.cliMsgs || {};
     const _a = store.cliMsgs[wa] = store.cliMsgs[wa] || [];
     const _ult = _a.length ? (typeof _a[_a.length-1]==='object'? _a[_a.length-1].m : _a[_a.length-1]) : null;
-    if(_ult!==_t){ _a.push({t:NOW, m:_t}); if(_a.length>20) store.cliMsgs[wa]=_a.slice(-20); }
+    if(_ult!==_t){ _a.push({t:NOW, m:_t, p:((st&&st.paso)||'')}); if(_a.length>20) store.cliMsgs[wa]=_a.slice(-20); }
   }
 }
 // === CANDADO POR CLIENTE (2026-08-18) =========================================================
@@ -1924,6 +1939,20 @@ if(PERDIO_CARRERA){
 if(!es_media && !id && texto && st && !reinicia && ['nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','consent','marca'].includes(st.paso) && [...texto].length>=12 && ( /\d/.test(texto) || /(requiero|necesito|quiero|busco|cotiz|coti|precio|inodoro|sanitario|bizcocho|grifer|cambio|revisi|instala|medid|color|cantidad|referenc|cemento|cer[aá]mica|tabl|l[aá]mina|producto|material|combo|ducha|lavamanos|lavaplatos|nevera|estufa|porcelan|pintura|madera|piso|muro|pared|banca|banco|enchap|mosaico|sauna|turco|metro|m2|mt2|mdf|aglomer|f[oó]rmica|formica|melamin|contrachap|tripl|roble|teca|cedro|pino|nogal|weng[uü]e|cerezo|abedul|caoba|maple|tapacanto|canto|herraj|bisagra|corredera|riel|closet|cl[oó]set|cocina integral|puerta|mueble|repisa|entrepa[ñn]o|estante)/i.test(low) )){
   st.notas = (st.notas ? (st.notas+' | ') : '') + [...texto].slice(0,1200).join('');
   if(ia && (ia.grupo_pista==='CONSTRUCCION'||ia.grupo_pista==='ACABADOS')) st.notasGrupo=ia.grupo_pista;   // guarda el grupo que la IA vio en el producto (para rutear al cerrar sin re-preguntar)
+}
+// === EL NOMBRE QUE LLEGA TARDE (2026-08-19, caso José Silva lead #316) ===
+// Al cliente se le preguntó el nombre y contestó aclarando su producto ("es aellador para concreto"); el bot
+// —con razón— no lo aceptó como nombre, siguió, y CUANDO ÉL ESCRIBIÓ "jose silva" ya se le estaba pidiendo la
+// ciudad: se descartó ("selecciona tu ciudad en la lista") y su lead salió con el nombre equivocado. El dato
+// correcto había llegado; solo que fuera de turno. Si escribe algo que sí parece nombre de persona, no es una
+// ciudad ni una opción del menú, y el nombre que tenemos NO es válido o es el del perfil de WhatsApp (que
+// pusimos nosotros, no él), se corrige. Si ya tenemos un nombre bueno, no se toca.
+if(!es_media && !id && texto && st && !reinicia && ['ciudad','ciudadOtra','ocupacion','ocuArd','punto'].includes(st.paso)){
+  const _cand = nombreDeFrase([...String(texto)].slice(0,80).join(''));
+  if(esNombreValido(_cand) && !matchCiudad(st.marca, texto) && !ciudadEscrita(st.marca, texto)
+     && (!st.nombre || !esNombreValido(st.nombre) || st.nombrePerfil)){
+    st.nombre=capNombre(_cand); delete st.nombrePerfil; st.nombreTarde=1;
+  }
 }
 // Guarda TODOS los adjuntos de la conversación (a nivel store, sobrevive reinicios de sesión) para REENVIARLOS COMPLETOS al asesor.
 if(es_media && d.media_id){ store.medias[wa]=store.medias[wa]||[]; if(!store.medias[wa].some(x=>x.id===d.media_id)) store.medias[wa].push({id:d.media_id, type:d.mtype||'image', t:NOW}); if(store.medias[wa].length>25) store.medias[wa]=store.medias[wa].slice(-25); }
@@ -2560,7 +2589,7 @@ if(preguntaHorario){
       // "Es Aellador Para Concreto" mientras se lo preguntaba por tercera vez.
       const _pn = limpiaNombre([...String(d.profileName||'')].slice(0,50).join('').trim());
       if(st.nombreIntentos>=2 && esNombreValido(_pn)){
-        delete st.nombreIntentos; st.nombre=capNombre(_pn); siguientePaso(st);
+        delete st.nombreIntentos; st.nombre=capNombre(_pn); st.nombrePerfil=1; siguientePaso(st);   // 19-ago: marcado — si él escribe su nombre real más adelante, ese manda
       } else {
         etapa='nombre';
         wpp_body= (st.nombreIntentos>=2)
@@ -2992,7 +3021,11 @@ try{
   // Etiqueta OCULTA con el media id (2026-07-21): el monitor la usa para DESCARGAR y mostrar la imagen en la vista de chat (media.php la cachea).
   const _mediaTag = (es_media && d.media_id) ? (' ⟦m:'+d.media_id+':'+(d.mtype||'')+'⟧') : '';
   const _ent = (texto || (id?('▶ '+id):'') || (es_media?('📎 '+(d.mtype||'archivo')):'')) + _mediaTag;
-  const _salida=_bt(wpp_body);
+  // 2026-08-19 (Deicy: "le quitó el bienvenidos al cliente nuevo"): el saludo con el aviso de datos sale como
+  // mensaje APARTE (wpp_pre) y no se guardaba en `mensajes`. En el panel parecía que al cliente nuevo se le
+  // soltó el menú sin saludar — y para el consentimiento implícito ese aviso ES la evidencia (Decreto 1377).
+  // Ahora queda en el registro, en el mismo orden en que lo recibe el cliente.
+  const _salida=(wpp_pre?(_bt(wpp_pre)+'\n\n'):'')+_bt(wpp_body);
   if(_ent || _salida){
     const _pz=n=>String(n).padStart(2,'0'); const _cd=new Date(NOW-5*3600000);   // hora Colombia UTC-5
     _chat={ creado_en:_cd.getUTCFullYear()+'-'+_pz(_cd.getUTCMonth()+1)+'-'+_pz(_cd.getUTCDate())+' '+_pz(_cd.getUTCHours())+':'+_pz(_cd.getUTCMinutes())+':'+_pz(_cd.getUTCSeconds()),
