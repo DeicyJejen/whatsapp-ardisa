@@ -24,7 +24,8 @@ const ev = (o) => Object.assign({ wa_id:WA, profileName:'Leidy', texto:'', mtype
 const S = (x) => JSON.stringify(x || '');
 const P = { cons_si:1 };
 // La IA no logra clasificar "mueble de entretenimiento" en Construcción/Acabados (es justo el caso real)
-const IA_MUEBLE = { en_alcance:true, marca:'Ardisa', grupo_pista:'', productos:['mueble de entretenimiento'],
+// Lo que respondió la IA de verdad ese día (ejecución 119558): Carpincentro, confianza media.
+const IA_MUEBLE = { en_alcance:true, marca:'Carpincentro', grupo_pista:'', productos:['mueble de entretenimiento'],
                     confianza:'media', es_info:false, es_reclamo:false };
 const body = (r) => (r.wpp_body && (r.wpp_body.text ? r.wpp_body.text.body
                     : (r.wpp_body.interactive && r.wpp_body.interactive.body && r.wpp_body.interactive.body.text))) || '';
@@ -51,8 +52,11 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('El lead se cierra de una', /registrada/i.test(body(r2)) || r2.pend_cierre === true,
            'etapa=' + r2.etapa + ' ' + body(r2).slice(0,80));
   const lead = sd.leads.filter(l => l.wa === WA).slice(-1)[0];
-  chequear('Y se respeta lo que ella eligió: va a proyectos (Alexander)',
-           !!lead && /Alexander/i.test(lead.asesor || ''), 'asesor=' + S(lead && lead.asesor));
+  // 19-ago (el asesor lo devolvió): un mueble SUELTO es de Carpincentro —la línea de muebles y maderas—,
+  // no de Ardisa. A Alexander le toca el proyecto arquitectónico completo (cocinas, closets, baños).
+  chequear('Y va a la línea correcta: Carpincentro, no Ardisa',
+           !!lead && /Karime|Carpincentro/i.test((lead.asesor||'') + (lead.marca||'')),
+           'asesor=' + S(lead && lead.asesor) + ' marca=' + S(lead && lead.marca));
 }
 
 // ══ NEGATIVO: sin elección explícita, el mostrador NO se va a proyectos ═══════

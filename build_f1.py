@@ -724,7 +724,10 @@ function cerrarLead(st,opts){
     // DOS VECES "Proyecto a tu medida". Cuando la elección es explícita (grupoElegido) y lo que describe es un
     // MUEBLE, se respeta: es justo lo que la propia opción promete ("cocinas, closets, muebles de baño").
     // Sin elección explícita todo sigue igual: la regla de Deicy es que Alexander NO recibe mostrador.
-    const _muebleMedida = /(mueble|modular|closet|cl[oó]set|vestier|cocina integral|biblioteca|escritorio|barra|bar[ -]?ba|isla de cocina|repostero)/i.test(_txtP);
+    // 19-ago (aprendido con el mismo caso): un mueble SUELTO —de entretenimiento, de TV, una repisa— es de
+    // CARPINCENTRO, que es la línea de muebles y maderas. A Alexander le toca el proyecto ARQUITECTÓNICO
+    // completo, que es lo que promete su opción: cocinas, closets, muebles de baño, remodelación a medida.
+    const _muebleMedida = /(cocina integral|cocinas? a la medida|closet|cl[oó]set|vestier|mueble de ba[nñ]o|muebles de ba[nñ]o|isla de cocina|repostero|remodelaci[oó]n)/i.test(_txtP);
     const _proyLoose = /(\bproyect|a (la |su |tu )?medida|dise[nñ]o de (cocina|closet|mueble))/i.test(_txtP) || (st.grupoElegido && _muebleMedida);
     if(!ES_PROYECTO.test(_txtP) && !_proyLoose && _txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=4){
       const _Rp = ruteoIA(ia, _txtP);
@@ -2836,7 +2839,17 @@ if(preguntaHorario){
       st.pidioTexto=1; cerrarDet=false; etapa='pide_texto';
       wpp_body=txt(wa,'¡Recibimos tu nota de voz! 🎧 Se la pasamos completa a tu asesor.\n\nPara asignarte al experto correcto, ¿nos escribes *en una línea* qué necesitas? Por ejemplo: *"cemento gris"* o *"fórmica blanca"*. 🙏');
     }
-    if(ia && ia.en_alcance===true && ia.confianza==='alta' && ia.productos && ia.productos.length &&
+    // 2026-08-19 (caso Leidy López #323, reportado por el asesor): ella tocó "Ardisa", escribió "Mueble de
+    // entretenimiento" desde Barranquilla y la IA respondió {marca:'Carpincentro', productos:['mueble de
+    // entretenimiento'], confianza:'MEDIA'}. Como aquí se exigía confianza ALTA, el toque del menú volvió a
+    // imponerse y el lead salió a Ardisa — Acabados; el asesor tuvo que devolverlo. La confianza media es
+    // justo la de estos casos (la IA sabe la línea, duda del matiz). Ahora también corrige, salvo que el
+    // texto nombre productos de la OTRA línea: ahí manda el vocabulario, que es la red de seguridad.
+    const _txtMarca = (((ia&&ia.productos)?ia.productos.join(' '):'')+' '+String(rutTxt||'')).toLowerCase();
+    const _contradiceIA = (ia && ia.marca==='Carpincentro') ? (KW_CONS.test(_txtMarca)||KW_ACAB.test(_txtMarca))
+                                                            : KW_CARP.test(_txtMarca);
+    if(ia && ia.en_alcance===true && (ia.confianza==='alta' || (ia.confianza==='media' && !_contradiceIA)) &&
+       ia.productos && ia.productos.length &&
        (ia.marca==='Ardisa'||ia.marca==='Carpincentro') && ia.marca!==st.marca && !es_media){
       st.marca = ia.marca; st.marcaCorregida = 1;
       if(ia.marca==='Carpincentro'){ delete st.grupo; st.interes=''; }

@@ -82,10 +82,22 @@ function alCerrar(sesion, texto, ia) {
            'asesor=' + lead.asesor);
 }
 {
-  // CONTRADECIR: el cliente SÍ eligió Ardisa/Acabados -> con media NO se le lleva la contraria
+  // 2026-08-19 (Deicy, caso Leidy López #323 devuelto por el asesor): "llegó mal a Ardisa y era de
+  // Carpincentro". Antes, con confianza MEDIA se respetaba el botón del cliente aunque el texto fuera
+  // claramente de carpintería. La regla de Deicy es la contraria y es la de siempre: "así la persona
+  // coloque Acabados, si la descripción dice productos de carpintería, debe recepcionarlo bien".
+  // Ahora la media también corrige — y el vocabulario es el que puede frenarla (ver el caso de abajo).
   const { lead, sd } = alCerrar({ marca:'Ardisa', grupo:'ACABADOS', interes:'Acabados' },
                                 'tablero de madera de 15mm', IA_PROD('Carpincentro','',['tablero 15mm'],'media'));
-  chequear('Confianza MEDIA NO contradice lo que eligió el cliente',
+  chequear('Confianza MEDIA + vocabulario de carpintería -> se corrige a Carpincentro',
+           (lead.marca || (sd.ses[WA]||{}).marca) === 'Carpincentro',
+           'marca=' + (lead.marca || (sd.ses[WA]||{}).marca));
+}
+{
+  // El freno: si la IA (media) dice Carpincentro pero el cliente pidió algo de Ardisa, manda el vocabulario.
+  const { lead, sd } = alCerrar({ marca:'Ardisa', grupo:'CONSTRUCCION', interes:'Construcción' },
+                                'necesito 20 bultos de cemento gris', IA_PROD('Carpincentro','',['cemento'],'media'));
+  chequear('Pero con media NO se lleva a Carpincentro a quien pidió cemento',
            (lead.marca || (sd.ses[WA]||{}).marca) === 'Ardisa',
            'marca=' + (lead.marca || (sd.ses[WA]||{}).marca));
 }
