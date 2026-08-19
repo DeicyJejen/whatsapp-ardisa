@@ -184,6 +184,9 @@ const RE_PRODCONC = /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|la
 const _bv = s => String(s||'').toLowerCase().replace(/[bv]/g,'v');
 const RE_PRODCONC_BV = new RegExp(RE_PRODCONC.source.replace(/[bv]/g,'v'), 'i');
 const tieneProdConc = s => RE_PRODCONC.test(String(s||'')) || RE_PRODCONC_BV.test(_bv(s));
+// La frustración del cliente no viaja al asesor como "su solicitud" (19-ago, caso Edilberto). Se registra
+// en `mensajes` igual (auditoría completa), solo se filtra del detalle de la tarjeta y del Excel.
+const RE_GROSERIA=/(put[ao]s?|hijue|malparid|gonorrea|est[uú]pid|imb[eé]cil|idiota|mierda|carajo|maldit)/i;
 const wa = d.wa_id;
 // 14-ago (BSUID): cliente con número OCULTO de WhatsApp — no hay teléfono, solo el código privado.
 // El asesor NO puede escribirle por fuera: la única vía es la línea del bot. Las tarjetas lo dicen claro.
@@ -684,6 +687,13 @@ function cerrarLead(st,opts){
   // memorias y al asesor le llegaba repetido ("Necesito 20 láminas de MDF — 📝 Nota del cliente: Necesito 20
   // láminas de MDF"). Se compara normalizado, sin dobles espacios ni mayúsculas.
   if(st.notas){
+    // 19-ago (caso Edilberto): la frustración del cliente ("puta máquina…") se había colado a st.notas por
+    // el guard de "necesito". Un tramo que es grosería sin producto ni cifra no es solicitud: se filtra.
+    st.notas = String(st.notas).split(' | ').filter(function(x){
+      return !(RE_GROSERIA.test(x) && !/\d/.test(x) && !tieneProdConc(x)); }).join(' | ');
+    if(!st.notas){ delete st.notas; }
+  }
+  if(st.notas){
     const _nrm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
     if(_nrm(st.detalle).indexOf(_nrm(st.notas))<0){
       st.detalle = (st.detalle ? (st.detalle+' — 📝 Nota del cliente: ') : '📝 Nota del cliente: ') + st.notas;
@@ -875,6 +885,15 @@ function cerrarLead(st,opts){
   {
     const _nz = x => String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
     const _dados = [st.nombre, st.ciudad, st.telContacto, st.puntoNom].map(_nz).filter(function(x){ return x && x.length>2; });
+    // 19-ago (caso Edilberto #335): al asesor le llegó "Ardisa · Otra ciudad · Usted es una puta máquina…".
+    // Ni las etiquetas del menú escritas a mano ni la grosería del cliente frustrado son su solicitud.
+    const _menuLbl = /^(ardisa|carpincentro|otra ciudad|otra|si|s[ií]|no|ok|menu|men[uú])$/i;
+    _cliArr = _cliArr.filter(function(m){
+      const n=_nz(m); if(!n) return false;
+      if(_menuLbl.test(n)) return false;
+      if(RE_GROSERIA.test(n) && !/\d/.test(n) && !tieneProdConc(n)) return false;   // insulto sin contenido -> fuera
+      return true;
+    });
     if(_dados.length) _cliArr = _cliArr.filter(function(m){
       const n=_nz(m); if(!n) return false;
       if(/\d/.test(n) || tieneProdConc(n)) return true;                       // trae cifra o producto -> es pedido
@@ -1458,7 +1477,10 @@ function esNombreValido(s){
   if(ES_CIUDAD_TXT.test(s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''))) return false;   // es una ciudad, no un nombre
   if(/\d/.test(s)) return false;                                                   // nombres no llevan números (productos sí: "2/0", "700 ml")
   if(/[<>@#%*/\\|=_"“”·•]|½|¼|¾/.test(s)) return false;                             // símbolos/medidas
-  if(/\b(mm|cm|mts?|ml|kg|lt|und|unid|pulg|pulgadas?|metros?|serie|thhn|acsr|pvc|ref|cod|calibre|voltaje|kv|amp|placa|tubo|cable|varilla|cemento|cer[aá]mica|tablero|l[aá]mina|grifer[ií]a|bajante|esquinero|tapacanto|riel|canto|melamina|yeso|teja|tejas|pintura|barniz|geotextil)\b/i.test(s)) return false;  // jerga de producto (se suma lo visto en los rebotes reales)
+  // 2026-08-19 (caso 'MDF RH crudo 18 mm'): nombreDeFrase recortó la cola y dejó 'Mdf Rh', que pasaba como
+  // nombre — mdf/rh no estaban en la jerga y tieneProdConc solo aplica desde 3 palabras. Se suman las
+  // siglas de tableros, que ninguna persona lleva de nombre.
+  if(/\b(mm|cm|mts?|ml|kg|lt|und|unid|pulg|pulgadas?|metros?|serie|thhn|acsr|pvc|ref|cod|calibre|voltaje|kv|amp|placa|tubo|cable|varilla|cemento|cer[aá]mica|tablero|l[aá]mina|grifer[ií]a|bajante|esquinero|tapacanto|riel|canto|melamina|yeso|teja|tejas|pintura|barniz|geotextil|mdf|mdp|osb|hpl|rh|aglomerado|enchapad[oa]|crud[oa]|f[oó]rmica|formica|triplex)\b/i.test(s)) return false;  // jerga de producto (se suma lo visto en los rebotes reales)
   if(/(necesito|quiero|busco|cotiza|coti|precio|vend[eo]|tienen|me interesa|cu[aá]nto|informaci|asesor|pedido|factura|domicilio|ayuda|urgente)/i.test(s)) return false;   // es una solicitud, no un nombre
   // Palabras de FRASE que ningún nombre lleva (2026-08-11). Al recortar la cola por la coma, "Aun no se bien,
   // me podrías asesorar económico" quedaba en "Aun no se bien" y pasaba: el recorte se había llevado la palabra
@@ -1561,7 +1583,12 @@ function ciudadEscrita(marca, txt){
   const cand=pal.join(' ');
   const mc=matchCiudad(marca, cand); if(mc) return mc;                 // ciudad CON tienda -> se rutea normal
   for(const c of CIU_CO){ if(cand===c) return ['OTRA', capNombre(cand)]; }
-  if(pal.length>1){ for(const c of CIU_CO){ if(pal[0]===c) return ['OTRA', capNombre(cand)]; } }   // «medellin antioquia»
+  // 2026-08-19 (caso Edilberto, "Acapulco, Girón"): la gente escribe BARRIO + ciudad, o ciudad + departamento.
+  // Antes solo se miraba la primera palabra; ahora, si CUALQUIER palabra es una ciudad conocida, se acepta
+  // (con tienda -> se rutea a esa; sin tienda -> "Otra ciudad" con el texto completo). Repetirle el menú a
+  // alguien que acaba de decir dónde vive es lo que lo hace estallar ("usted es una máquina").
+  for(const w of pal){ const mw=matchCiudad(marca, w); if(mw) return mw; }
+  for(const w of pal){ for(const c of CIU_CO){ if(w===c) return ['OTRA', capNombre(cand)]; } }
   return null;
 }
 // Si el cliente escribió su ciudad donde le pedimos la ciudad, esa frase NO es su solicitud: se saca de las
@@ -2363,7 +2390,7 @@ if(preguntaHorario){
   // PIDIENDO un asesor — cuando ya tiene uno y de lo que se queja es de que no lo ha llamado (2026-08-11).
   st.escape=true; st.pidioHumano=true;
   // preserva el mensaje original si trae contenido (no solo la palabra gatillo)
-  if(texto && !st.detalle && !/^(asesor|asesora|humano|persona|agente|0)\s*$/i.test(low)){ st.detalle=[...texto].slice(0,300).join(''); }
+  if(texto && !st.detalle && !/^(asesor|asesora|humano|persona|agente|0)\s*$/i.test(low) && !RE_GROSERIA.test(low)){ st.detalle=[...texto].slice(0,300).join(''); }
   if(!st.marca){ st.paso='marca'; etapa='marca';
     wpp_body=boton(wa,'¡Claro! Te comunico con un asesor. Solo dime, ¿es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
   } else if(!st.ciudadId){ st.paso='ciudad'; etapa='ciudad';
