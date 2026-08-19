@@ -3201,7 +3201,22 @@ try{
     if(_chat) _chat.salida = String(((wpp_pre.text&&wpp_pre.text.body)||'')+'\n\n'+(_chat.salida||'')).slice(0,2000);
   }
 }catch(e){}
+// === LINKS DE LA TIENDA EN LÍNEA (2026-08-19, decisión de Deicy: "como Auteco") ===
+// Mientras la cotización con SAP no esté completa, al cliente que ya dijo qué necesita se le manda el
+// producto en la tienda: nombre, precio publicado y link para que entre y lo vea. No reemplaza al asesor
+// —el lead se crea igual— pero le da algo REAL en el momento, que es lo que se pierde cuando toca esperar.
+// El Cerebro no consulta la web (no puede bloquear la respuesta): solo deja pedido QUÉ buscar; la búsqueda
+// y el envío van por su propia rama, y si la tienda no responde no pasa nada.
+let web_q='';
+try{
+  if(String(PEND.cfg_tienda_links||'').trim().toLowerCase()==='si' && etapa==='cierre'){
+    const _st2 = S[wa] || st || {};
+    const _prod = String((_st2.iaProd||'') || (_st2.detalle||'')).replace(/[\r\n]+/g,' ').trim();
+    if(_prod && [..._prod].length>=3) web_q=[..._prod].slice(0,80).join('');
+  }
+}catch(e){}
 return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token,
+  web_q:web_q, hay_web:!!web_q, web_marca:((S[wa]&&S[wa].marca)||(st&&st.marca)||'Ardisa'), web_nombre:((S[wa]&&S[wa].nombre)||(st&&st.nombre)||''),
   cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
   wpp_pre:(wpp_pre||null), hay_pre:!!wpp_pre,   // aviso de datos como mensaje aparte, ANTES del principal
   ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
@@ -3514,7 +3529,10 @@ _PEND_SQL = ("SELECT "
     # la foto sale de una aunque la ventana de 24 h esté cerrada — que es justo lo que Meta no deja hacer con
     # un mensaje libre. Igual que `mcp_precio_tool`: se guarda el NOMBRE, no un sí/no, para que no se pueda
     # quedar apuntando a una plantilla que se llama distinto.
-    "(SELECT valor FROM config WHERE clave='tpl_foto' LIMIT 1) AS cfg_tpl_foto")
+    "(SELECT valor FROM config WHERE clave='tpl_foto' LIMIT 1) AS cfg_tpl_foto, "
+    # 2026-08-19 (decisión de Deicy): mientras Fase 2 (SAP) no esté completa, al cliente se le manda el
+    # LINK del producto en la tienda en línea, con el precio publicado — el modelo Auteco. 'si' lo enciende.
+    "(SELECT valor FROM config WHERE clave='tienda_links' LIMIT 1) AS cfg_tienda_links")
 # === CANDADO POR CLIENTE (2026-08-18, pedido de Deicy) ===
 # Meta manda un webhook por mensaje y n8n los corre EN PARALELO. Cuando alguien escribe dos veces seguidas
 # —28 de 64 personas lo hicieron esta semana— las dos ejecuciones leen el MISMO pasado y responden cada una
@@ -3555,6 +3573,7 @@ return [{ json: Object.assign({}, d, {
   cfg_cotiza_alcance: p.cfg_cotiza_alcance ? String(p.cfg_cotiza_alcance) : '',   // 'demo' | 'todos' (en vivo)
   cfg_consent_impl:   p.cfg_consent_impl   ? String(p.cfg_consent_impl)   : '',   // 'si' = aviso implícito en vez del muro
   cfg_tpl_foto:       p.cfg_tpl_foto       ? String(p.cfg_tpl_foto).trim() : '',  // plantilla con foto (2026-08-19)
+  cfg_tienda_links:   p.cfg_tienda_links   ? String(p.cfg_tienda_links).trim() : '',   // links de la tienda al cliente (2026-08-19)
   rep_hoy:      p.rep_hoy      || 0,
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',
@@ -4175,6 +4194,70 @@ nodes.append(node("¿Registrar chat?", "n8n-nodes-base.if", 2,
      "conditions":[{"id":"c1","leftValue":"={{ $json.chat ? true : false }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1780, 700))
 _chatcols=["creado_en","wa_id","nombre","entrada","salida","etapa","media_id","media_tipo"]
+CODE_TIENDA = r"""
+// === BUSCAR EL PRODUCTO EN LA TIENDA EN LÍNEA Y ARMAR EL MENSAJE (2026-08-19) ===
+// Decisión de Deicy: mientras Fase 2 (SAP) no esté completa, al cliente se le manda el producto en la
+// tienda —nombre, precio publicado y link— para que entre y lo vea, como hace Auteco. El precio es el de
+// la página (así lo pidió): el asesor confirma el valor final y la disponibilidad, y eso se le dice.
+// Todo va dentro de try/catch: si la tienda no responde, esta rama no manda nada y el cierre siguió igual.
+const j = $input.first().json;
+const TIENDA = {Ardisa:'https://www.ardisa.com', Carpincentro:'https://www.carpincentro.com'};
+const WEB = TIENDA[j.web_marca] || TIENDA.Ardisa;
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const _pz=n=>String(n).padStart(2,'0'); const _cd=new Date(Date.now()-5*3600000);
+const FECHA=_cd.getUTCFullYear()+'-'+_pz(_cd.getUTCMonth()+1)+'-'+_pz(_cd.getUTCDate())+' '+_pz(_cd.getUTCHours())+':'+_pz(_cd.getUTCMinutes())+':'+_pz(_cd.getUTCSeconds());
+// El precio se muestra como lo ve cualquiera en la página: $1.234.567 (sin decimales, con puntos de mil).
+// Truncado, no redondeado: la tienda publica 34.999,99 y muestra $34.999. Si el bot dijera $35.000,
+// el cliente vería un número distinto al de la página que le acabamos de mandar.
+const _pesos = v => '$'+Math.floor(Number(v)||0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+let out = [];
+try{
+  const q = String(j.web_q||'').replace(/["\\{}]/g,' ').trim();
+  if(q.length >= 3){
+    const r = await this.helpers.httpRequest({method:'POST', url:WEB+'/graphql', json:true, timeout:9000,
+      headers:{'Content-Type':'application/json','User-Agent':UA},
+      body:{query:'{products(search:"'+q+'",pageSize:4){total_count items{sku name url_key price_range{minimum_price{final_price{value} } } } } }'} });
+    const items = (((r||{}).data||{}).products||{}).items || [];
+    const buenos = items.filter(function(i){
+      const p=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
+      return i && i.url_key && p>0;
+    }).slice(0,3);
+    if(buenos.length){
+      const _nom = j.web_nombre ? (' '+String(j.web_nombre).split(' ')[0]) : '';
+      let cuerpo = 'Mientras tu asesor te contacta'+_nom+', puedes ver esto en nuestra tienda en línea 👇\n';
+      buenos.forEach(function(i){
+        const p=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
+        cuerpo += '\n🛒 *'+String(i.name).slice(0,70)+'*\n'+_pesos(p)+'\n'+WEB+'/'+i.url_key+'.html\n';
+      });
+      cuerpo += '\nAllí encuentras las medidas y la ficha completa. El *valor final y la disponibilidad* te los confirma tu asesor. 🤝';
+      const msg = {messaging_product:'whatsapp', to:j.wa_id, type:'text', text:{body:cuerpo, preview_url:true}};
+      out.push({json:{msg:msg, chat:{creado_en:FECHA, wa_id:j.wa_id, nombre:(j.web_nombre||''),
+        entrada:'(links tienda)', salida:cuerpo.slice(0,2000), etapa:'tienda_links',
+        media_id:null, media_tipo:null}}});
+    }
+  }
+}catch(e){}
+return out;
+"""
+
+# === RAMA DE LA TIENDA EN LÍNEA (2026-08-19) ===
+# Va por su cuenta, después de responderle al cliente: busca el producto en la web de su marca y le manda
+# el link con el precio publicado. Si la tienda no responde, no sale nada y el cierre no se entera.
+nodes.append(node("¿Buscar en tienda?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"version":2},"combinator":"and","conditions":[
+        {"operator":{"type":"boolean","operation":"true","singleValue":True},
+         "leftValue":"={{ $json.hay_web }}"}]}}, 1620, 1180))
+nodes.append(node("Buscar en tienda (web)", "n8n-nodes-base.code", 2, {"jsCode": CODE_TIENDA}, 1840, 1180,
+    {"onError":"continueRegularOutput"}))
+nodes.append(node("Enviar links tienda (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$json.msg"),
+    2060, 1180, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,
+                 "credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
+nodes.append(node("Guardar chat tienda (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa,media_id,media_tipo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+     "options":{"queryReplacement":"={{ ["+", ".join("$json.chat."+c for c in _chatcols)+"] }}"}},
+    2280, 1180, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,
+                 "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Guardar chat (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
      "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa,media_id,media_tipo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -4994,7 +5077,11 @@ connections = {
  # true -> se manda primero la política y SU SALIDA sigue al saludo (así llega en orden); false -> derecho
  "¿Aviso de datos aparte?": {"main":[[{"node":"Enviar aviso de datos (Meta)","type":"main","index":0}],[{"node":"Enviar al cliente (Meta)","type":"main","index":0}]]},
  "Enviar aviso de datos (Meta)": {"main":[[{"node":"Enviar al cliente (Meta)","type":"main","index":0}]]},
- "Enviar al cliente (Meta)": {"main":[[{"node":"¿Hay aviso al asesor?","type":"main","index":0}]]},
+ "Enviar al cliente (Meta)": {"main":[[{"node":"¿Hay aviso al asesor?","type":"main","index":0},
+                                       {"node":"¿Buscar en tienda?","type":"main","index":0}]]},
+ "¿Buscar en tienda?": {"main":[[{"node":"Buscar en tienda (web)","type":"main","index":0}],[]]},
+ "Buscar en tienda (web)": {"main":[[{"node":"Enviar links tienda (Meta)","type":"main","index":0},
+                                     {"node":"Guardar chat tienda (MySQL)","type":"main","index":0}]]},
  "¿Hay aviso al asesor?": {"main":[[{"node":"¿Hay lead?","type":"main","index":0}],[]]},
  "¿Hay lead?": {"main":[[{"node":"Guardar lead (MySQL)","type":"main","index":0}],[{"node":"Avisar al asesor (Meta)","type":"main","index":0}]]},
  "Guardar lead (MySQL)": {"main":[[{"node":"Sumar detalle (MySQL)","type":"main","index":0}]]},
@@ -5086,6 +5173,10 @@ _POS = {
   # carril de INACTIVIDAD (disparador propio cada 2 min, independiente del webhook)
   "Cada 1 min (inactivos)": (240, 900),
   "Leer config cron (MySQL)": (620, 980),
+  "¿Buscar en tienda?": (1620, 1180),
+  "Buscar en tienda (web)": (1840, 1180),
+  "Enviar links tienda (Meta)": (2060, 1180),
+  "Guardar chat tienda (MySQL)": (2280, 1180),
   "Revisar inactivos": (460, 900),
   "Enviar recordatorio (Meta)": (700, 840),
   "Guardar recordatorio (MySQL)": (700, 1040),
