@@ -3060,6 +3060,34 @@ try{
   }
   if(store.rescate) for(const _k in store.rescate){ if((NOW-(store.rescate[_k].t||0)) > 6*3600000) delete store.rescate[_k]; }   // poda
 }catch(e){}
+// === EL AVISO DE DATOS SALE UNA VEZ AL DÍA, TAMBIÉN AL QUE VUELVE (2026-08-19, pedido de Deicy) ===
+// "Cuando el cliente vuelve otro día hay que darle todas las opciones". La AUTORIZACIÓN no caduca —eso no
+// se toca, se decidió el 10-ago— pero el AVISO sí se le vuelve a mostrar cada día en que escribe: es lo que
+// sostiene la conducta inequívoca del Decreto 1377 y lo que se tiene que ver en el chat. Va aquí, al final,
+// y no en cada rama: así lo recibe igual el que saluda, el que manda una foto y el que llega diciendo qué
+// necesita (a ese el menú de marcas se le sigue ahorrando: la IA ya sabe la línea).
+// La vara es la BD (`cons_hoy`), no el staticData: una carrera lo pisa y un despliegue se lo lleva.
+try{
+  const _yaHoyBD = Number(PEND.cons_hoy||0)>0;
+  store.avisoDatos = store.avisoDatos || {};
+  const _dCol2 = e => new Date(e-5*3600000).toISOString().slice(0,10);
+  const _yaHoyMem = store.avisoDatos[wa] && _dCol2(store.avisoDatos[wa])===hoyCol;
+  const _etapaSinAviso = ['consent','noconsent','proveedor','empleo','humano_panel','media_silencio','simultaneo'].indexOf(etapa)>=0;
+  if(CONSENT_IMPL && !wpp_pre && wpp_body && !_etapaSinAviso && !_yaHoyBD && !_yaHoyMem && !(st && st.declined)){
+    wpp_pre = txt(wa, msgPolitica(saludo, emoji));
+    store.avisoDatos[wa] = NOW;
+    // El aviso ya saluda: si el mensaje que va detrás abre con el MISMO saludo, se le quita (no dos veces).
+    const _salIni = '¡'+saludo+'! '+emoji+'\n\n';
+    if(wpp_body.text && typeof wpp_body.text.body==='string' && wpp_body.text.body.indexOf(_salIni)===0) wpp_body.text.body = wpp_body.text.body.slice(_salIni.length);
+    if(wpp_body.interactive && wpp_body.interactive.body && typeof wpp_body.interactive.body.text==='string' && wpp_body.interactive.body.text.indexOf(_salIni)===0) wpp_body.interactive.body.text = wpp_body.interactive.body.text.slice(_salIni.length);
+    // Evidencia del día (una fila por cliente y día). Si esta misma vuelta ya trae su registro, no se duplica.
+    if(!consent_log) consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI',
+                                   politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
+    // que se vea en el monitor, en el mismo orden en que lo recibe el cliente (aquí `_bt` ya no está a la
+    // mano: el texto del aviso se toma directo, que es lo único que tiene wpp_pre).
+    if(_chat) _chat.salida = String(((wpp_pre.text&&wpp_pre.text.body)||'')+'\n\n'+(_chat.salida||'')).slice(0,2000);
+  }
+}catch(e){}
 return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token,
   cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
   wpp_pre:(wpp_pre||null), hay_pre:!!wpp_pre,   // aviso de datos como mensaje aparte, ANTES del principal
@@ -3289,6 +3317,13 @@ _PEND_SQL = ("SELECT "
     #   · si Ardisa publica una política nueva, la URL cambia y TODOS vuelven a autorizar, solos
     "(SELECT CASE WHEN c.decision='SI' THEN 1 ELSE 0 END FROM consentimientos c "
       "WHERE c.telefono=CONVERT($5 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND c.politica='" + POLITICA_URL + "' ORDER BY c.id DESC LIMIT 1) AS cons_si, "
+    # 2026-08-19 (pedido Deicy: "cuando el cliente vuelve otro día hay que darle todas las opciones"): la
+    # AUTORIZACIÓN no caduca (arriba), pero el AVISO sí se vuelve a mostrar en cada nuevo día en que la
+    # persona escribe — es lo que sostiene la "conducta inequívoca" del Decreto 1377 y lo que ella quiere
+    # ver en el chat. Esto dice si HOY ya se le mostró; el staticData no sirve de árbitro (lo pisa una
+    # carrera y se pierde en cada despliegue), la BD sí.
+    "(SELECT COUNT(*) FROM consentimientos c2 WHERE c2.telefono=CONVERT($12 USING utf8mb4) COLLATE utf8mb4_unicode_ci "
+      "AND c2.decision='SI' AND c2.creado_en >= CURDATE()) AS cons_hoy, "
     # === ADJUNTOS DE LA CONVERSACIÓN, desde la BD (fix 2026-08-04, caso Mario Saavedra lead #214) ===
     # Los media id vivían SOLO en store.medias (staticData). Mario mandó una foto a las 08:47 y cerró a las 08:59:
     # en esos 12 minutos ~50 ejecuciones de otros clientes pisaron esa memoria y la foto NUNCA le llegó a Karime,
@@ -3379,7 +3414,7 @@ nodes.append(node("Tomar candado (MySQL)", "n8n-nodes-base.mySql", 2.5,
                "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Buscar pendiente (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery", "query":_PEND_SQL,
-     "options":{"queryReplacement":"={{ [$('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id, $('Extraer datos').first().json.wa_id] }}"}},
+     "options":{"queryReplacement":"={{ [" + ", ".join(["$('Extraer datos').first().json.wa_id"]*12) + "] }}"}},
     860, 360, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,"credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # El nodo MySQL REEMPLAZA el item, así que aquí se vuelve a unir con los datos del extractor: los nodos de
 # abajo siguen viendo el mismo $json de siempre + los campos nuevos. Si la BD falla, sigue sin ellos (no bloquea).
@@ -3404,7 +3439,8 @@ return [{ json: Object.assign({}, d, {
   rep_pend:     p.rep_pend     || 0,
   rep_hoy_det:  p.rep_hoy_det  || '',
   rep_pend_det: p.rep_pend_det || '',
-  cons_si:      Number(p.cons_si || 0),  // ¿ya autorizó HOY según la BD? (a prueba de carreras de staticData)
+  cons_si:      Number(p.cons_si || 0),  // ¿ya autorizó (según la BD)? (a prueba de carreras de staticData)
+  cons_hoy:     Number(p.cons_hoy || 0), // ¿HOY ya se le mostró el aviso de datos? (2026-08-19)
   muro_45s:     Number(p.muro_45s|| 0),  // ¿muro de datos enviado hace <45s? (la BD ve lo que staticData aún no)
   humano_on:    Number(p.humano_on|| 0),  // chat híbrido: 1 = un humano atiende desde el panel (el bot se calla)
   adj:          String(p.adj || ''),     // "mediaid:tipo,mediaid:tipo" de los últimos 45 min (a prueba de carreras)
