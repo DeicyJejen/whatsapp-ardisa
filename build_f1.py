@@ -3134,11 +3134,11 @@ try{
   // Etiqueta OCULTA con el media id (2026-07-21): el monitor la usa para DESCARGAR y mostrar la imagen en la vista de chat (media.php la cachea).
   const _mediaTag = (es_media && d.media_id) ? (' ⟦m:'+d.media_id+':'+(d.mtype||'')+'⟧') : '';
   const _ent = (texto || (id?('▶ '+id):'') || (es_media?('📎 '+(d.mtype||'archivo')):'')) + _mediaTag;
-  // 2026-08-19 (Deicy: "le quitó el bienvenidos al cliente nuevo"): el saludo con el aviso de datos sale como
-  // mensaje APARTE (wpp_pre) y no se guardaba en `mensajes`. En el panel parecía que al cliente nuevo se le
-  // soltó el menú sin saludar — y para el consentimiento implícito ese aviso ES la evidencia (Decreto 1377).
-  // Ahora queda en el registro, en el mismo orden en que lo recibe el cliente.
-  const _salida=(wpp_pre?(_bt(wpp_pre)+'\n\n'):'')+_bt(wpp_body);
+  // 2026-08-19: el saludo con el aviso de datos sale como mensaje APARTE (wpp_pre) y antes no se guardaba —
+  // en el panel parecía que al cliente nuevo se le soltó el menú sin saludar, y para el consentimiento
+  // implícito ese aviso ES la evidencia (Decreto 1377). Se registra, pero en SU PROPIA FILA (`chat_pre`):
+  // al cliente le llegan DOS mensajes y el panel tiene que mostrar dos, no uno pegado (Deicy, 19-ago tarde).
+  const _salida=_bt(wpp_body);
   if(_ent || _salida){
     const _pz=n=>String(n).padStart(2,'0'); const _cd=new Date(NOW-5*3600000);   // hora Colombia UTC-5
     _chat={ creado_en:_cd.getUTCFullYear()+'-'+_pz(_cd.getUTCMonth()+1)+'-'+_pz(_cd.getUTCDate())+' '+_pz(_cd.getUTCHours())+':'+_pz(_cd.getUTCMinutes())+':'+_pz(_cd.getUTCSeconds()),
@@ -3196,9 +3196,6 @@ try{
     // Evidencia del día (una fila por cliente y día). Si esta misma vuelta ya trae su registro, no se duplica.
     if(!consent_log) consent_log={ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI',
                                    politica:POLITICA_URL, canal:'wa-implicito', msg_id:msg_id };
-    // que se vea en el monitor, en el mismo orden en que lo recibe el cliente (aquí `_bt` ya no está a la
-    // mano: el texto del aviso se toma directo, que es lo único que tiene wpp_pre).
-    if(_chat) _chat.salida = String(((wpp_pre.text&&wpp_pre.text.body)||'')+'\n\n'+(_chat.salida||'')).slice(0,2000);
   }
 }catch(e){}
 // === LINKS DE LA TIENDA EN LÍNEA (2026-08-19, decisión de Deicy: "como Auteco") ===
@@ -3219,7 +3216,18 @@ try{
     if(_prod && [..._prod].length>=3) web_q=[..._prod].slice(0,80).join('');
   }
 }catch(e){}
-return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,consent_log:consent_log,pend_cierre,pend_token,
+// El aviso de datos es un mensaje aparte para el cliente -> también es una FILA aparte en el registro.
+// Se le resta un segundo para que en el panel quede ARRIBA del menú: el orden en que él los recibe.
+let chat_pre=null;
+try{
+  if(wpp_pre && wpp_pre.text && wpp_pre.text.body){
+    const _c1=new Date(NOW-5*3600000-1000); const _p2=n=>String(n).padStart(2,'0');
+    chat_pre={ creado_en:_c1.getUTCFullYear()+'-'+_p2(_c1.getUTCMonth()+1)+'-'+_p2(_c1.getUTCDate())+' '+_p2(_c1.getUTCHours())+':'+_p2(_c1.getUTCMinutes())+':'+_p2(_c1.getUTCSeconds()),
+      wa_id:wa, nombre:((S[wa]&&S[wa].nombre)||d.profileName||''), entrada:'', salida:[...String(wpp_pre.text.body)].slice(0,2000).join(''),
+      etapa:'aviso_datos', media_id:null, media_tipo:null };
+  }
+}catch(e){}
+return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,chat_pre:chat_pre,consent_log:consent_log,pend_cierre,pend_token,
   web_q:web_q, hay_web:!!web_q, web_marca:((S[wa]&&S[wa].marca)||(st&&st.marca)||'Ardisa'), web_nombre:((S[wa]&&S[wa].nombre)||(st&&st.nombre)||''),
   cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
   wpp_pre:(wpp_pre||null), hay_pre:!!wpp_pre,   // aviso de datos como mensaje aparte, ANTES del principal
@@ -4080,6 +4088,14 @@ nodes.append(node("¿Aviso de datos aparte?", "n8n-nodes-base.if", 2,
     {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
      "conditions":[{"id":"p1","leftValue":"={{ $('Cerebro conversacional').item.json.hay_pre ? true : false }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1180, 300))
+# columnas de la tabla `mensajes` (las usan los tres nodos que registran chats)
+_chatcols=["creado_en","wa_id","nombre","entrada","salida","etapa","media_id","media_tipo"]
+nodes.append(node("Guardar chat aviso (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":"INSERT INTO mensajes (creado_en,wa_id,nombre,entrada,salida,etapa,media_id,media_tipo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+     "options":{"queryReplacement":"={{ ["+", ".join("$('Cerebro conversacional').item.json.chat_pre."+c for c in _chatcols)+"] }}"}},
+    1180, 60, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,
+               "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Enviar aviso de datos (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.wpp_pre"), 1180, 200, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("Enviar al cliente (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.wpp_body"), 1320, 300, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("¿Hay aviso al asesor?", "n8n-nodes-base.if", 2,
@@ -4197,7 +4213,6 @@ nodes.append(node("¿Registrar chat?", "n8n-nodes-base.if", 2,
      # la cotización jamás quedaba en la caja negra. Cada item trae su propio chat: se usa ese.
      "conditions":[{"id":"c1","leftValue":"={{ $json.chat ? true : false }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1780, 700))
-_chatcols=["creado_en","wa_id","nombre","entrada","salida","etapa","media_id","media_tipo"]
 CODE_TIENDA = r"""
 // === BUSCAR EL PRODUCTO EN LA TIENDA EN LÍNEA Y ARMAR EL MENSAJE (2026-08-19) ===
 // Decisión de Deicy: mientras Fase 2 (SAP) no esté completa, al cliente se le manda el producto en la
@@ -5079,7 +5094,8 @@ connections = {
  "¿Registrar consentimiento?": {"main":[[{"node":"Guardar consentimiento (MySQL)","type":"main","index":0}],[]]},
  "¿Responder al cliente?": {"main":[[{"node":"¿Aviso de datos aparte?","type":"main","index":0}],[{"node":"Sin respuesta (dup/vacío)","type":"main","index":0}]]},
  # true -> se manda primero la política y SU SALIDA sigue al saludo (así llega en orden); false -> derecho
- "¿Aviso de datos aparte?": {"main":[[{"node":"Enviar aviso de datos (Meta)","type":"main","index":0}],[{"node":"Enviar al cliente (Meta)","type":"main","index":0}]]},
+ "¿Aviso de datos aparte?": {"main":[[{"node":"Enviar aviso de datos (Meta)","type":"main","index":0},
+                                     {"node":"Guardar chat aviso (MySQL)","type":"main","index":0}],[{"node":"Enviar al cliente (Meta)","type":"main","index":0}]]},
  "Enviar aviso de datos (Meta)": {"main":[[{"node":"Enviar al cliente (Meta)","type":"main","index":0}]]},
  "Enviar al cliente (Meta)": {"main":[[{"node":"¿Hay aviso al asesor?","type":"main","index":0},
                                        {"node":"¿Buscar en tienda?","type":"main","index":0}]]},
@@ -5177,6 +5193,7 @@ _POS = {
   # carril de INACTIVIDAD (disparador propio cada 2 min, independiente del webhook)
   "Cada 1 min (inactivos)": (240, 900),
   "Leer config cron (MySQL)": (620, 980),
+  "Guardar chat aviso (MySQL)": (1180, 60),
   "¿Buscar en tienda?": (1620, 1180),
   "Buscar en tienda (web)": (1840, 1180),
   "Enviar links tienda (Meta)": (2060, 1180),

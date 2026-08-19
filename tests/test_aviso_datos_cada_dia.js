@@ -46,8 +46,13 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('El saludo no sale dos veces', !/^¡Buen|^¡Hola/.test(body(r)), body(r).slice(0,60));
   chequear('Queda la evidencia del día', !!r.consent_log && r.consent_log.decision === 'SI'
            && r.consent_log.canal === 'wa-implicito', JSON.stringify(r.consent_log));
-  chequear('Y EN EL MONITOR queda el aviso + el mensaje',
-           /tratamiento de tus datos/i.test((r.chat || {}).salida || ''), ((r.chat||{}).salida||'').slice(0,80));
+  // 19-ago (tarde, Deicy: "otra vez está llegando en un solo mensaje"): al cliente le llegan DOS mensajes,
+  // así que el panel guarda DOS filas — el aviso en la suya (`chat_pre`) y el menú en la de siempre.
+  chequear('EN EL MONITOR el aviso queda en su propia fila',
+           /tratamiento de tus datos/i.test((r.chat_pre || {}).salida || '')
+             && (r.chat_pre || {}).etapa === 'aviso_datos', JSON.stringify(r.chat_pre || {}).slice(0,100));
+  chequear('Y el menú queda en la suya, sin el aviso pegado',
+           !/tratamiento de tus datos/i.test((r.chat || {}).salida || ''), ((r.chat||{}).salida||'').slice(0,70));
 }
 
 // ══ 2. EL MISMO DÍA, MÁS TARDE: el aviso no se repite ═══════════════════════════
@@ -64,8 +69,9 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const r = correr({ datos: ev({ texto:'necesito melamina rh', ia:IA_MELAMINA }), sd, pend: IMPL({ cons_si:1, cons_hoy:0 }) });
   chequear('Sale el aviso', /tratamiento de tus datos personales/i.test(pre(r)), pre(r).slice(0,70));
   chequear('Pero NO le pregunta Ardisa o Carpincentro (la IA ya sabe la línea)', !menuMarca(r), body(r).slice(0,90));
-  chequear('Y en el monitor queda el aviso', /tratamiento de tus datos/i.test((r.chat || {}).salida || ''),
-           ((r.chat||{}).salida||'').slice(0,80));
+  chequear('Y en el monitor queda el aviso (fila propia)',
+           /tratamiento de tus datos/i.test((r.chat_pre || {}).salida || ''),
+           JSON.stringify(r.chat_pre || {}).slice(0,90));
 }
 
 // ══ 4. QUIEN REVOCÓ NO RECIBE NADA COMO SI HUBIERA AUTORIZADO ══════════════════
