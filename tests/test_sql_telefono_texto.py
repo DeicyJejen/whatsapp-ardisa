@@ -45,6 +45,17 @@ for nodo in wf['nodes']:
 
 chequear('Ninguna consulta compara telefono/wa_id contra un parámetro sin CAST',
          not crudas, '; '.join('%s: %s' % c for c in crudas[:6]))
+
+# 2026-08-19: el SQL que se llevó a Ilba NO usaba un marcador — traía el número INTERPOLADO
+# ("telefono=573125758845"). La prueba solo miraba los `$n`, así que ese SQL habría pasado en verde.
+# Un teléfono contra un literal numérico es el mismo error, escrito de otra forma.
+literales = []
+for nodo in wf['nodes']:
+    sql = json.dumps(nodo.get('parameters', {}), ensure_ascii=False)
+    for m in re.finditer(r'(?:telefono|wa_id)\s*=\s*\d{3,}', sql):
+        literales.append((nodo['name'], m.group(0)))
+chequear('Ni contra un número escrito directo en el SQL',
+         not literales, '; '.join('%s: %s' % c for c in literales[:6]))
 chequear('Y sí hay comparaciones protegidas (la prueba no pasa por no encontrar nada)',
          len(protegidas) >= 10, 'protegidas=%d' % len(protegidas))
 
