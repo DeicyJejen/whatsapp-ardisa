@@ -20,7 +20,7 @@
 #                                          (con --seco lo imprime en pantalla en vez de enviarlo)
 import subprocess, os, sys, ssl, smtplib, datetime, base64, json
 from email.message import EmailMessage
-from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
+from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud, sin_solicitud_sev   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
 
 BASE      = "/home/ubuntu/whatsapp-ardisa"
 KEY_N8N   = "/home/ubuntu/.config/ardisa/n8n_api_key"
@@ -342,9 +342,13 @@ for _lid, _lnom, _lcre, _lase, _ldet, _lest in q("""
     FROM leads WHERE creado_en >= NOW() - INTERVAL 2 DAY ORDER BY id"""):
     if _lest:                       # el asesor ya lo reportó: dejó de estar esperando
         continue
-    if not lead_sin_solicitud(_ldet):
+    _sev_ss = sin_solicitud_sev(_ldet)
+    if not _sev_ss:
         continue
-    anota("lead_sin_solicitud", 1, "lead|" + str(_lid),
+    # sev1 = al asesor no le llegó NADA del cliente (vacío, un saludo, una ciudad suelta);
+    # sev2 = el cliente sí escribió algo suyo y lo que falla es que el producto no está en el
+    # vocabulario ("manejan yumbolon?") — se mira, pero no es una emergencia.
+    anota("lead_sin_solicitud", _sev_ss, "lead|" + str(_lid),
           "El lead #%s (%s, %s) salió a %s SIN decir qué necesita — Detalle: \"%s\". "
           "Hay que preguntarle al cliente qué necesita antes de que se enfríe"
           % (_lid, _lnom or "sin nombre", _lcre, _lase or "su asesor", (_ldet or "(vacío)")[:90]))

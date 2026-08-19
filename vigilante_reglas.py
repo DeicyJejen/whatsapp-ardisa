@@ -98,3 +98,29 @@ def lead_sin_solicitud(detalle):
     if re.search(r"\d", t):                   # cantidad, medida o referencia
         return False
     return not re.search(_PROD, t)
+
+
+# Cortesías y relleno: lo que queda cuando el cliente no dijo nada de su necesidad.
+_RELLENO = (r"hola|holis|buen|buenos|buenas|dias|d[ií]as|tarde|tardes|noche|noches|saludos|gracias|"
+            r"se[ñn]or|se[ñn]ora|don|do[ñn]a|como|est[aá]s?|est[aá]n|que|qu[eé]|tal|asesor[ií]a|asesoria|"
+            r"ayuda|informaci[oó]n|informes?|cotizaci[oó]n|cotizar|precio|precios|urgente|favor|por|"
+            r"necesito|quiero|busco|estoy|buscando|para|de|del|la|el|los|las|un|una|mi|me|y|en|es|con|"
+            r"ciudad|municipio|soy|vivo|aqui|encuentro|ubicado|ubicada")
+
+
+def sin_solicitud_sev(detalle):
+    """Severidad del aviso 'lead sin solicitud'. 0 = no hay problema, 1 = urgente, 2 = solo panel.
+
+    Distinguir importa para no volver ruido la alerta (pedido de Deicy 15-ago sobre el correo):
+      1 → al asesor no le llegó NADA suyo: vacío, un saludo, una ciudad, "estoy buscando asesoría".
+      2 → el cliente sí escribió algo suyo ("manejan yumbolon?") y lo que pasa es que el producto no
+          está en nuestro vocabulario. Vale mirarlo, pero no es una emergencia.
+    """
+    import re, unicodedata
+    if not lead_sin_solicitud(detalle):
+        return 0
+    t = unicodedata.normalize("NFD", str(detalle or "").strip().lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")      # sin tildes: "cómo está" = "como esta"
+    palabras = [w for w in re.split(r"[^a-zñ]+", t) if w and not re.fullmatch(_RELLENO, w)]
+    # Una sola palabra suelta tampoco es una solicitud ("Medellín", "Ibagué", el nombre del cliente).
+    return 2 if len(palabras) >= 2 else 1

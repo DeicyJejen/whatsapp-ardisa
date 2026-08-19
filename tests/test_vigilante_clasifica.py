@@ -11,7 +11,7 @@
 #    víspera de la poda) — nunca "cada día por calendario".
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud
+from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud, sin_solicitud_sev
 
 fallos = 0
 
@@ -71,6 +71,23 @@ if fallos:
     sys.exit(1)
 # ── 3) lead_sin_solicitud: ¿al asesor le llegó una tarjeta que no puede atender? ──
 # Caso Andrea Mendoza (#317): Detalle "Medellín". Antes esto solo se descubría cuando Deicy leía el chat.
+# ── 4) sin_solicitud_sev: urgente solo si al asesor NO le llegó nada del cliente ──
+print("")
+for _det, _sev, _por in [
+    ("Medellín",                       1, "una ciudad suelta: el asesor no tiene nada"),
+    ("Hola buenos días",               1, "solo saludo"),
+    ("Hola! Estoy buscando asesoría",  1, "el texto del botón de la web, sin producto"),
+    ("Para la ciudad de ibague",       1, "otra ciudad"),
+    ("Buen dia · Manejan yumbolon?",   2, "sí escribió algo suyo: falta vocabulario, no es emergencia"),
+    ("tienen disponible",              2, "escribió, pero no se sabe de qué"),
+    ("Recebo para base final",         0, "tiene solicitud"),
+]:
+    _r = sin_solicitud_sev(_det)
+    _ok = _r == _sev
+    print("  %s %-38s -> sev%d  (%s)" % ("✅" if _ok else "❌", '"%s"' % _det, _r, _por))
+    if not _ok:
+        fallos += 1
+
 print("")
 for _det, _esperado, _por in [
     ("Medellín",                              True,  "la ciudad que escribió la clienta (caso #317)"),
