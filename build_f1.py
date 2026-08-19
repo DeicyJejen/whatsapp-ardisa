@@ -4607,7 +4607,9 @@ for(const _dst in store.mediaPend){
     // Meta no deja reenviar el archivo del cliente con la ventana cerrada, pero una PLANTILLA con encabezado
     // de imagen sí entra. En cuanto `config.tpl_foto` tenga el nombre de la plantilla aprobada, la cola deja
     // de esperar a que el asesor escriba: cada foto se entrega de una y solo queda encolado lo que no es foto.
-    const _TPLF = String((store.cfg && store.cfg.tplFoto) || '').trim();
+    let _TPLF = '';
+    try{ _TPLF = String(($input.first().json||{}).cfg_tpl_foto || '').trim(); }catch(e){}   // lo que dice la BD ahora
+    if(!_TPLF) _TPLF = String((store.cfg && store.cfg.tplFoto) || '').trim();               // respaldo: lo que dejó el Cerebro
     if(_TPLF){
       const _resto=[];
       _q.forEach(function(x){
@@ -4826,6 +4828,14 @@ return out;
 """
 nodes.append(node("Cada 1 min (inactivos)", "n8n-nodes-base.scheduleTrigger", 1.2,
     {"rule":{"interval":[{"field":"minutes","minutesInterval":1}]}}, 620, 980))   # 1 min (antes 2): también entrega las tarjetas de cierre -> latencia 25-85s
+# 2026-08-19: el cron NO puede depender de que un cliente escriba para enterarse de la config. El nombre
+# de la plantilla de foto lo dejaba el Cerebro en staticData, así que al encender el interruptor la cola
+# se quedaba quieta hasta el siguiente mensaje entrante. Ahora el propio cron lo lee de la BD, cada minuto.
+nodes.append(node("Leer config cron (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":"SELECT (SELECT valor FROM config WHERE clave='tpl_foto' LIMIT 1) AS cfg_tpl_foto"},
+    620, 980, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,
+               "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Revisar inactivos", "n8n-nodes-base.code", 2, {"jsCode":CODE_INACTIVOS}, 860, 980))
 nodes.append(node("Enviar recordatorio (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$json.msg"), 1100, 980, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("Guardar recordatorio (MySQL)", "n8n-nodes-base.mySql", 2.5,
@@ -4950,7 +4960,8 @@ connections = {
  "Avisar al asesor 2 (Meta)": {"main":[[{"node":"¿Hay adjunto 2?","type":"main","index":0}]]},
  "¿Hay adjunto 2?": {"main":[[{"node":"Separar adjuntos 2","type":"main","index":0}],[]]},
  "Separar adjuntos 2": {"main":[[{"node":"Reenviar adjunto 2 (Meta)","type":"main","index":0}]]},
- "Cada 1 min (inactivos)": {"main":[[{"node":"Revisar inactivos","type":"main","index":0}]]},
+ "Cada 1 min (inactivos)": {"main":[[{"node":"Leer config cron (MySQL)","type":"main","index":0}]]},
+ "Leer config cron (MySQL)": {"main":[[{"node":"Revisar inactivos","type":"main","index":0}]]},
  "Revisar inactivos": {"main":[[{"node":"¿Cierre listo?","type":"main","index":0}]]},
  "¿Cierre listo?": {"main":[[{"node":"Leer lead BD (MySQL)","type":"main","index":0}],[{"node":"Enviar recordatorio (Meta)","type":"main","index":0},{"node":"Guardar recordatorio (MySQL)","type":"main","index":0}]]},
  "Leer lead BD (MySQL)": {"main":[[{"node":"Finalizar cierre","type":"main","index":0}]]},
@@ -5051,6 +5062,7 @@ _POS = {
   "Guardar seguimiento (MySQL)": (2440, 1440),
   # carril de INACTIVIDAD (disparador propio cada 2 min, independiente del webhook)
   "Cada 1 min (inactivos)": (240, 900),
+  "Leer config cron (MySQL)": (620, 980),
   "Revisar inactivos": (460, 900),
   "Enviar recordatorio (Meta)": (700, 840),
   "Guardar recordatorio (MySQL)": (700, 1040),
