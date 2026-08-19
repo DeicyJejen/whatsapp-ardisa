@@ -4584,13 +4584,19 @@ for(const _dst in store.mediaPend){
   const _cola=(store.mediaPend[_dst]||[]);
   if(_dst!==_MON){ _cola.forEach(function(x){
     const _edad = NOW-(x&&x.t||NOW);
-    if(x && x.m && !x.esc && _edad>=24*3600000 && _edad<7*24*3600000){
+    // 2026-08-19 (Deicy: "ya fue aprobada la plantilla pero mira"): tras entregar las fotos por plantilla
+    // quedaron en la cola las NOTAS de texto que las acompañaban, y el escalado se las mandó a la línea de
+    // monitoreo como "adjuntos atascados". Un texto no es un adjunto: no se escala. Se descarta abajo.
+    if(x && x.m && x.m.type!=='text' && !x.esc && _edad>=24*3600000 && _edad<7*24*3600000){
       x.esc=1;
       const _mc=JSON.parse(JSON.stringify(x.m)); _mc.to=_MON; if(_mc.recipient) delete _mc.recipient;
       _copias.push({m:_mc, cliente:(x.cliente||''), t:NOW, ase:_dst, horas:Math.round(_edad/3600000)});
     }
   }); }
   let _q=_cola.filter(function(x){return x&&x.m&&(NOW-(x.t||0))<7*24*3600000;});   // poda >7 días
+  // Un texto que lleva más de un día esperando, sin ningún archivo que lo acompañe, ya no sirve de nada:
+  // el asesor recibió el pedido completo en su tarjeta. Se limpia para que la cola refleje lo que falta.
+  if(_q.length && _q.every(function(x){return x.m.type==='text';}) && _q.every(function(x){return (NOW-(x.t||0))>=24*3600000;})) _q=[];
   // === PODA CON RESCATE (2026-08-13, caso Arq Omar González en la cola de Karime): antes, el adjunto que
   // cumplía 7 días se borraba EN SILENCIO — si el asesor nunca abría su ventana (Karime: 1 interacción
   // desde el 22-jul), el archivo del cliente moría sin que nadie lo supiera. Ahora se re-dirige a la línea
@@ -4622,7 +4628,13 @@ for(const _dst in store.mediaPend){
                         {type:'body',   parameters:[{type:'text', text:String(x.cliente||'un cliente').replace(/[\r\n\t]+/g,' ').slice(0,700)||'un cliente'}]}]}},
           chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjunto en cola)', salida:'📎 Foto entregada por plantilla (ventana cerrada)', etapa:'media_diferida'}}});
       });
-      if(_resto.length){ store.mediaPend[_dst]=_resto; } else { delete store.mediaPend[_dst]; }
+      // La nota de texto que acompañaba a esa foto ("Adjuntos del cliente X…") no puede salir con la
+      // ventana cerrada y sola no dice nada: el pedido completo ya se lo mandamos en la tarjeta. Se
+      // descarta con la foto, para que no quede rondando ni dispare el aviso de "adjuntos atascados".
+      const _clientesOK = {};
+      _q.forEach(function(x){ if(x && x.m && x.m.type==='image' && x.cliente) _clientesOK[x.cliente]=1; });
+      const _resto2 = _resto.filter(function(x){ return !(x && x.m && x.m.type==='text' && x.cliente && _clientesOK[x.cliente]); });
+      if(_resto2.length){ store.mediaPend[_dst]=_resto2; } else { delete store.mediaPend[_dst]; }
       continue;
     }
     store.mediaPend[_dst]=_q;

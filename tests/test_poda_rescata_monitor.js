@@ -168,5 +168,21 @@ if (!INACTIVOS) { console.log('  OK   | (n_inactivos.js no disponible en este ar
            'entregas=' + docs.length);
 }
 
+{
+  // 2026-08-19 (Deicy, tras aprobarse la plantilla): entregadas las fotos, quedaban en la cola las NOTAS de
+  // texto que las acompañaban y el escalado se las mandaba a la línea de monitoreo como "adjuntos atascados".
+  const NOW = Date.now();
+  const sd = base();
+  sd.mediaPend[ASE] = [{ m:{ messaging_product:'whatsapp', to:ASE, type:'text',
+                            text:{ body:'📎 *Adjuntos del cliente Laura Delgado* — te los reenvío ahora 👇' } },
+                         cliente:'Laura Delgado', t: NOW - 30*3600000 }];
+  correr(sd);
+  const copias = (sd.mediaPend[MON] || []);
+  chequear('Una nota de texto sola NO se escala como "adjunto atascado"', copias.length === 0,
+           JSON.stringify(copias.map(x => (x.m||{}).type)));
+  chequear('Y se limpia de la cola del asesor (ya no hace falta)', !(sd.mediaPend[ASE] || []).length,
+           JSON.stringify(sd.mediaPend[ASE]));
+}
+
 console.log(ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);
