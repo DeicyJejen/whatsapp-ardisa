@@ -3209,7 +3209,11 @@ try{
 // y el envío van por su propia rama, y si la tienda no responde no pasa nada.
 let web_q='';
 try{
-  if(String(PEND.cfg_tienda_links||'').trim().toLowerCase()==='si' && etapa==='cierre'){
+  // Igual que el piloto de cotización: 'demo' = solo los números de prueba (para verlo sin exponerlo a
+  // clientes), 'si' = en vivo para todos. Las dos son un UPDATE, sin desplegar.
+  const _tl = String(PEND.cfg_tienda_links||'').trim().toLowerCase();
+  const _tlOK = (_tl==='si') || (_tl==='demo' && CLIENTES_PRUEBA.indexOf(wa)>=0);
+  if(_tlOK && etapa==='cierre'){
     const _st2 = S[wa] || st || {};
     const _prod = String((_st2.iaProd||'') || (_st2.detalle||'')).replace(/[\r\n]+/g,' ').trim();
     if(_prod && [..._prod].length>=3) web_q=[..._prod].slice(0,80).join('');

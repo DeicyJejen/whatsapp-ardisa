@@ -57,6 +57,13 @@ function cerrarCon(sd, pend) {
            'web_q=' + S(r.web_q));
   chequear('Con la marca del cliente', r.web_marca === 'Ardisa', 'marca=' + S(r.web_marca));
 }
+// ══ 1b. En 'demo' solo lo ven los números de prueba ══════════════════════════
+{
+  const sd = base();
+  const r = cerrarCon(sd, { cons_si:1, cfg_tienda_links:'demo' });
+  chequear('En demo, a un cliente normal NO se le mandan links', !r.hay_web, 'hay_web=' + S(r.hay_web));
+}
+
 // ══ 2. Apagado (como está hoy), nada cambia ═══════════════════════════════════
 {
   const sd = base();
