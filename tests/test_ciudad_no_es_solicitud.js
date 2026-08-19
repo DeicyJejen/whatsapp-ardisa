@@ -133,5 +133,25 @@ function hastaCiudad(sd, primer) {
            'leads=' + S(sd.leads.map(l => l.detalle)));
 }
 
+// ══ 6. "Producto" tampoco es un producto (lead #325, 19-ago) ═══════════════════
+// Confiar en lo que el cliente escribe en el paso final no puede cubrir una respuesta que no dice nada.
+{
+  const sd = base();
+  correr({ datos: ev({ texto:'Hola! Estoy buscando asesoría' }), sd, pend:{ cons_si:0 } });
+  correr({ datos: ev({ texto:'Sí, autorizo', opcion_id:'CONSENT_SI' }), sd, pend:{ cons_si:1 } });
+  correr({ datos: ev({ texto:'🟡 Carpincentro', opcion_id:'MAR_CARP' }), sd, pend:{ cons_si:1 } });
+  correr({ datos: ev({ texto:'Yesid Lizarazo' }), sd, pend:{ cons_si:1 } });
+  correr({ datos: ev({ texto:'Bucaramanga' }), sd, pend:{ cons_si:1 } });
+  correr({ datos: ev({ texto:'PT_0', opcion_id:'PT_0' }), sd, pend:{ cons_si:1 } });
+  correr({ datos: ev({ texto:'🔨 Carpintero', opcion_id:'OCA_CARP' }), sd, pend:{ cons_si:1 } });
+  const r = correr({ datos: ev({ texto:'Producto' }), sd, pend:{ cons_si:1 } });
+  chequear('Responder "Producto" no cierra el lead: se le pregunta cuál',
+           /qué producto|qué necesitas/i.test(S(r.wpp_body)) && !sd.leads.some(l => l.wa === WA),
+           S(r.wpp_body).slice(0,120));
+  const r2 = correr({ datos: ev({ texto:'tapacanto pvc blanco' }), sd, pend:{ cons_si:1 } });
+  chequear('Y cuando lo dice, cierra normal', sd.leads.some(l => l.wa === WA && /tapacanto/i.test(l.detalle)),
+           S(sd.leads.map(l => l.detalle)).slice(0,120));
+}
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

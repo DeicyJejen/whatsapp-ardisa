@@ -631,7 +631,12 @@ function cerrarLead(st,opts){
     // un proyecto a medida (2026-07-23), ya se le preguntó una vez, él mismo acaba de escribirlo en el paso
     // final (2026-08-12, caso Daniela 'Tapa luz'), o es el SIMULACRO del rescate: ahí el cliente ya se fue y
     // entregarle al asesor lo poco que hay es mejor que no entregarle nada.
-    if(!_tieneProd && !opts.rescate && !opts.desdeDetalle && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){
+    // 19-ago (lead #325, "Producto"): la exención de `desdeDetalle` —confiar en lo que el cliente escribe en
+    // el paso final— no puede cubrir una respuesta que no dice NADA. Si lo único que escribió es una palabra
+    // genérica o una cortesía, se le pregunta igual (una sola vez, como siempre).
+    const _dvPal = _dv.replace(/[^a-z0-9áéíóúñü ]/gi,' ').replace(/\s+/g,' ').trim();
+    const _genericoPuro = /^(un |una |unos |unas |el |la |los |las )?(producto|productos|material|materiales|art[ií]culo|art[ií]culos|mercanc[ií]a|cosa|cosas|varios|varias|surtido|de todo|algo|cotizaci[oó]n|cotizar|precio|precios|informaci[oó]n|info|asesor[ií]a|ayuda)$/i.test(_dvPal);
+    if(!_tieneProd && !opts.rescate && (!opts.desdeDetalle || _genericoPuro) && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){
       st.asesoriaAsk=true; st.paso='detalle';
       return {wpp_body: txt(wa,'¡Con gusto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 🤝 Para pasarte con el asesor correcto y darte una cotización precisa, cuéntame: *¿qué producto(s) necesitas cotizar?*\nPor ejemplo: cemento, cerámica, grifería, tableros, láminas, sanitarios, pintura...'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
     }
