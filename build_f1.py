@@ -735,10 +735,10 @@ function cerrarLead(st,opts){
     // DOS VECES "Proyecto a tu medida". Cuando la elección es explícita (grupoElegido) y lo que describe es un
     // MUEBLE, se respeta: es justo lo que la propia opción promete ("cocinas, closets, muebles de baño").
     // Sin elección explícita todo sigue igual: la regla de Deicy es que Alexander NO recibe mostrador.
-    // 19-ago (aprendido con el mismo caso): un mueble SUELTO —de entretenimiento, de TV, una repisa— es de
-    // CARPINCENTRO, que es la línea de muebles y maderas. A Alexander le toca el proyecto ARQUITECTÓNICO
-    // completo, que es lo que promete su opción: cocinas, closets, muebles de baño, remodelación a medida.
-    const _muebleMedida = /(cocina integral|cocinas? a la medida|closet|cl[oó]set|vestier|mueble de ba[nñ]o|muebles de ba[nñ]o|isla de cocina|repostero|remodelaci[oó]n)/i.test(_txtP);
+    // 19-ago (decisión de Deicy con el lead #323 en la mano): el mueble hecho A LA MEDIDA es de Alexander
+    // —entretenimiento, TV, closet, cocina, baño—; a Carpincentro le toca el MATERIAL (tableros, melamina,
+    // herrajes, madera). La lista vive en RE_MUEBLE_MEDIDA, una sola vez para todo el bot.
+    const _muebleMedida = RE_MUEBLE_MEDIDA.test(_txtP) || (st.grupoElegido && /mueble|cocina|ba[nñ]o|closet/i.test(_txtP));
     const _proyLoose = /(\bproyect|a (la |su |tu )?medida|dise[nñ]o de (cocina|closet|mueble))/i.test(_txtP) || (st.grupoElegido && _muebleMedida);
     if(!ES_PROYECTO.test(_txtP) && !_proyLoose && _txtP.replace(/[^a-z0-9áéíóúñ]/gi,'').length>=4){
       const _Rp = ruteoIA(ia, _txtP);
@@ -1360,13 +1360,21 @@ const MSG_PROVEEDOR='¡Hola! 🙏 Gracias por escribirnos.\n\nEste canal es la *
 // atrapar al cliente que escribe en inglés ("do you sell...?", "I need a quote" no matchean nada de esto).
 const KW_PROVEEDOR=/(soy de una f[aá]brica|somos (una )?f[aá]brica|somos fabricantes|soy fabricante|f[aá]brica (en|de)|te ofrezco|le ofrezco|les ofrezco|me gustar[ií]a ofrecer|quisiera ofrecer|ofrecemos (precios|productos|nuestr|muestr|materiales)|mejores precios y calidad|buenos precios y calidad|env[ií]o de muestras|muestras gratis|linyi|shandong|guangzhou|foshan|somos (distribuidores|importadores|exportadores|proveedores)|soy (un |una )?(proveedor|proveedora|distribuidor|distribuidora|importador|exportador)|represent(o|amos) (una|a) (f[aá]brica|empresa|marca)|manufactur|glad to introduce|we (are glad to )?(introduce|offer|supply|export|produce)|our (new(ly launched)? )?products?\b|our factory|we are a (factory|manufacturer|supplier|trading company)|(leading|professional) (manufacturer|supplier|factory)|free samples?|whole?sale price|best price and (good )?quality|business cooperation|forward to (your|our) cooperation|our catalog(ue)?)/i;
 // Frases CLARAS de proyecto/mobiliario a medida (Alexander Arias). Conservador: un producto de mostrador NO es proyecto.
+// === MUEBLE A LA MEDIDA = ALEXANDER (2026-08-19, decisión de Deicy tras el lead #323) ===
+// "Cualquier mueble hecho a la medida —entretenimiento, TV, closet, cocina, baño— va a Alexander Arias
+// (Proyectos de Ardisa). A Carpincentro solo lo que es MATERIAL: tableros, melamina, herrajes, madera
+// para el carpintero." Esta lista es la frontera entre las dos líneas, y la usan los tres puntos que
+// deciden (el ruteo, la corrección de marca de la IA y el filtro de Alexander en el cierre).
+// 'mueble de baño' NO entra sola: en Ardisa es un producto de mostrador (combos). Entra si el cliente
+// eligió "Proyecto a tu medida" o si el texto habla de medida/proyecto — eso lo cubre ES_PROYECTO.
+const RE_MUEBLE_MEDIDA=/(mueble(s)? (de |para )?(entretenimiento|tv|televisor|televisi[oó]n|sala|comedor)|mueble de entretenimiento|cl[oó]set|closet|vestier|cocina integral|isla de cocina|repostero|modular(es)? (de|para)|biblioteca|escritorio a la medida|barra de bar)/i;
 const ES_PROYECTO=/(proyecto arquitect|dise[ñn]o arquitect|mobiliario a (la )?medida|(mueble|cocina|closet|mobiliario)s?.{0,20}\ba (la |su |tu )?medida|a (la|su|tu) medida.{0,25}(mueble|cocina|closet|mobiliario)|cocinas? integrales?|proyecto (integral|completo|arquitect|a (la |su |tu )?medida))/i;
 function ruteoIA(ia, rutTxt){   // devuelve {marca,grupo}; null = "no seguro -> preguntar". LA IA ENTIENDE Y MANDA; las palabras clave (KW) son SOLO respaldo (si la IA se cayó o no opinó).
   const t=(rutTxt||'').toLowerCase();
   // PROYECTO ARQUITECTÓNICO / mobiliario A LA MEDIDA (Alexander Arias, Ardisa) -> PRIORIDAD. Solo frases CLARAS de proyecto/hecho a medida
   // (no un producto de mostrador). Conservador para NO quitarle leads normales a Carpincentro. (2026-07-21, pedido Deicy.)
-  if(ES_PROYECTO.test(t)){
-    return {marca:'Ardisa', grupo:'MOBILIARIO'};
+  if(ES_PROYECTO.test(t) || RE_MUEBLE_MEDIDA.test(t)){
+    return {marca:'Ardisa', grupo:'MOBILIARIO'};   // 19-ago: el mueble a la medida es de Alexander
   }
   const kc=KW_CONS.test(t), ka=KW_ACAB.test(t), kp=KW_CARP.test(t);
   // --- MARCA: primero la IA (entiende el significado); si no opinó, respaldo por palabras clave ---
@@ -2857,8 +2865,11 @@ if(preguntaHorario){
     // justo la de estos casos (la IA sabe la línea, duda del matiz). Ahora también corrige, salvo que el
     // texto nombre productos de la OTRA línea: ahí manda el vocabulario, que es la red de seguridad.
     const _txtMarca = (((ia&&ia.productos)?ia.productos.join(' '):'')+' '+String(rutTxt||'')).toLowerCase();
-    const _contradiceIA = (ia && ia.marca==='Carpincentro') ? (KW_CONS.test(_txtMarca)||KW_ACAB.test(_txtMarca))
-                                                            : KW_CARP.test(_txtMarca);
+    // 19-ago: y tampoco se lleva a Carpincentro un MUEBLE A LA MEDIDA — ahí Carpincentro solo pone el
+    // material. El caso #323 ("mueble de entretenimiento") es justo este: es de Alexander.
+    const _contradiceIA = (ia && ia.marca==='Carpincentro')
+      ? (KW_CONS.test(_txtMarca) || KW_ACAB.test(_txtMarca) || RE_MUEBLE_MEDIDA.test(_txtMarca) || ES_PROYECTO.test(_txtMarca))
+      : KW_CARP.test(_txtMarca);
     if(ia && ia.en_alcance===true && (ia.confianza==='alta' || (ia.confianza==='media' && !_contradiceIA)) &&
        ia.productos && ia.productos.length &&
        (ia.marca==='Ardisa'||ia.marca==='Carpincentro') && ia.marca!==st.marca && !es_media){

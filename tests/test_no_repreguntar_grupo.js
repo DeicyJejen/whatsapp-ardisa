@@ -52,10 +52,11 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('El lead se cierra de una', /registrada/i.test(body(r2)) || r2.pend_cierre === true,
            'etapa=' + r2.etapa + ' ' + body(r2).slice(0,80));
   const lead = sd.leads.filter(l => l.wa === WA).slice(-1)[0];
-  // 19-ago (el asesor lo devolvió): un mueble SUELTO es de Carpincentro —la línea de muebles y maderas—,
-  // no de Ardisa. A Alexander le toca el proyecto arquitectónico completo (cocinas, closets, baños).
-  chequear('Y va a la línea correcta: Carpincentro, no Ardisa',
-           !!lead && /Karime|Carpincentro/i.test((lead.asesor||'') + (lead.marca||'')),
+  // 19-ago, decisión de Deicy con el caso en la mano: un mueble hecho A LA MEDIDA (entretenimiento, TV,
+  // closet, cocina, baño) es de ALEXANDER — Proyectos de Ardisa. A Carpincentro le toca el MATERIAL:
+  // tableros, melamina, herrajes, madera para el carpintero. La IA decía Carpincentro y aquí NO manda.
+  chequear('Y va a Proyectos: Alexander, no Acabados ni Carpincentro',
+           !!lead && /Alexander/i.test(lead.asesor || ''),
            'asesor=' + S(lead && lead.asesor) + ' marca=' + S(lead && lead.marca));
 }
 
