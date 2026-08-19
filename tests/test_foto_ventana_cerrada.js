@@ -91,5 +91,18 @@ const FOTO = ev({ es_media:true, mtype:'image', media_id:'MID-123' });
   chequear('El cron puede leer el nombre de la plantilla', (sd.cfg || {}).tplFoto === 'foto_cliente', S(sd.cfg));
 }
 
+// ══ 5. UNA SOLA VEZ: la misma foto no sale dos veces (Deicy, 19-ago) ══════════
+{
+  const sd = base();
+  hastaCerrar(sd, CON_TPL({}));
+  const r1 = correr({ datos: FOTO, sd, pend: CON_TPL({}) });
+  chequear('(la primera vez sí sale)', !!(r1.aviso_medias || [])[0], S(r1.aviso_medias).slice(0,80));
+  // el cliente reenvía EL MISMO archivo (o Meta repite el webhook)
+  const r2 = correr({ datos: FOTO, sd, pend: CON_TPL({}) });
+  chequear('La misma foto NO se le manda de nuevo al asesor', !(r2.aviso_medias || [])[0],
+           S(r2.aviso_medias).slice(0,120));
+  chequear('Y tampoco queda esperando en la cola', Object.keys(sd.mediaPend).length === 0, S(sd.mediaPend));
+}
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

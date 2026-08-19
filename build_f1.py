@@ -248,9 +248,14 @@ const tplFoto = (o, cliente) => {
 // y a la cola solo si no hay plantilla configurada. Devuelve el objeto a enviar (o null si quedó encolado).
 const enviarFoto = (o, cliente, abierta) => {
   if(!o || !o.to) return null;
-  if(abierta) return o;
-  const _t = tplFoto(o, cliente); if(_t) return _t;
-  encolarMedia(o, cliente); return null;
+  // UNA sola vez (pedido de Deicy 19-ago): si esta foto ya se envió, no vuelve a salir por ninguna vía
+  // —ni suelta, ni por plantilla, ni desde la cola—. Antes cada camino tenía su propio criterio.
+  const _id = (o.type && o[o.type] && o[o.type].id) ? o[o.type].id : null;
+  if(_id && store.sentM[_id]) return null;               // ya se le envió: no sale otra vez
+  if(abierta){ if(_id) store.sentM[_id]=NOW; return o; }
+  const _t = tplFoto(o, cliente);
+  if(_t){ if(_id) store.sentM[_id]=NOW; return _t; }
+  encolarMedia(o, cliente); return null;   // sin plantilla: espera en la cola (ahí se marca al entregarla)
 };
 const TTL = 6*3600*1000;           // 6h: sesión vieja se reinicia sola
 const hoyCol = new Date(NOW-5*3600000).toISOString().slice(0,10);   // fecha de HOY en Colombia (UTC-5)
@@ -270,6 +275,12 @@ if(store.esCli) for (const k in store.esCli) { if ((NOW - store.esCli[k]) > 48*3
 for (const k in store.aiRate) { if (store.aiRate[k] && (NOW - store.aiRate[k].t0) > 10*60*1000) delete store.aiRate[k]; }   // poda el rate-limit de IA (ventana de 1 min; 10 min de gracia)
 for (const k in store.sent) { if (store.sent[k] && (NOW - store.sent[k]) > 60*60*1000) delete store.sent[k]; }   // poda el anti-ráfaga (1h)
 for (const k in store.fwd) { if (store.fwd[k] && (NOW - store.fwd[k]) > 6*3600*1000) delete store.fwd[k]; }   // poda media reenviada (6h)
+// 2026-08-19 (Deicy: "solo le debe llegar UNA vez la foto"): `store.fwd` marca lo ya PROCESADO y se borra
+// a las 6 h, pero una foto puede esperar DÍAS en la cola a que el asesor abra su ventana (a Karime le
+// esperaron 115 h). Hace falta un candado aparte de lo ya ENVIADO DE VERDAD, y que dure lo que dura el
+// media en Meta (~30 días): con él, la misma foto no puede salir dos veces por dos caminos distintos.
+store.sentM = store.sentM || {};
+for (const k in store.sentM) { if (store.sentM[k] && (NOW - store.sentM[k]) > 30*24*3600*1000) delete store.sentM[k]; }
 // === PODAS AÑADIDAS (2026-08-12, auditoría de robustez) — antes crecían sin límite y cada reinicio recargaba todo ===
 // store.leads era el 79% del blob (111KB / 255 entradas, TODOS los leads de siempre). Sus usos reales miran
 // <48h (rotaSticky, cliente que vuelve) o "alguna vez fue cliente" (anti-proveedor): 30 días cubre de sobra.
@@ -4601,7 +4612,9 @@ for(const _dst in store.mediaPend){
       const _resto=[];
       _q.forEach(function(x){
         const _m = x && x.m; const _id = (_m && _m.type==='image' && _m.image) ? _m.image.id : null;
+        if(_id && store.sentM && store.sentM[_id]) return;   // ya salió por otra vía -> se descarta, no se repite
         if(!_id){ _resto.push(x); return; }
+        store.sentM = store.sentM || {}; store.sentM[_id]=NOW;   // queda marcada: UNA sola vez
         out.push({json:{msg:{messaging_product:'whatsapp', to:_dst, type:'template', template:{name:_TPLF, language:{code:'es'},
             components:[{type:'header', parameters:[{type:'image', image:{id:_id}}]},
                         {type:'body',   parameters:[{type:'text', text:String(x.cliente||'un cliente').replace(/[\r\n\t]+/g,' ').slice(0,700)||'un cliente'}]}]}},
@@ -4612,7 +4625,11 @@ for(const _dst in store.mediaPend){
     }
     store.mediaPend[_dst]=_q;
     const _viejo = Math.min.apply(null, _q.map(function(x){return x.t||NOW;}));
-    if((NOW-_viejo) > 6*3600000 && (NOW-(store.mediaNudge[_dst]||0)) > 24*3600000 && _dst!=='573205662947'){
+    // Con la plantilla de foto encendida, pedirle al asesor que escriba para destrabar la cola ya no tiene
+    // sentido: las fotos salen solas. El empujón se reserva para lo que NO es foto (audios, documentos).
+    const _soloFotos = _q.every(function(x){ return x && x.m && x.m.type==='image'; });
+    if((NOW-_viejo) > 6*3600000 && (NOW-(store.mediaNudge[_dst]||0)) > 24*3600000 && _dst!=='573205662947'
+       && !(String((store.cfg&&store.cfg.tplFoto)||'').trim() && _soloFotos)){
       store.mediaNudge[_dst]=NOW;
       const _cls=_q.map(function(x){return x.cliente;}).filter(function(c,i,a){return c&&a.indexOf(c)===i;}).slice(0,3).join(', ');
       out.push({json:{msg: _tplNudge(_dst, 'Tienes '+_q.length+' foto(s)/archivo(s) de clientes esperando'+(_cls?(' ('+_cls+')'):'')+'. Toca el botón de abajo o responde cualquier mensaje y te llegan solos en 2 minutos.'),
@@ -4626,7 +4643,13 @@ for(const _dst in store.mediaPend){
     out.push({json:{msg:{messaging_product:'whatsapp', to:_dst, type:'text', text:{body:'📎 *Adjuntos del cliente'+(_cls?(' '+_cls):'')+'* que estaban pendientes — te los reenvío ahora 👇'}},
       chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjuntos en cola)', salida:'📎 Adjuntos diferidos entregados ('+_q.length+')', etapa:'media_diferida'}}});
   }
-  _q.forEach(function(x){ out.push({json:{msg:x.m, chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjunto en cola)', salida:'📎 Adjunto reenviado al abrirse la ventana del asesor', etapa:'media_diferida'}}}); });
+  _q.forEach(function(x){
+    const _mm=x&&x.m; const _idm=(_mm&&_mm.type&&_mm[_mm.type])?_mm[_mm.type].id:null;
+    store.sentM = store.sentM || {};
+    if(_idm && store.sentM[_idm]) return;                 // 19-ago: una sola vez, venga por donde venga
+    if(_idm) store.sentM[_idm]=NOW;
+    out.push({json:{msg:x.m, chat:{creado_en:FECHA, wa_id:_dst, nombre:'', entrada:'(adjunto en cola)', salida:'📎 Adjunto reenviado al abrirse la ventana del asesor', etapa:'media_diferida'}}});
+  });
   delete store.mediaPend[_dst];
 }
 // Los adjuntos vencidos se ENCOLAN para la línea de monitoreo (no se envían directo: si la ventana de

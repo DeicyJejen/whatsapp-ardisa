@@ -22,8 +22,12 @@ const base = () => ({ ses:{}, done:{}, win:{}, mediaPend:{}, mediaNudge:{}, segP
                       pendCierre:{}, holdAviso:[], leads:[], rescate:{}, migSeg2407b:1 });
 const correr = (sd) => new Function('$', '$getWorkflowStaticData', '$env', INACTIVOS)(
   () => ({ first: () => ({ json: {} }) }), () => sd, new Proxy({}, { get: () => '' }));
-const doc = (to, cliente, t) => ({ m: { messaging_product:'whatsapp', to: to, type:'document',
-  document:{ id:'999000111' } }, cliente: cliente, t: t });
+// 2026-08-19: cada adjunto lleva su PROPIO media id, como en la vida real. Desde hoy el bot no entrega
+// dos veces el mismo id (pedido de Deicy: "solo le debe llegar una vez la foto"), así que reusar un id
+// fijo aquí probaría lo contrario de lo que hace el sistema.
+let _nDoc = 0;
+const doc = (to, cliente, t, id) => ({ m: { messaging_product:'whatsapp', to: to, type:'document',
+  document:{ id: id || ('999000' + (++_nDoc)) } }, cliente: cliente, t: t });
 
 if (!INACTIVOS) { console.log('  OK   | (n_inactivos.js no disponible en este arnés)'); process.exit(0); }
 
@@ -151,6 +155,17 @@ if (!INACTIVOS) { console.log('  OK   | (n_inactivos.js no disponible en este ar
            textos.some(t => /rescatados de la cola/.test(t)) &&
            (out||[]).filter(o => { try { return o.json.msg.type === 'document'; } catch(e) { return false; } }).length === 2,
            JSON.stringify(textos).slice(0, 160));
+}
+
+{
+  // 2026-08-19 (Deicy): si el mismo archivo quedó dos veces en la cola, al asesor le llega UNA sola vez.
+  const NOW = Date.now();
+  const sd = base(); sd.win[MON] = NOW;
+  sd.mediaPend[MON] = [ doc(MON, 'María Tarazona', NOW, 'MID-IGUAL'), doc(MON, 'María Tarazona', NOW, 'MID-IGUAL') ];
+  const out = correr(sd);
+  const docs = (out||[]).filter(o => { try { return o.json.msg.type === 'document'; } catch(e) { return false; } });
+  chequear('El mismo archivo repetido en la cola se entrega una sola vez', docs.length === 1,
+           'entregas=' + docs.length);
 }
 
 console.log(ok + '/' + total + ' pruebas pasan');
