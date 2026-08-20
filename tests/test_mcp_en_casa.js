@@ -183,9 +183,14 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   const d2 = JSON.parse(out2[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
   chequear('Si lo único que hay son averías -> no hay disponibilidad',
            d2.hay_disponibilidad === false && d2.puntos_de_venta.length === 0, JSON.stringify(d2));
-  // Del inventario NO viajan cantidades exactas: la regla dice "hay o no hay", y así ni por accidente.
-  chequear('No viajan cantidades exactas de inventario a un tercero',
-           !/on_hand|disponible_total|"25"|:25/.test(txt), txt.slice(0, 200));
+  // 2026-08-20 (demo de Deicy: pidió 20 varillas, la ciudad tenía 11 y el bot puso "✅ Con
+  // disponibilidad"): sin ningún número el modelo NO PUEDE comparar contra la cantidad pedida y promete
+  // lo que no hay. Cambio de contrato: viaja SOLO el agregado vendible de la ciudad (disponible_total,
+  // sin averías) — el detalle por almacén (on_hand, warehouse) sigue sin salir, y al CLIENTE se le
+  // sigue hablando sin cifras (regla 5a del prompt: "tu asesor te confirma la entrega completa").
+  chequear('El detalle por almacén NO viaja, pero el total vendible SÍ (para comparar con lo pedido)',
+           !/on_hand|warehouse/.test(txt) && d.disponible_total === 28, txt.slice(0, 200));
+  chequear('Solo averías -> total vendible 0', d2.disponible_total === 0, JSON.stringify(d2));
 }
 
 // ══ 8. PRECIO CON DATO MALO EN SAP ═══════════════════════════════════════════════════════════════
@@ -465,6 +470,16 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
            d.total === 25 && d.busqueda_usada === 'novaflex', JSON.stringify(d).slice(0, 170));
   chequear('"tambor" no se busca: es una presentación, no un producto',
            buscadas.indexOf('tambor') < 0, JSON.stringify(buscadas));
+}
+
+// ══ EL PROMPT LE ORDENA COMPARAR (2026-08-20, las 20 varillas) ═══════════════════════════════════
+// El dato solo sirve si la instrucción existe: si alguien borra la regla 5a del prompt, el modelo
+// vuelve a poner "✅ Con disponibilidad" con 11 unidades para un pedido de 20.
+{
+  const CEREBRO = fs.readFileSync(__dirname + '/cerebro.js', 'utf8');
+  chequear('La regla 5a existe: comparar disponible_total con la cantidad pedida',
+           /5a\).*disponible_total/.test(CEREBRO) && /entrega completa/.test(CEREBRO),
+           'no se halló la regla 5a con disponible_total en el prompt del Cerebro');
 }
 
 console.log(ok + '/' + total + ' pruebas pasan');

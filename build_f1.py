@@ -1187,7 +1187,13 @@ function _cotReq(stC){
         +'cuesta, dile con naturalidad que un asesor le confirma el valor y las condiciones, y sigue ayudándole '
         +'con lo que sí sabes: si lo manejamos y si hay disponibilidad. NUNCA digas que no puedes consultarlo. ')
     +'(5) Del inventario di si HAY o NO HAY y, cuando le sirva al cliente, EN QUÉ PUNTO lo tenemos (los '
-    +'resultados traen `puntos_de_venta`) — nunca cantidades exactas. Somos UNA sola empresa con varios '
+    +'resultados traen `puntos_de_venta`) — nunca cantidades exactas. '
+    +'(5a) SI EL CLIENTE DIJO CUÁNTAS NECESITA, COMPARA con el campo `disponible_total` del resultado. Si '
+    +'lo disponible en su ciudad NO alcanza para su cantidad, PROHIBIDO el "✅ Con disponibilidad" a secas '
+    +'— eso es prometerle lo que no tenemos: di con naturalidad que tenemos existencia en el punto tal y '
+    +'que PARA ESA CANTIDAD un asesor le confirma la entrega completa. Sin darle la cifra del inventario y '
+    +'sin prometer traslados ni tiempos (eso es del asesor, regla 5b). El total en plata sí se lo das '
+    +'(el precio por volumen no depende del inventario). Somos UNA sola empresa con varios '
     +'puntos: "lo tienes en nuestro punto de la 61" le sirve, "hay disponibilidad" a secas no. El punto se '
     +'nombra TAL CUAL viene en los datos: PROHIBIDO adornarlo con explicaciones geográficas inventadas '
     +'("área metropolitana de", "zona industrial de") — si el dato dice Girón, se escribe Girón. En LISTAS no '
@@ -1215,7 +1221,7 @@ function _cotReq(stC){
     +(_hayPrecio ? '💲 $X.XXX (precio de referencia con IVA)\n' : '')
     +(_hayPrecio ? '🧮 N cajas ≈ $XXX.XXX en total   <- SOLO si el cliente dijo cuánta cantidad necesita\n' : '')
     +'🔗 Verlo en línea: <url>   <- SOLO si el resultado trae `url_tienda`\n'
-    +'✅ Con disponibilidad en '+(stC.ciudad||'tu ciudad')+'\n\n'
+    +'✅ Con disponibilidad en '+(stC.ciudad||'tu ciudad')+'   <- SOLO si `disponible_total` alcanza para su cantidad (o si no dijo cantidad); si NO alcanza: "⚠️ Para esa cantidad, un asesor te confirma la entrega completa"\n\n'
     +'Reglas del bloque: SIN guiones ni viñetas al comienzo; máximo DOS renglones de texto libre por '
     +'producto; si algo no lo hallamos, ese bloque lleva solo el nombre y una línea diciéndolo; si NO hay '
     +'disponibilidad en su ciudad pero SÍ en otras, el renglón va así: "⚠️ En '+(stC.ciudad||'tu ciudad')
@@ -3840,16 +3846,21 @@ function compactar(txt){
   let d; try{ d=JSON.parse(txt); }catch(e){ return txt; }
   if(!d || typeof d!=='object') return txt;
   if(Array.isArray(d.almacenes)){
-    const puntos=[];
+    const puntos=[]; let total=0;
     for(const a of d.almacenes){
       if(!(Number(a.disponible)>0)) continue;
       if(/AVER/i.test(String(a.tipo_almacen||''))) continue;   // avería no se vende
+      total+=Number(a.disponible)||0;
       const p=a.punto_venta||a.nombre_almacen||'';
       if(p && puntos.indexOf(p)<0) puntos.push(p);
     }
+    // 2026-08-20 (demo de Deicy: pidió 20 varillas, en la ciudad había 11 y el bot puso "✅ Con
+    // disponibilidad"): sin el total el modelo no PUEDE comparar contra la cantidad pedida. Viaja solo
+    // el AGREGADO vendible de la ciudad (nunca el detalle por almacén) y al cliente se le sigue
+    // hablando sin cifras de inventario (regla 5/5a del prompt).
     return JSON.stringify({item_code:d.item_code, item_name:d.item_name,
       ciudad:d.ciudad_oficial||d.ciudad_consultada, unidad:d.unidad,
-      hay_disponibilidad:puntos.length>0, puntos_de_venta:puntos.slice(0,6)});
+      hay_disponibilidad:puntos.length>0, disponible_total:total, puntos_de_venta:puntos.slice(0,6)});
   }
   // Precio con dato malo en SAP: el porcelanato 10030624 tiene $4,77 la caja de 1.44 m2 en la lista de
   // Bucaramanga (el de al lado, mismo formato, vale $36.858). Un precio así no es una ganga, es un error
