@@ -422,7 +422,11 @@ try:
     _mp = (json.loads(_sd[0]) if _sd and _sd[0] else {}).get("global", {}).get("mediaPend", {}) or {}
     _ms = int(AHORA.timestamp() * 1000)
     for _dst, _items in _mp.items():
-        _viejos = [i for i in (_items or []) if (_ms - int(i.get("t", _ms))) > 6 * 3600 * 1000]
+        # 2026-08-20 (alerta "4 adjuntos" de Karime que eran 4 TEXTOS): un texto encolado no es un adjunto —
+        # es la nota "el cliente también escribió", que desde hoy queda en el DETALLE del lead (BD) y el bot
+        # la limpia solo a las 24h. Contarla aquí gritaba "adjuntos atascados" con cero archivos de por medio.
+        _viejos = [i for i in (_items or []) if (_ms - int(i.get("t", _ms))) > 6 * 3600 * 1000
+                   and ((i.get("m") or {}).get("type") or "") != "text"]
         if not _viejos:
             continue
         _hrs = max(int((_ms - int(i.get("t", _ms))) / 3600000) for i in _viejos)

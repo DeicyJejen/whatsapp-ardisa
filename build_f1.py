@@ -1734,7 +1734,7 @@ const esDespedida = (_RE_DESP.test(low) || _RE_DESP.test(lowST))
 const _formHits = (!es_media && texto) ? (String(texto).match(/(complet[eé]\s+el\s+formulario|full\s*name\s*:|l[ií]neas?\s+de\s+inter[eé]s\s*:|whatsapp\s*number\s*:|tienda\s+m[aá]s\s+cercana\s*:|email\s*:)/gi)||[]).length : 0;
 const esFormulario = _formHits>=2;
 
-let st=S[wa]; let wpp_body=null,aviso_body=null,etapa='',leadRow=null,aviso_medias=null,consent_log=null,pend_cierre=false,pend_token=0,cot_req=null;
+let st=S[wa]; let wpp_body=null,aviso_body=null,etapa='',leadRow=null,aviso_medias=null,consent_log=null,pend_cierre=false,pend_token=0,cot_req=null,sumar_add=null;
 // wpp_pre: mensaje que sale ANTES del principal (hoy solo el aviso de datos). Lo manda su propio nodo,
 // 'Enviar aviso de datos (Meta)', encadenado delante de 'Enviar al cliente' para garantizar el ORDEN.
 let wpp_pre=null;
@@ -3080,6 +3080,11 @@ if(preguntaHorario){
     // cantidad ("50"), la medida ("120") o un teléfono alterno, que el cliente manda en mensaje aparte.
     // Ahora solo se ignora UN dígito suelto (!/^\d$/), que sí suele ser un toque de menú perdido.
     etapa='adicion'; st.addN=(st.addN||0)+1;
+    // 2026-08-20 (cola de Karime, caso Juan Pablo #332 "5 puertas de 2,10 x 0.80"): la adición viajaba SOLO
+    // por WhatsApp al asesor — si su ventana de 24h está cerrada, el texto se encola y con un asesor que no
+    // usa el canal muere ahí. La BD no tiene ventana: la adición se le SUMA también al detalle del lead
+    // (nodo 'Sumar adición'), y el Excel/panel siempre la muestran aunque el mensajito nunca llegue.
+    sumar_add=[...texto].slice(0,300).join('');
     if(_dest && st.addN<=5){ aviso_body=txt(_dest,'➕ *'+(st.nombre||'El cliente')+' agregó:* '+[...texto].slice(0,300).join('')+'\n📱 +'+wa); }
     wpp_body = (st.addN<=5)
       ? txt(wa,'Recibido'+_nom+'. ✅ Ya se lo pasamos a '+(st.asesorNom?('*'+st.asesorNom+'*'):'tu asesor')+' para que lo tenga en cuenta en tu solicitud. 🤝')
@@ -3258,6 +3263,7 @@ return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso
   web_q:web_q, hay_web:!!web_q, web_marca:((S[wa]&&S[wa].marca)||(st&&st.marca)||'Ardisa'), web_nombre:((S[wa]&&S[wa].nombre)||(st&&st.nombre)||''),
   cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
   wpp_pre:(wpp_pre||null), hay_pre:!!wpp_pre,   // aviso de datos como mensaje aparte, ANTES del principal
+  sumar_add:(sumar_add||null),   // adición tras cerrar: también se suma al detalle del lead en la BD (no depende de la ventana 24h)
   ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
 """
 
@@ -4123,6 +4129,24 @@ nodes.append(node("Guardar chat aviso (MySQL)", "n8n-nodes-base.mySql", 2.5,
      "options":{"queryReplacement":"={{ ["+", ".join("$('Cerebro conversacional').item.json.chat_pre."+c for c in _chatcols)+"] }}"}},
     1180, 60, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,
                "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
+# 2026-08-20 (cola de Karime, caso Juan Pablo #332): lo que el cliente agrega DESPUÉS de cerrar iba solo como
+# texto de WhatsApp al asesor — con la ventana 24h cerrada se encolaba y con un asesor desconectado moría ahí
+# (las medidas "5 puertas de 2,10 x 0.80" nunca llegaron). La BD no tiene ventana: la adición se SUMA al
+# detalle del lead y el Excel/panel la muestran siempre. LOCATE evita duplicar si el cliente repite el texto;
+# 27 horas = la adición es del MISMO día (regla de Deicy 12-ago) + las 3h de gracia tras la medianoche.
+nodes.append(node("¿Sumar a la solicitud?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"sa1","leftValue":"={{ $json.sumar_add ? true : false }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 1080, 660))
+_SUMAR_ADD_SQL = ("UPDATE leads SET detalle = CONCAT(LEFT(detalle,1200), CHAR(10), '➕ ', $1) "
+    "WHERE telefono=CONVERT($2 USING utf8mb4) COLLATE utf8mb4_unicode_ci AND creado_en > NOW() - INTERVAL 27 HOUR "
+    "AND $3<>'' AND LOCATE($4, detalle)=0 ORDER BY id DESC LIMIT 1")
+nodes.append(node("Sumar adición (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":_SUMAR_ADD_SQL,
+     "options":{"queryReplacement":"={{ [$json.sumar_add, $json.wa_id, $json.sumar_add, $json.sumar_add] }}"}},
+    1320, 660, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,
+                "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Enviar aviso de datos (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.wpp_pre"), 1180, 200, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("Enviar al cliente (Meta)", "n8n-nodes-base.httpRequest", 4.2, http_send("$('Cerebro conversacional').item.json.wpp_body"), 1320, 300, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500,"credentials":{"httpHeaderAuth":{"id":WPP_CRED_ID,"name":WPP_CRED_NAME}}}))
 nodes.append(node("¿Hay aviso al asesor?", "n8n-nodes-base.if", 2,
@@ -4400,6 +4424,11 @@ else if(p.avisoExtra){ try{ const b=JSON.parse(JSON.stringify(p.aviso)); b.text.
   // (si la ventana del asesor sigue cerrada, cae a la cola mediaPend y se entrega cuando abra) — 2026-07-24
   medias.push({messaging_product:'whatsapp', to:p.destino, type:'text', text:{body:'➕ *El cliente también escribió:* '+p.avisoExtra}});
 } }
+// 2026-08-20 (cola de Karime): el "también escribió" como texto suelto muere en mediaPend si el asesor no
+// abre su ventana. La BD sí o sí: el extra entra al detalle del lead ANTES del INSERT (y Sumar/Redirigir
+// también lo ven). El tope 1200 es el mismo del detalle (límites heredados, caso Johans #245).
+if(p.tipo!=='reclamo' && p.avisoExtra && p.lead){ try{ p.lead=JSON.parse(JSON.stringify(p.lead));
+  p.lead.detalle=[...String((p.lead.detalle||'')+' ➕ '+p.avisoExtra)].slice(0,1200).join(''); }catch(e){} }
 if(p.avisoCopia){ medias.push(p.avisoCopia); }   // copia de monitoreo (texto) a PRUEBA_NUM cuando el aviso va EN VIVO -> se envía por el mismo canal de reenvío
 if(p.segPrompt){ medias.push(p.segPrompt); }   // SEGUIMIENTO (prueba): botón "Reportar resultado" a Deicy, por el mismo canal de reenvío
 try{ delete store.pendCierre[wa]; }catch(e){}
@@ -4735,8 +4764,11 @@ for(const _dst in store.mediaPend){
   }); }
   let _q=_cola.filter(function(x){return x&&x.m&&(NOW-(x.t||0))<7*24*3600000;});   // poda >7 días
   // Un texto que lleva más de un día esperando, sin ningún archivo que lo acompañe, ya no sirve de nada:
-  // el asesor recibió el pedido completo en su tarjeta. Se limpia para que la cola refleje lo que falta.
-  if(_q.length && _q.every(function(x){return x.m.type==='text';}) && _q.every(function(x){return (NOW-(x.t||0))>=24*3600000;})) _q=[];
+  // desde hoy la adición también queda en el DETALLE del lead (BD/Excel), así que el mensajito es redundante.
+  // 2026-08-20 (cola de Karime, 4 textos de hasta 41h): la regla era todo-o-nada ("TODOS >=24h") y cada texto
+  // nuevo mantenía vivos a los viejos — la cola de un asesor desconectado no se vaciaba nunca. Ahora es POR
+  // ÍTEM: en una cola sin archivos, cada texto que cumple 24h se limpia solo, llegue lo que llegue después.
+  if(_q.length && _q.every(function(x){return x.m.type==='text';})) _q=_q.filter(function(x){return (NOW-(x.t||0))<24*3600000;});
   // === PODA CON RESCATE (2026-08-13, caso Arq Omar González en la cola de Karime): antes, el adjunto que
   // cumplía 7 días se borraba EN SILENCIO — si el asesor nunca abría su ventana (Karime: 1 interacción
   // desde el 22-jul), el archivo del cliente moría sin que nadie lo supiera. Ahora se re-dirige a la línea
@@ -5075,7 +5107,8 @@ connections = {
  "Preparar IA": {"main":[[{"node":"¿Gastar IA?","type":"main","index":0}]]},
  "¿Gastar IA?": {"main":[[{"node":"🤖 IA Anthropic","type":"main","index":0}],[{"node":"Cerebro conversacional","type":"main","index":0}]]},
  "🤖 IA Anthropic": {"main":[[{"node":"Cerebro conversacional","type":"main","index":0}]]},
- "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0},{"node":"¿Hay sesión?","type":"main","index":0},{"node":"¿Cotizar?","type":"main","index":0}]]},
+ "Cerebro conversacional": {"main":[[{"node":"¿Responder al cliente?","type":"main","index":0},{"node":"¿Registrar chat?","type":"main","index":0},{"node":"¿Registrar consentimiento?","type":"main","index":0},{"node":"¿Guardar seguimiento?","type":"main","index":0},{"node":"¿Hay sesión?","type":"main","index":0},{"node":"¿Cotizar?","type":"main","index":0},{"node":"¿Sumar a la solicitud?","type":"main","index":0}]]},
+ "¿Sumar a la solicitud?": {"main":[[{"node":"Sumar adición (MySQL)","type":"main","index":0}],[]]},
  "¿Hay sesión?": {"main":[[{"node":"Guardar sesión (MySQL)","type":"main","index":0}],[]]},
  "¿Cotizar?": {"main":[[{"node":"💰 IA Cotización (SAP)","type":"main","index":0}],[]]},
  # MCP EN CASA: R1 -> (fin -> Entregar | herramientas -> SAP -> R2) -> (ídem) -> R3 -> Entregar
@@ -5221,6 +5254,8 @@ _POS = {
   "Cada 1 min (inactivos)": (240, 900),
   "Leer config cron (MySQL)": (620, 980),
   "Guardar chat aviso (MySQL)": (1180, 60),
+  "¿Sumar a la solicitud?": (1080, 660),
+  "Sumar adición (MySQL)": (1320, 660),
   "¿Buscar en tienda?": (1620, 1180),
   "Buscar en tienda (web)": (1840, 1180),
   "Enviar links tienda (Meta)": (2060, 1180),
