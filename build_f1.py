@@ -3815,14 +3815,19 @@ let _sid=''; try{ const h=$input.first().json.headers||{}; _sid=String(h['mcp-se
 const _tuses=$('""" + repartir + r"""').all().map(function(i){ return (i.json||{}).tuse||{}; });
 const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
             'Authorization':'Bearer '+_cfg.cfg_mcp_token, 'mcp-session-id':_sid};
+// 2026-08-20 (ejecución 123056: 'SAP consulta R2' colgada 284 s hasta que el techo la mató): el servidor
+// MCP a veces deja el stream SSE ABIERTO sin cerrar, y el `timeout` del httpRequest no corta un stream
+// que sigue vivo. Tope MANUAL con Promise.race: si en 30 s no cerró (el precio con cascada a veces legítimamente pasa de 20), se abandona esa llamada (el socket
+// muere solo) y el flujo sigue — un reintento y de resto "no respondió", que el modelo ya sabe manejar.
+const _tope=function(p,ms){ return Promise.race([p, new Promise(function(_r,_j){ setTimeout(function(){ _j(new Error('tope '+ms+'ms')); }, ms); })]); };
 const _llaves=_tuses.map(function(t){ return JSON.stringify({n:t.name||'', a:t.input||{}}); });
 const _unicos={};
 _llaves.forEach(function(k){ if(!(k in _unicos)) _unicos[k]=null; });
 await Promise.all(Object.keys(_unicos).map(async function(k){
   const t=JSON.parse(k);
   if(!t.n || !_H || !_cfg.cfg_mcp_url){ _unicos[k]='ERROR: la herramienta no respondió'; return; }
-  const _va=function(){ return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:45000,
-    headers:_hdr, body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:t.n, arguments:t.a} })}); };
+  const _va=function(){ return _tope(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:30000,
+    headers:_hdr, body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:t.n, arguments:t.a} })}), 30000); };
   try{ _unicos[k]=await _va(); }
   catch(e){ try{ _unicos[k]=await _va(); }catch(e2){ _unicos[k]='ERROR: la herramienta no respondió'; } }
 }));
@@ -3915,6 +3920,9 @@ function compactar(txt){
 // dato ya resuelto y puede responderlo aunque sea su última vuelta. Todo va dentro de try/catch: si el
 // MCP no contesta, se sigue exactamente como antes.
 const _CIU_PV=['Bucaramanga','Bogotá','Barranquilla','Cartagena','Cali','Pereira','Ibagué','Tunja','Duitama','Sogamoso','Girardot'];
+// 2026-08-20: el MCP a veces deja el stream SSE abierto y el `timeout` del httpRequest no corta un stream
+// vivo (ejecución 123056: una llamada colgada 284 s). Tope manual: pasado el plazo se abandona la llamada.
+const _topeA=function(p,ms){ return Promise.race([p, new Promise(function(_r,_j){ setTimeout(function(){ _j(new Error('tope '+ms+'ms')); }, ms); })]); };
 const _H=(this && this.helpers) ? this.helpers : null;
 const _cfg=(function(){ try{ return $('Unir pendiente').first().json||{}; }catch(e){ return {}; } })();
 async function _otrasCiudades(itemCode, ciudadCliente){
@@ -3924,16 +3932,16 @@ async function _otrasCiudades(itemCode, ciudadCliente){
   // 2026-08-20 (cotización MDF de Deicy: 4 min 38 s de espera): con el MCP lento, cada llamada podía
   // colgarse 15 s y esto corre por cada producto sin stock. Una consulta de ciudad normal tarda <1 s:
   // si en 6 s no respondió, esa ciudad se da por no revisada y el cliente no espera por ella.
-  const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
+  const _ini=await _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
     body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
-      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:6000});
+      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:6000}), 8000);
   const _sid=(_ini && _ini.headers && (_ini.headers['mcp-session-id']||_ini.headers['Mcp-Session-Id']))||'';
   const _otras=_CIU_PV.filter(function(c){ return String(c).toLowerCase()!==String(ciudadCliente||'').toLowerCase(); });
   const _r=await Promise.all(_otras.map(function(c){
-    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
+    return _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
-          params:{name:'disponibilidad_ciudad', arguments:{item_code:itemCode, ciudad:c} } })})
+          params:{name:'disponibilidad_ciudad', arguments:{item_code:itemCode, ciudad:c} } })}), 8000)
       .then(function(t){ const o=JSON.parse(compactar(sacarTexto(t)));
         return (o && o.hay_disponibilidad) ? {ciudad:c, puntos:o.puntos_de_venta} : null; })
       .catch(function(){ return null; });
@@ -3997,19 +4005,19 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   for(const _w of _pal.slice(0,3)){ for(const _d of _dims.slice(0,3)){ if(_combos.length<7) _combos.push(_w+' '+_d); } }
   const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
-  const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
+  const _ini=await _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
     body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
-      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:6000});
+      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:6000}), 8000);
   const _sid=(_ini && _ini.headers && (_ini.headers['mcp-session-id']||_ini.headers['Mcp-Session-Id']))||'';
   // Se prueban las candidatas y gana la que MENOS resultados devuelva: en un catálogo de ferretería la
   // palabra genérica ("pintura") arrastra cientos de referencias y la específica ("drywall") unas pocas,
   // así que el conteo es un buen termómetro de cuál de las dos describe lo que el cliente pidió.
   // Las combinaciones con medida van PRIMERO: si "mdf 183" pega, ese es el producto.
   const _cand=await Promise.all((soloAfinar ? _combos : _combos.concat(_pal.slice(0,3))).slice(0,8).map(function(_w){
-    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
+    return _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
-          params:{name:'buscar_producto', arguments:{q:_w, limit:40} } })})
+          params:{name:'buscar_producto', arguments:{q:_w, limit:40} } })}), 8000)
       .then(function(t){ const o=JSON.parse(sacarTexto(t)); return (o && o.total>0) ? {w:_w, o:o} : null; })
       .catch(function(){ return null; });
   }));
@@ -4044,8 +4052,8 @@ const _WEB = _TIENDA[_MARCA_CLI] || _TIENDA.Ardisa;
 const _UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 async function _gql(query){
   if(!_H) return null;
-  const r = await _H.httpRequest({method:'POST', url:_WEB+'/graphql', json:true, timeout:9000,
-    headers:{'Content-Type':'application/json','User-Agent':_UA}, body:{query:query} });
+  const r = await _topeA(_H.httpRequest({method:'POST', url:_WEB+'/graphql', json:true, timeout:9000,
+    headers:{'Content-Type':'application/json','User-Agent':_UA}, body:{query:query} }), 10000);
   return (r && r.data && r.data.products) ? r.data.products : null;
 }
 async function _tiendaBuscar(q){
