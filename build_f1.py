@@ -3828,8 +3828,15 @@ await Promise.all(Object.keys(_unicos).map(async function(k){
   if(!t.n || !_H || !_cfg.cfg_mcp_url){ _unicos[k]='ERROR: la herramienta no respondió'; return; }
   const _va=function(){ return _tope(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:30000,
     headers:_hdr, body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:t.n, arguments:t.a} })}), 30000); };
+  // Reintentar SOLO fallas rápidas (red, 5xx): si el servidor se quedó CALLADO los 30 s completos,
+  // repetirle son 30 s más de un cliente esperando por la misma nada (prueba 11:02: 60 s exactos × 2
+  // vueltas = 2 min de los 2:36). El modelo ya sabe decir "un asesor te confirma ese dato".
+  const _t0=Date.now();
   try{ _unicos[k]=await _va(); }
-  catch(e){ try{ _unicos[k]=await _va(); }catch(e2){ _unicos[k]='ERROR: la herramienta no respondió'; } }
+  catch(e){
+    if((Date.now()-_t0) >= 27000){ _unicos[k]='ERROR: la herramienta no respondió'; }
+    else { try{ _unicos[k]=await _va(); }catch(e2){ _unicos[k]='ERROR: la herramienta no respondió'; } }
+  }
 }));
 return _llaves.map(function(k){ return {json:{data:String(_unicos[k])}}; });
 """
