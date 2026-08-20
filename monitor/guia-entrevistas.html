@@ -1,0 +1,390 @@
+<title>Del Bot a la Entrevista</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Source+Serif+4:opsz,ital,wght@8..60,0,400;8..60,0,600;8..60,1,400&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --ground:#F6F7F3; --surface:#FFFFFF; --ink:#232820; --ink-soft:#5A6153;
+  --accent:#1E7A4C; --accent-ink:#14603A; --amber:#9A6A1B; --amber-bg:#FAF3E3;
+  --line:#DFE3D8; --code-bg:#20261F; --code-ink:#DCE5D4; --code-accent:#8FD4AC;
+  --chip-bg:#E8F1EA;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#151812; --surface:#1D211A; --ink:#E7EAE0; --ink-soft:#A6AD9C;
+    --accent:#4CC08A; --accent-ink:#6ED2A0; --amber:#D9A24E; --amber-bg:#2A2416;
+    --line:#333A2E; --code-bg:#10130D; --code-ink:#CBD4C0; --code-accent:#7BC79C;
+    --chip-bg:#243528;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#151812; --surface:#1D211A; --ink:#E7EAE0; --ink-soft:#A6AD9C;
+  --accent:#4CC08A; --accent-ink:#6ED2A0; --amber:#D9A24E; --amber-bg:#2A2416;
+  --line:#333A2E; --code-bg:#10130D; --code-ink:#CBD4C0; --code-accent:#7BC79C;
+  --chip-bg:#243528;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:'Source Serif 4', Georgia, serif; font-size:17px; line-height:1.65;
+}
+.wrap{max-width:46rem; margin:0 auto; padding:2.5rem 1.25rem 5rem}
+header.hero{padding:3.5rem 0 2rem; border-bottom:3px solid var(--accent)}
+.eyebrow{font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink)}
+h1{font-family:'Bricolage Grotesque','Source Serif 4',sans-serif; font-weight:800; font-size:clamp(2.1rem,6vw,3.1rem); line-height:1.05; margin:.4rem 0 .8rem; text-wrap:balance}
+.lede{font-size:1.08rem; color:var(--ink-soft); max-width:38rem}
+nav.toc{margin:2rem 0 0; padding:1.2rem 1.4rem; background:var(--surface); border:1px solid var(--line); border-radius:8px}
+nav.toc b{font-family:'Bricolage Grotesque',sans-serif; font-size:.95rem}
+nav.toc ol{margin:.5rem 0 0; padding-left:1.4rem; display:flex; flex-direction:column; gap:.25rem}
+nav.toc a{color:var(--accent-ink); text-decoration:none}
+nav.toc a:hover, nav.toc a:focus{text-decoration:underline}
+section{margin-top:3.2rem}
+h2{font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:1.65rem; line-height:1.15; margin:0 0 .3rem; text-wrap:balance}
+h2 .num{color:var(--accent); margin-right:.4rem}
+h3{font-family:'Bricolage Grotesque',sans-serif; font-weight:600; font-size:1.12rem; margin:2rem 0 .5rem}
+.porque{font-style:italic; color:var(--ink-soft); margin:0 0 1.2rem}
+p{margin:.8rem 0}
+code{font-family:'IBM Plex Mono',monospace; font-size:.85em; background:var(--chip-bg); padding:.1em .35em; border-radius:4px}
+pre{background:var(--code-bg); color:var(--code-ink); padding:1rem 1.2rem; border-radius:8px; overflow-x:auto; line-height:1.55; margin:.9rem 0}
+pre code{background:none; padding:0; color:inherit; font-size:.82rem}
+pre .c{color:#7E8A74; font-style:italic}
+pre .k{color:var(--code-accent); font-weight:600}
+.caso{background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:0 8px 8px 0; padding:.9rem 1.2rem; margin:1.1rem 0; font-size:.95rem}
+.caso b:first-child{font-family:'Bricolage Grotesque',sans-serif}
+.frase{background:var(--amber-bg); border-left:4px solid var(--amber); border-radius:0 8px 8px 0; padding:.9rem 1.2rem; margin:1.1rem 0}
+.frase .tag{display:block; font-family:'IBM Plex Mono',monospace; font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--amber); margin-bottom:.3rem}
+.frase p{margin:0; font-style:italic}
+table{border-collapse:collapse; width:100%; margin:1rem 0; font-size:.92rem; font-variant-numeric:tabular-nums}
+.twrap{overflow-x:auto}
+th{font-family:'Bricolage Grotesque',sans-serif; font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; text-align:left; color:var(--ink-soft); border-bottom:2px solid var(--accent); padding:.45rem .7rem .45rem 0}
+td{border-bottom:1px solid var(--line); padding:.5rem .7rem .5rem 0; vertical-align:top}
+td code{white-space:nowrap}
+.mapa{display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin:1.2rem 0; font-family:'Bricolage Grotesque',sans-serif; font-size:.88rem}
+.mapa .nodo{background:var(--surface); border:1.5px solid var(--accent); border-radius:8px; padding:.5rem .8rem; text-align:center}
+.mapa .nodo small{display:block; font-family:'IBM Plex Mono',monospace; font-size:.66rem; color:var(--ink-soft); margin-top:.15rem}
+.mapa .fl{color:var(--accent); font-weight:800; font-size:1.1rem}
+ul,ol{padding-left:1.4rem}
+li{margin:.35rem 0}
+.tarea{background:var(--surface); border:1px dashed var(--accent); border-radius:8px; padding:1rem 1.3rem; margin:1.2rem 0}
+.tarea b{font-family:'Bricolage Grotesque',sans-serif}
+footer{margin-top:4rem; padding-top:1.2rem; border-top:1px solid var(--line); font-size:.85rem; color:var(--ink-soft)}
+a{color:var(--accent-ink)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto !important} }
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <span class="eyebrow">Guía de estudio · construida sobre trabajo real del bot Ardisa</span>
+  <h1>Del Bot a la Entrevista</h1>
+  <p class="lede">Todo lo que pasó en producción el 20 de agosto de 2026, convertido en material de estudio: SQL, Linux, endpoints y métodos HTTP, OAuth y los conceptos de ingeniería que preguntan en entrevistas — cada uno con el caso real donde lo usamos y la frase con la que se cuenta.</p>
+  <nav class="toc">
+    <b>Contenido</b>
+    <ol>
+      <li><a href="#mapa">El mapa del sistema</a></li>
+      <li><a href="#sql">Base de datos: las consultas del día</a></li>
+      <li><a href="#linux">Linux: los comandos del día</a></li>
+      <li><a href="#http">Endpoints y métodos HTTP</a></li>
+      <li><a href="#oauth">OAuth: la historia del token caído</a></li>
+      <li><a href="#conceptos">Conceptos de ingeniería (con su cicatriz)</a></li>
+      <li><a href="#frases">Frases de entrevista</a></li>
+      <li><a href="#tareas">Tus tareas</a></li>
+      <li><a href="#api">Construye tu primera API (clase práctica)</a></li>
+    </ol>
+  </nav>
+</header>
+
+<section id="mapa">
+  <h2><span class="num">1</span>El mapa del sistema</h2>
+  <p class="porque">En una entrevista, poder DIBUJAR tu sistema vale más que cualquier palabra técnica. Este es el nuestro.</p>
+  <div class="mapa">
+    <div class="nodo">Cliente<small>WhatsApp</small></div><span class="fl">→</span>
+    <div class="nodo">Meta Cloud API<small>graph.facebook.com</small></div><span class="fl">→</span>
+    <div class="nodo">Webhook<small>POST /webhook/…</small></div><span class="fl">→</span>
+    <div class="nodo">n8n<small>workflow · 108 nodos</small></div>
+  </div>
+  <div class="mapa">
+    <div class="nodo">n8n</div><span class="fl">→</span>
+    <div class="nodo">MariaDB<small>leads · mensajes · sesiones · config</small></div>
+    <span class="fl">+</span>
+    <div class="nodo">Servidor MCP<small>mcp.ardisa.com → SAP/HANA</small></div>
+    <span class="fl">+</span>
+    <div class="nodo">Magento<small>/graphql · tienda</small></div>
+  </div>
+  <p>Cuando un cliente escribe al WhatsApp, Meta le hace un <b>POST</b> a nuestro <b>endpoint</b> (el webhook). n8n verifica la firma, extrae el mensaje, corre el "Cerebro" (JavaScript), guarda en MariaDB, y si es una cotización consulta SAP a través del servidor MCP. Cada flecha del dibujo es una llamada HTTP con su método, sus headers y sus códigos de respuesta — de eso se trata la sección 4.</p>
+  <div class="frase"><span class="tag">Frase de entrevista</span><p>"Trabajé en un chatbot de WhatsApp en producción: webhook de Meta, orquestación en n8n, persistencia en MariaDB y una integración de solo-lectura con SAP vía un servidor MCP con OAuth."</p></div>
+</section>
+
+<section id="sql">
+  <h2><span class="num">2</span>Base de datos: las consultas del día</h2>
+  <p class="porque">Todas estas corrieron HOY contra la base real. Estúdialas en este orden: cada una introduce una idea nueva.</p>
+
+  <h3>2.1 · SELECT: leer con filtro, orden y límite</h3>
+<pre><code><span class="k">SELECT</span> id, creado_en, etapa, LEFT(entrada,120)
+<span class="k">FROM</span> mensajes
+<span class="k">WHERE</span> wa_id = '573167404278'
+<span class="k">ORDER BY</span> id;</code></pre>
+  <ul>
+    <li><code>WHERE</code> filtra filas; <code>ORDER BY</code> las ordena; <code>LIMIT n</code> corta el resultado.</li>
+    <li><code>LEFT(col, 120)</code> recorta el texto a 120 caracteres — para no inundar la pantalla.</li>
+    <li><code>\G</code> al final (en el cliente MySQL) muestra cada fila en vertical: útil con columnas largas.</li>
+  </ul>
+  <div class="caso"><b>Caso real:</b> con esta consulta reconstruimos la conversación de Maryluz y descubrimos que el bot le mandó "Cerramos esta conversación" tres veces.</div>
+
+  <h3>2.2 · UPDATE con CONCAT: agregar sin borrar</h3>
+<pre><code><span class="k">UPDATE</span> leads
+<span class="k">SET</span> detalle = CONCAT(detalle, '\n➕ El material es para 5 puertas de 2,10 x 0.80')
+<span class="k">WHERE</span> id = 332 <span class="k">AND</span> LOCATE('5 puertas', detalle) = 0;</code></pre>
+  <ul>
+    <li><code>CONCAT(a, b)</code> pega textos. Aquí <em>sumamos</em> al detalle en vez de reemplazarlo.</li>
+    <li><code>LOCATE(aguja, pajar) = 0</code> significa "el texto NO está todavía" → la consulta es <b>idempotente</b>: córrela dos veces y no duplica. Esa palabra vale oro en entrevistas.</li>
+  </ul>
+
+  <h3>2.3 · El candado NOT EXISTS: ganarle a una carrera desde SQL</h3>
+<pre><code><span class="k">INSERT INTO</span> leads (...)
+<span class="k">SELECT</span> ...
+<span class="k">WHERE NOT EXISTS</span> (
+  <span class="k">SELECT</span> 1 <span class="k">FROM</span> leads
+  <span class="k">WHERE</span> telefono = ? <span class="k">AND</span> creado_en &gt; NOW() - INTERVAL 45 MINUTE
+);</code></pre>
+  <p>Dos mensajes del mismo cliente pueden llegar con 22 ms de diferencia y ejecutarse <em>en paralelo</em>. El código JavaScript no alcanza a enterarse — pero la base de datos <b>serializa</b> las escrituras: el segundo INSERT ve al primero y no inserta. La BD es la última línea de defensa contra duplicados.</p>
+
+  <h3>2.4 · Comparar teléfonos como TEXTO (la trampa del tipo de dato)</h3>
+<pre><code><span class="c">-- MAL: revienta si en la tabla hay un id no numérico como 'CO.1352055013679988'</span>
+<span class="k">WHERE</span> telefono = 573125758845
+<span class="c">-- BIEN: se compara texto con texto, con la intercalación correcta</span>
+<span class="k">WHERE</span> telefono = CONVERT('573125758845' USING utf8mb4) COLLATE utf8mb4_unicode_ci</code></pre>
+  <div class="caso"><b>Caso real:</b> el lead de una clienta se perdió con el "quedó registrada" ya enviado, porque comparar contra un número hacía abortar el INSERT cuando la tabla tenía un usuario con número oculto (BSUID). Un tipo de dato mal comparado = un cliente perdido.</div>
+
+  <h3>2.5 · GROUP_CONCAT: una lista en una sola celda</h3>
+<pre><code><span class="k">SELECT</span> GROUP_CONCAT(<span class="k">DISTINCT</span> wa_id SEPARATOR ',')
+<span class="k">FROM</span> mensajes
+<span class="k">WHERE</span> etapa = 'cierre_inactividad'
+  <span class="k">AND</span> creado_en &gt; NOW() - INTERVAL 3 HOUR;</code></pre>
+  <p>Devuelve <code>573167…,573205…</code> — todos los clientes que ya recibieron el cierre, en una sola fila. Hoy la usamos para que el cron le pregunte a la BD "¿a quién ya le mandé esto?" antes de repetir un mensaje.</p>
+
+  <h3>2.6 · Marcadores vs. interpolar (inyección SQL)</h3>
+<pre><code><span class="c">-- NUNCA: pegar el valor dentro del texto de la consulta</span>
+"UPDATE config SET valor='" + token + "'"
+<span class="c">-- SIEMPRE: marcadores; el driver escapa por ti ($1 en n8n, ? en otros)</span>
+<span class="k">UPDATE</span> leads <span class="k">SET</span> detalle = CONCAT(detalle, '➕ ', $1) <span class="k">WHERE</span> telefono = $2</code></pre>
+  <p>Interpolar abre la puerta a la <b>inyección SQL</b> (el clásico de entrevista: <code>'; DROP TABLE--</code>) y a errores de tipo silenciosos. En n8n los marcadores son <code>$1, $2</code> — con <code>?</code> da error de sintaxis que falla en silencio.</p>
+
+  <h3>2.7 · DELETE con guardas: borrar es para siempre</h3>
+<pre><code><span class="k">DELETE FROM</span> leads
+<span class="k">WHERE</span> id = 341 <span class="k">AND</span> modo_prueba = 1;</code></pre>
+  <p>Nota las <b>dos</b> condiciones: el id exacto Y que sea un registro de prueba. Si el id estuviera mal, la segunda condición salva. Regla de la casa: todo DELETE lleva una condición extra que lo haga inofensivo si te equivocas — y el usuario de la aplicación (<code>n8nbot</code>) ni siquiera tiene permiso de DELETE. Eso se llama <b>mínimo privilegio</b>.</p>
+
+  <div class="frase"><span class="tag">Frase de entrevista</span><p>"Uso la base de datos como fuente de verdad y como árbitro de concurrencia: candados con NOT EXISTS, escrituras idempotentes con LOCATE, y consultas parametrizadas siempre — aprendí con un caso real lo que cuesta comparar un teléfono como número."</p></div>
+</section>
+
+<section id="linux">
+  <h2><span class="num">3</span>Linux: los comandos del día</h2>
+  <p class="porque">Todos estos se usaron hoy, en este servidor, resolviendo problemas reales.</p>
+  <div class="twrap"><table>
+    <tr><th>Comando</th><th>Qué hace</th><th>Dónde lo usamos hoy</th></tr>
+    <tr><td><code>grep -n "texto" archivo</code></td><td>Busca texto y muestra el número de línea (<code>-r</code> busca en carpetas, <code>-i</code> ignora mayúsculas)</td><td>Encontrar dónde vive <code>mediaPend</code> en 5.000 líneas de código</td></tr>
+    <tr><td><code>tail -25 archivo.log</code></td><td>Últimas 25 líneas (<code>-f</code> lo deja "en vivo")</td><td>Leer el log del refrescador del token y ver el ERROR 401</td></tr>
+    <tr><td><code>sed -n '44,74p' archivo</code></td><td>Imprime solo las líneas 44 a 74</td><td>Leer un pedazo exacto de un script grande</td></tr>
+    <tr><td><code>crontab -l</code></td><td>Lista las tareas programadas del usuario</td><td>Descubrir que el token se renueva cada 10 min (<code>*/10 * * * *</code>)</td></tr>
+    <tr><td><code>ps -eo pid,etime,cmd</code></td><td>Procesos corriendo, con su tiempo de vida</td><td>Buscar el proceso del servidor MCP</td></tr>
+    <tr><td><code>docker ps</code> / <code>docker exec</code></td><td>Contenedores activos / ejecutar dentro de uno</td><td>n8n corre en Docker; le pedimos cosas desde afuera</td></tr>
+    <tr><td><code>cmd1 | cmd2</code></td><td>La tubería: la salida de uno es la entrada del otro</td><td><code>docker logs n8n | grep -i error | tail</code></td></tr>
+    <tr><td><code>&gt;&gt; archivo.log 2&gt;&amp;1</code></td><td>Anexa la salida Y los errores al log</td><td>Así el cron del token deja historia que el vigilante lee</td></tr>
+    <tr><td><code>chmod 600 archivo</code></td><td>Solo el dueño lee/escribe</td><td>Los archivos con secretos (tokens, claves) SIEMPRE van así</td></tr>
+    <tr><td><code>date -u</code></td><td>Hora en UTC</td><td>n8n guarda en UTC; Colombia es UTC−5. Confundirlas = diagnosticar fantasmas</td></tr>
+    <tr><td><code>python3 -m py_compile x.py</code></td><td>Valida sintaxis sin ejecutar</td><td>Chequear el vigilante antes de dejarlo al cron</td></tr>
+  </table></div>
+  <div class="frase"><span class="tag">Frase de entrevista</span><p>"Me muevo en un servidor Linux con lo esencial: grep para encontrar, tail para vigilar logs, cron para programar, pipes para combinar, y permisos 600 para los secretos."</p></div>
+</section>
+
+<section id="http">
+  <h2><span class="num">4</span>Endpoints y métodos HTTP</h2>
+  <p class="porque">"¿Cómo se hace un endpoint?" — la respuesta corta: un endpoint es una URL que acepta un MÉTODO y cumple un CONTRATO (qué recibe, qué responde). Nuestro sistema tiene endpoints de los dos lados: los que exponemos y los que consumimos.</p>
+
+  <h3>4.1 · Los métodos, con nuestros ejemplos reales</h3>
+  <div class="twrap"><table>
+    <tr><th>Método</th><th>Semántica</th><th>Ejemplo real de hoy</th></tr>
+    <tr><td><code>GET</code></td><td>Leer, sin efectos</td><td><code>GET /api/v1/workflows/botArdisaFase1x</code> — bajar el workflow vivo para el diff</td></tr>
+    <tr><td><code>POST</code></td><td>Crear / disparar una acción</td><td>Meta hace <code>POST /webhook/bot-wsp-ardisa-f1</code> con cada mensaje; nosotros hacemos POST a Meta para responder</td></tr>
+    <tr><td><code>PUT</code></td><td>Reemplazar el recurso completo</td><td><code>PUT /api/v1/workflows/…</code> — el deploy "en caliente" que estrenamos hoy</td></tr>
+    <tr><td><code>DELETE</code></td><td>Eliminar</td><td><code>DELETE /api/v1/workflows/{id}</code> — borrar el workflow desechable de la prueba</td></tr>
+  </table></div>
+
+  <h3>4.2 · Cómo se crea un endpoint (nuestro webhook)</h3>
+  <p>En n8n, el nodo <em>Webhook</em> declara: método <code>POST</code>, ruta <code>/webhook/bot-wsp-ardisa-f1</code>. Con eso n8n "registra la ruta": cuando llega un POST ahí, arranca el workflow. En cualquier framework es la misma idea:</p>
+<pre><code><span class="c">// La idea universal (aquí en Express/JavaScript):</span>
+app.<span class="k">post</span>('/webhook/bot', (req, res) =&gt; {
+  <span class="k">const</span> firma = req.headers['x-hub-signature-256'];  <span class="c">// 1. autenticar</span>
+  <span class="k">if</span> (!verificar(firma, req.rawBody)) <span class="k">return</span> res.status(403).end();
+  procesar(req.body);                                  <span class="c">// 2. actuar</span>
+  res.status(200).json({ ok: true });                  <span class="c">// 3. responder RÁPIDO</span>
+});</code></pre>
+  <p>Detalle de producción: a Meta hay que responderle 200 <em>rápido</em> (aunque el trabajo siga por detrás), o reintenta y te duplica mensajes. Y la <b>firma HMAC-SHA256</b> del header demuestra que el POST viene de Meta y no de un extraño: se calcula sobre el cuerpo crudo con un secreto compartido y se compara con comparación de tiempo constante.</p>
+
+  <h3>4.3 · Los códigos de estado — todos nos salieron HOY</h3>
+  <div class="twrap"><table>
+    <tr><th>Código</th><th>Significa</th><th>Dónde lo vimos hoy</th></tr>
+    <tr><td><code>200</code></td><td>OK</td><td>El deploy verificado: <code>webhook=200</code></td></tr>
+    <tr><td><code>401</code></td><td>No autenticado (credencial mala/vencida)</td><td>El token del MCP tras el reinicio del servidor — TODA la mañana giró alrededor de este código</td></tr>
+    <tr><td><code>403</code></td><td>Autenticado pero prohibido</td><td>La tienda Magento se lo da a quien no manda User-Agent de navegador</td></tr>
+    <tr><td><code>404</code></td><td>No existe la ruta/recurso</td><td>Lo que respondía el webhook durante los 4 s del deploy viejo (así se nos perdió un mensaje)</td></tr>
+    <tr><td><code>500</code></td><td>Error del servidor</td><td>El stop de una ejecución que ya había terminado</td></tr>
+    <tr><td><code>502</code></td><td>El proxy no alcanzó al servidor de atrás</td><td>mcp.ardisa.com mientras lo reiniciaban</td></tr>
+  </table></div>
+
+  <h3>4.4 · Anatomía de un curl (la navaja del día)</h3>
+<pre><code>curl -s -m 10 \
+  -X <span class="k">POST</span> https://mcp.ardisa.com/mcp \
+  -H <span class="k">'Content-Type: application/json'</span> \
+  -H <span class="k">"Authorization: Bearer $TOKEN"</span> \
+  -d <span class="k">'{"jsonrpc":"2.0","method":"initialize", ...}'</span> \
+  -w <span class="k">"http=%{http_code}\n"</span> -o /dev/null</code></pre>
+  <ul>
+    <li><code>-X</code> el método · <code>-H</code> un header · <code>-d</code> el cuerpo · <code>-s</code> silencioso · <code>-m 10</code> máximo 10 segundos.</li>
+    <li><code>-w "%{http_code}"</code> imprime el código de estado · <code>-o /dev/null</code> descarta el cuerpo.</li>
+    <li>Con esto probamos hoy: el webhook, la API de n8n, el MCP, la tienda Magento y el flujo OAuth. <b>curl es tu laboratorio de endpoints.</b></li>
+  </ul>
+  <div class="frase"><span class="tag">Frase de entrevista</span><p>"Un endpoint es URL + método + contrato. Sé exponerlos (webhook con verificación de firma HMAC y respuesta 200 inmediata) y consumirlos (curl, headers de autenticación, y leo los códigos: un 401 es credencial, un 502 es el servidor de atrás)."</p></div>
+</section>
+
+<section id="oauth">
+  <h2><span class="num">5</span>OAuth: la historia del token caído</h2>
+  <p class="porque">Hoy viviste el ciclo de vida COMPLETO de OAuth en producción, con falla incluida. Cuéntalo así y cualquier entrevistador te para bolas.</p>
+  <ol>
+    <li><b>Registro del cliente</b> — <code>POST /register</code>: la aplicación se presenta y recibe <code>client_id</code> + <code>client_secret</code>.</li>
+    <li><b>Autorización</b> — el navegador va a <code>/authorize</code>; la persona (tú) inicia sesión y da permiso ("Allow Access"). Vuelve un <b>código</b> de un solo uso.</li>
+    <li><b>Intercambio</b> — <code>POST /token</code> con el código → devuelve <code>access_token</code> (corto, ~1 hora) + <code>refresh_token</code> (largo).</li>
+    <li><b>Uso</b> — cada llamada lleva <code>Authorization: Bearer &lt;access_token&gt;</code>.</li>
+    <li><b>Renovación</b> — antes de vencer, <code>POST /token</code> con <code>grant_type=refresh_token</code>. Nuestro cron lo hace cada 10 minutos.</li>
+  </ol>
+  <div class="caso"><b>La falla de hoy (y la lección):</b> el servidor MCP se reinició y olvidó los clientes registrados. El token "se veía" vigente (le quedaban 49 min según el reloj local) pero el servidor lo rechazaba con 401. <b>Lección: la validez de una credencial la decide quien la recibe, no quien la tiene.</b> El refrescador ahora le pregunta AL SERVIDOR (una llamada de sondeo) en vez de confiar en su reloj. Y la recuperación fue: borrar las credenciales muertas → re-registrar el cliente → repetir la autorización.</div>
+  <div class="frase"><span class="tag">Frase de entrevista</span><p>"Depuré un 401 en producción hasta la causa raíz: el servidor OAuth perdió el registro del cliente tras un reinicio. Dejé un monitoreo que valida el token contra el servidor — no contra el reloj local — y documenté la recuperación."</p></div>
+</section>
+
+<section id="conceptos">
+  <h2><span class="num">6</span>Conceptos de ingeniería (con su cicatriz)</h2>
+  <p class="porque">Cada concepto de esta lista tiene un caso real de HOY. En entrevista, el concepto + la historia vale por diez definiciones de memoria.</p>
+
+  <h3>Condición de carrera (race condition)</h3>
+  <p>Dos procesos leen el mismo estado "viejo" y escriben encima el uno del otro — gana el último (<em>last-write-wins</em>). <b>Hoy:</b> una cotización de 4½ minutos guardó la memoria vieja del bot y "resucitó" a una clienta ya despedida; el cron la volvió a despedir dos veces. <b>Arreglo:</b> la verdad se consulta en la BD, que serializa.</p>
+
+  <h3>Idempotencia</h3>
+  <p>Una operación que puedes repetir sin cambiar el resultado. <b>Hoy:</b> el UPDATE con <code>LOCATE(...)=0</code>, y el candado del cron que pregunta "¿ya le mandé el cierre?" antes de mandarlo. Los sistemas distribuidos REPITEN cosas (Meta reintenta webhooks); tu código debe aguantar la repetición.</p>
+
+  <h3>Timeout vs. tope de reloj</h3>
+  <p>Un timeout de socket corta conexiones <em>muertas</em>. Pero un stream que manda "pings" se mantiene técnicamente vivo… sin decir nada útil. <b>Hoy:</b> llamadas al MCP colgadas 284 segundos con timeout de 45 configurado. <b>Arreglo:</b> <code>Promise.race</code> entre la llamada y un reloj propio — pase lo que pase en el socket, a los 30 s seguimos.</p>
+
+  <h3>Serie vs. paralelo</h3>
+  <p>Seis consultas en serie suman sus esperas; en paralelo, esperas solo la más lenta. <b>Hoy:</b> el nodo de consultas SAP pasó de 6 llamadas en fila (64 s si una se colgaba) a <code>Promise.all</code> con deduplicación. La espera del cliente bajó de 4½ minutos a ~1.</p>
+
+  <h3>Reintentos con criterio</h3>
+  <p>Reintentar sirve para fallas <em>transitorias</em> (red, un 500 suelto). Reintentar un cuelgue de 30 segundos = regalar otros 30. <b>Hoy:</b> reintentamos solo fallas rápidas; el silencio largo no se repite.</p>
+
+  <h3>Degradación elegante</h3>
+  <p>Cuando una pieza falla, el sistema entrega lo que sí puede en vez de romperse. <b>Hoy:</b> con SAP mudo, el bot igual dio el precio que sí llegó y cerró el lead con la asesora — el cliente nunca vio un error.</p>
+
+  <h3>Watchdog (perro guardián)</h3>
+  <p>Un proceso aparte que vigila al sistema y grita cuando algo se sale de lo normal. <b>Hoy:</b> el vigilante detectó por sí solo a la clienta no registrada, y le añadimos la regla "ejecución corriendo &gt;10 minutos = alerta". El complemento del watchdog es el <b>techo duro</b>: <code>executionTimeout: 300</code> — probado en vivo, cortó a los 300.0 segundos exactos.</p>
+
+  <h3>Deploy sin caída (hot deploy)</h3>
+  <p>Actualizar el sistema sin apagarlo. <b>Hoy:</b> descubrimos que el ciclo apagar→subir→prender dejaba el webhook muerto 4 segundos (ahí se perdió un mensaje real); probamos en un workflow desechable que n8n acepta PUT en caliente, y el deploy quedó sin ventana de pérdida. <b>Método:</b> nunca pruebes un cambio de deploy en el sistema vivo — móntate un desechable.</p>
+
+  <h3>Fuente única de verdad</h3>
+  <p>Todo el bot se genera desde <code>build_f1.py</code>: el workflow, los nodos, el SQL. Nadie edita "a mano" lo desplegado; el build valida sintaxis y las pruebas corren antes de cada deploy. Si lo vivo difiere del build, el deploy aborta.</p>
+
+  <h3>Cada bug deja una prueba</h3>
+  <p>Hoy nacieron <code>test_adicion_queda_en_bd.js</code> (10 aserciones), <code>test_cierre_no_se_repite.js</code> (5) y creció <code>test_mcp_en_casa.js</code> — cada una reproduce el bug del día con los datos reales (hasta los espacios raros del catálogo). Un bug con prueba no vuelve; un bug sin prueba es una promesa.</p>
+</section>
+
+<section id="frases">
+  <h2><span class="num">7</span>Frases de entrevista</h2>
+  <p class="porque">Para practicar en voz alta. Cada una es tuya: viene de trabajo que sí hiciste.</p>
+  <ul>
+    <li>"Mantengo un bot de WhatsApp en producción con cientos de conversaciones al mes: webhook de Meta, n8n, MariaDB y una integración OAuth con SAP."</li>
+    <li>"Mi regla es que la base de datos manda: la memoria de proceso es caché, y toda decisión importante se respalda en una consulta que ninguna carrera puede pisar."</li>
+    <li>"He depurado condiciones de carrera reales: sé leer una línea de tiempo de ejecuciones y encontrar quién pisó a quién."</li>
+    <li>"Aprendí a distinguir timeout de socket y tope de reloj depurando streams SSE que se quedaban abiertos mandando pings."</li>
+    <li>"Convertí un cuello de botella de 4½ minutos en ~1 minuto paralelizando y deduplicando llamadas."</li>
+    <li>"Todo deploy corre build + suite de pruebas + verificación automática contra lo vivo, con snapshot de rollback."</li>
+    <li>"Cada bug que arreglo deja una prueba que lo reproduce con los datos reales del caso."</li>
+  </ul>
+</section>
+
+<section id="tareas">
+  <h2><span class="num">8</span>Tus tareas</h2>
+  <div class="tarea"><b>1 · SQL (15 min).</b> En la BD del bot, escribe una consulta que cuente cuántos mensajes hubo HOY por etapa, ordenados del más frecuente al menos. Pistas: <code>COUNT(*)</code>, <code>GROUP BY etapa</code>, <code>ORDER BY 2 DESC</code>, y <code>DATE(creado_en) = CURDATE()</code>.</div>
+  <div class="tarea"><b>2 · curl (10 min).</b> Desde la terminal, pídele a una API pública su respuesta y su código: <code>curl -s -w "\nhttp=%{http_code}\n" https://api.github.com/users/github</code>. Cambia el usuario por uno que no exista y observa el código.</div>
+  <div class="tarea"><b>3 · OAuth en voz alta (10 min).</b> Sin mirar la sección 5, cuéntale a alguien (o a tu espejo) los 5 pasos del flujo y qué pasó hoy con el 401. Si te trabas en un paso, reléelo y repite.</div>
+  <div class="tarea"><b>4 · Diagrama (10 min).</b> Dibuja el mapa de la sección 1 en papel, de memoria, con los métodos HTTP en las flechas. Es LA pregunta de entrevista: "dibuja un sistema en el que hayas trabajado".</div>
+  <div class="tarea"><b>5 · El caso Maryluz (15 min).</b> Escribe en 5 líneas: síntoma → cómo se encontró → causa raíz → arreglo → prueba que lo fija. Ese formato de 5 líneas sirve para CUALQUIER pregunta de "cuéntame un bug difícil".</div>
+</section>
+
+<section id="api">
+  <h2><span class="num">9</span>Construye tu primera API (clase práctica)</h2>
+  <p class="porque">El ejercicio clásico de entrevista junior: un CRUD REST. Lo construiste el 20 de agosto en ~/practica-api. Repásalo hasta poder escribirlo de memoria.</p>
+  <h3>La receta completa</h3>
+<pre><code>mkdir -p ~/practica-api &amp;&amp; cd ~/practica-api
+npm init -y &amp;&amp; npm install express</code></pre>
+<pre><code><span class="k">const</span> express = require('express');
+<span class="k">const</span> app = express();
+app.use(express.json());  <span class="c">// sin esto, req.body llega vacio en los POST</span>
+
+<span class="k">let</span> productos = [
+  { id: 1, nombre: 'Varilla de hierro 12mm', precio: 28551 },
+  { id: 2, nombre: 'MDF 183x244x2.7 crudo',  precio: 39439 },
+];
+
+<span class="c">// LEER la lista</span>
+app.<span class="k">get</span>('/productos', (req, res) =&gt; res.json(productos));
+
+<span class="c">// LEER uno — ":id" es parametro de RUTA</span>
+app.<span class="k">get</span>('/productos/:id', (req, res) =&gt; {
+  <span class="k">const</span> p = productos.find(x =&gt; x.id === Number(req.params.id));
+  <span class="k">if</span> (!p) <span class="k">return</span> res.status(404).json({ error: 'no existe' });
+  res.json(p);
+});
+
+<span class="c">// CREAR — los datos vienen en el CUERPO (req.body); valida y responde 201</span>
+app.<span class="k">post</span>('/productos', (req, res) =&gt; {
+  <span class="k">if</span> (!req.body.nombre) <span class="k">return</span> res.status(400).json({ error: 'falta el nombre' });
+  <span class="k">const</span> nuevo = { id: productos.length + 1, nombre: req.body.nombre, precio: req.body.precio || 0 };
+  productos.push(nuevo);
+  res.status(201).json(nuevo);
+});
+
+<span class="c">// REEMPLAZAR uno</span>
+app.<span class="k">put</span>('/productos/:id', (req, res) =&gt; {
+  <span class="k">const</span> i = productos.findIndex(x =&gt; x.id === Number(req.params.id));
+  <span class="k">if</span> (i &lt; 0) <span class="k">return</span> res.status(404).json({ error: 'no existe' });
+  productos[i] = { id: Number(req.params.id), nombre: req.body.nombre, precio: req.body.precio };
+  res.json(productos[i]);
+});
+
+<span class="c">// BORRAR — 204 = hecho, sin contenido</span>
+app.<span class="k">delete</span>('/productos/:id', (req, res) =&gt; {
+  productos = productos.filter(x =&gt; x.id !== Number(req.params.id));
+  res.status(204).end();
+});
+
+app.listen(3000, () =&gt; console.log('API viva en http://localhost:3000'));</code></pre>
+  <h3>Pruebala con curl (tu propio cliente)</h3>
+<pre><code>curl -s localhost:3000/productos
+curl -s localhost:3000/productos/2
+curl -s -X <span class="k">POST</span> localhost:3000/productos -H 'Content-Type: application/json' \
+     -d '{"nombre":"Tapacanto blanco","precio":1200}'
+curl -s -X <span class="k">PUT</span> localhost:3000/productos/1 -H 'Content-Type: application/json' \
+     -d '{"nombre":"Varilla 12mm x 6m","precio":29000}'
+curl -s -w "http=%{http_code}\n" -X <span class="k">DELETE</span> localhost:3000/productos/2</code></pre>
+  <ul>
+    <li><b>Ruta vs. cuerpo:</b> el <em>quien</em> va en la ruta (<code>/productos/2</code>); el <em>que</em> va en el cuerpo JSON.</li>
+    <li><b>Codigos con intencion:</b> 200 leer, <b>201</b> crear, <b>204</b> borrar, <b>400</b> datos malos, <b>404</b> no existe.</li>
+    <li><b>El puente con el bot:</b> el webhook de Meta es un <code>app.post('/webhook/...')</code> igual a tu <code>app.post('/productos')</code> — recibe JSON, valida (alla la firma HMAC), actua y responde un codigo.</li>
+  </ul>
+  <div class="frase"><span class="tag">Frase de entrevista</span><p>"Se construir un CRUD REST con Express: recursos en la ruta, verbos HTTP con su semantica, parametros de ruta vs. cuerpo JSON, y codigos correctos — 201 al crear, 204 al borrar, 400 si faltan datos, 404 si no existe."</p></div>
+  <div class="tarea"><b>Tarea de esta clase.</b> (1) Agrega busqueda: <code>GET /productos?q=varilla</code> con <code>req.query.q</code> + <code>.filter()</code>. (2) Nivel 2 pendiente con el tutor: conectar el POST a MariaDB con consultas parametrizadas — donde esta clase se junta con la seccion 2.</div>
+</section>
+
+<footer>
+  Construida el 20 de agosto de 2026 sobre los commits del día (<code>e5ea5a9 … a6dcbc2</code>) del bot de WhatsApp de Grupo Ardisa. Cada consulta, comando y código de estado de esta guía corrió de verdad ese día.
+</footer>
+</div>
