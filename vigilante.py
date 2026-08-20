@@ -457,6 +457,25 @@ except Exception as e:
     anota("cola_adjuntos", 2, "ilegible|" + AHORA.strftime("%Y-%m-%d"),
           "No se pudo revisar la cola de adjuntos (staticData): %s" % e)
 
+# ═══ 7b. EJECUCIÓN COLGADA DEL BOT ════════════════════════════════════════════
+# (2026-08-20, cotización MDF de Deicy): una ejecución corrió 4 min 38 s con la clienta mirando el chat
+# en silencio, y NADIE lo veía — el panel no la muestra y "running" no es un error para n8n. Desde hoy
+# el workflow tiene un techo de 5 min (executionTimeout), y este chequeo es el cinturón: si algo lleva
+# >10 min "running", el techo no funcionó y toca mirar n8n a mano.
+try:
+    import sqlite3 as _sq3
+    _con = _sq3.connect("file:/opt/n8n/data/database.sqlite?immutable=1", uri=True)
+    _rs = _con.execute("SELECT id, startedAt FROM execution_entity WHERE status='running' "
+                       "AND workflowId='botArdisaFase1x' AND startedAt < datetime('now','-10 minutes')").fetchall()
+    _con.close()
+    for _eid, _est in _rs:
+        anota("ejecucion_colgada", 1, str(_eid),
+              "La ejecución %s del bot lleva >10 min corriendo (arrancó %s UTC). El techo de 5 min no la "
+              "mató: revisar n8n (posible cuelgue del runner o del MCP). El cliente de esa conversación "
+              "quedó esperando." % (_eid, _est))
+except Exception:
+    pass
+
 # ═══ 8. ¿EL BOT ESTÁ VIVO? workflow activo + webhook responde (2026-08-12, auditoría) ═══
 # El 17-jul el workflow quedó INACTIVO tras un cambio de IP y nadie lo supo hasta que un cliente se quejó;
 # importar/actualizar n8n también lo desactiva. Aquí se comprueba directo contra la API de n8n (la key ya se

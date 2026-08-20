@@ -472,6 +472,48 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
            buscadas.indexOf('tambor') < 0, JSON.stringify(buscadas));
 }
 
+// ══ LAS MEDIDAS SON PARTE DEL NOMBRE (2026-08-20, el MDF 2.7mm de Deicy) ═════════════════════════
+// "Lámina MDF de 2.7 mm de 2.44 x 1.83 m": el limpiador botaba los números y buscaba "mdf" a secas ->
+// 25 "FONDO..." y el verdadero "MDF 183X244X2.5 CRUDO" (130 láminas en Barranquilla) quedaba fuera del
+// tope. El bot dijo "no lo manejamos" con inventario en la mano. Las medidas en metros se traducen a los
+// centímetros del catálogo (2.44->244, 1.83->183) y se prueban pegadas a la palabra del producto.
+{
+  const sse = (o) => ({ data: 'event: message\ndata: ' + JSON.stringify(o) + '\n' });
+  const buscadas = [];
+  const helpers = { httpRequest: async (o) => {
+    if (String(o.url).indexOf('graphql') >= 0) return { data: { products: { items: [] } } };
+    const body = typeof o.body === 'string' ? JSON.parse(o.body) : o.body;
+    if (body.method === 'initialize') return { headers: { 'mcp-session-id': 's' }, body: {} };
+    const q = body.params.arguments.q;
+    buscadas.push(q);
+    const r = (q === 'mdf 183')
+      ? { query:q, total: 3, truncated: false, matches: [
+          { item_code:'10012541', item_name:'MDF 183X244X2.5 CRUDO A', unidad:'Lámina' },
+          { item_code:'10019449', item_name:'MDF 183X244X2.5 CRUDO C', unidad:'Lámina' },
+          { item_code:'10033475', item_name:'MDF 183X244X2.5 CRUDO DX', unidad:'Lámina' }] }
+      : (q === 'mdf')
+      ? { query:q, total: 40, truncated: true, matches: [
+          { item_code:'10010398', item_name:'FONDO PINTUFONDO MDF BLANCO 185X244X3', unidad:'Lámina' }] }
+      : { query:q, total: 0, truncated: false, matches: [] };
+    return 'event: message\ndata: ' + JSON.stringify(
+      { result: { content: [{ type: 'text', text: JSON.stringify(r) }] } }) + '\n';
+  } };
+  const REQ = Object.assign({}, COT_REQ, { messages: [{ role:'user', content:'necesito cotizar Lamina MDF de 2.7 mm de 2.44 x 1.83 m' }] });
+  const nodos = { 'Repartir herramientas R1': [{ tuse: { id:'t1', name:'buscar_producto',
+                    input: { q:'lamina mdf 2.7', limit:25 } }, historia: [] }],
+                  'Cerebro conversacional': { cot_req: REQ, ses_out: JSON.stringify({ marca:'Carpincentro' }) },
+                  'Unir pendiente': { cfg_mcp_url:'https://mcp.ardisa.com/mcp', cfg_mcp_token:'tok' } };
+  const cero = [sse({ result: { content: [{ type:'text',
+    text: JSON.stringify({ query:'lamina mdf 2.7', total:0, truncated:false, matches:[] }) }] } })];
+  const out = await correrCode(ARMAR, cero, nodos, helpers);
+  const d = JSON.parse(out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Se intenta la palabra + la medida en centímetros ("mdf 183")',
+           buscadas.indexOf('mdf 183') >= 0, JSON.stringify(buscadas));
+  chequear('Y gana el MDF CRUDO exacto, no los 40 FONDO genéricos',
+           d.busqueda_usada === 'mdf 183' && d.total === 3 && /CRUDO/.test(JSON.stringify(d.matches)),
+           JSON.stringify(d).slice(0, 200));
+}
+
 // ══ EL PROMPT LE ORDENA COMPARAR (2026-08-20, las 20 varillas) ═══════════════════════════════════
 // El dato solo sirve si la instrucción existe: si alguien borra la regla 5a del prompt, el modelo
 // vuelve a poner "✅ Con disponibilidad" con 11 unidades para un pedido de 20.

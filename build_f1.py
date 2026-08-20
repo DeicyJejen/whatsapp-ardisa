@@ -2966,7 +2966,11 @@ if(preguntaHorario){
     st.cotHist=((st.cotHist||[]).concat([{role:'user', content:[...texto].slice(0,400).join('')}])).slice(-6);
     cot_req=_cotReq(st); etapa='cotizacion';
     try{ armarRescate(S[wa]); }catch(e){}
-    return [{json:{etapa,wa_id:wa,wpp_body:null,aviso_body:null,aviso_medias:null,hay_aviso:false,hay_media:false,lead:null,chat:{creado_en:fechaCol(), wa_id:wa, nombre:(st.nombre||''), entrada:[...String(texto)].slice(0,300).join(''), salida:'(cotizando con SAP...)', etapa:'cotizacion'},consent_log:null,pend_cierre:false,pend_token:0,cot_req:cot_req,hay_cot:true,ses_tel:wa,ses_out:JSON.stringify(S[wa]||null)}}];
+    // 2026-08-20 (Deicy: "cada vez que va a consultar me deja sin respuesta — debería decirle el mensaje
+    // SIEMPRE"): el acuse solo salía en la PRIMERA consulta; en las vueltas siguientes (la cantidad, la
+    // referencia elegida) el cliente quedaba 15-60 s mirando el chat en silencio. Ahora todas las vueltas
+    // acusan recibo al instante mientras la consulta corre en paralelo.
+    return [{json:{etapa,wa_id:wa,wpp_body:txt(wa,'Perfecto. 🔍 Lo estamos verificando, en un momento te confirmamos.'),aviso_body:null,aviso_medias:null,hay_aviso:false,hay_media:false,lead:null,chat:{creado_en:fechaCol(), wa_id:wa, nombre:(st.nombre||''), entrada:[...String(texto)].slice(0,300).join(''), salida:'(cotizando con SAP...)', etapa:'cotizacion'},consent_log:null,pend_cierre:false,pend_token:0,cot_req:cot_req,hay_cot:true,ses_tel:wa,ses_out:JSON.stringify(S[wa]||null)}}];
   }
 } else if(st.paso==='telContacto'){
   // Respuesta a la pregunta del número de contacto (cliente con número oculto, decisión Deicy 14-ago).
@@ -3890,13 +3894,16 @@ async function _otrasCiudades(itemCode, ciudadCliente){
   if(!_H || !_cfg.cfg_mcp_url || !_cfg.cfg_mcp_token) return null;
   const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
+  // 2026-08-20 (cotización MDF de Deicy: 4 min 38 s de espera): con el MCP lento, cada llamada podía
+  // colgarse 15 s y esto corre por cada producto sin stock. Una consulta de ciudad normal tarda <1 s:
+  // si en 6 s no respondió, esa ciudad se da por no revisada y el cliente no espera por ella.
   const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
     body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
-      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:15000});
+      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:6000});
   const _sid=(_ini && _ini.headers && (_ini.headers['mcp-session-id']||_ini.headers['Mcp-Session-Id']))||'';
   const _otras=_CIU_PV.filter(function(c){ return String(c).toLowerCase()!==String(ciudadCliente||'').toLowerCase(); });
   const _r=await Promise.all(_otras.map(function(c){
-    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:15000,
+    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
           params:{name:'disponibilidad_ciudad', arguments:{item_code:itemCode, ciudad:c} } })})
@@ -3930,22 +3937,37 @@ async function _reintentarBusqueda(q0, textoCliente){
   if(_pal.length<2 && textoCliente){
     for(const _w of _limpia(textoCliente)) if(_pal.indexOf(_w)<0) _pal.push(_w);
   }
-  if(_pal.length<2) return null;                       // de verdad no hay nada más que probar
+  // === LAS MEDIDAS SON PARTE DEL NOMBRE (2026-08-20, "Lámina MDF de 2.7mm de 2.44 x 1.83" de Deicy):
+  // el limpiador botaba TODOS los números y quedaba solo "mdf" -> 25 resultados que empiezan por
+  // "FONDO..." y el verdadero "MDF 183X244X2.5 CRUDO" (¡130 láminas en Barranquilla!) quedaba cortado
+  // por el tope. El bot respondió "no lo manejamos" con inventario en la mano. En el catálogo las
+  // dimensiones van en CENTÍMETROS pegadas al nombre (183X244), así que 2.44 y 1.83 metros se traducen
+  // y se prueban ADEMÁS combinadas con la palabra del producto: "mdf 183" da 3 resultados exactos.
+  const _dims=[];
+  (String(q0+' '+(textoCliente||'')).match(/\d+(?:[.,]\d+)?/g)||[]).forEach(function(_n0){
+    const _n=_n0.replace(',','.'); const _v=parseFloat(_n); if(!(_v>0)) return;
+    if(_v<4 && /[.,]/.test(_n0)){ const _cm=String(Math.round(_v*100)); if(_dims.indexOf(_cm)<0) _dims.push(_cm); }
+    else if(_v>=100 && _v<400 && _dims.indexOf(_n)<0) _dims.push(_n);   // ya viene en cm (183, 244)
+  });
+  if(_pal.length<2 && !_dims.length) return null;      // de verdad no hay nada más que probar
   _pal.sort(function(a,b){ return b.length-a.length; });   // primero las largas: las cortas suelen ser genéricas
+  const _combos=[];
+  if(_pal.length){ for(const _d of _dims.slice(0,3)){ _combos.push(_pal[0]+' '+_d); } }
   const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
   const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
     body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
-      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:15000});
+      clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:6000});
   const _sid=(_ini && _ini.headers && (_ini.headers['mcp-session-id']||_ini.headers['Mcp-Session-Id']))||'';
   // Se prueban las candidatas y gana la que MENOS resultados devuelva: en un catálogo de ferretería la
   // palabra genérica ("pintura") arrastra cientos de referencias y la específica ("drywall") unas pocas,
   // así que el conteo es un buen termómetro de cuál de las dos describe lo que el cliente pidió.
-  const _cand=await Promise.all(_pal.slice(0,3).map(function(_w){
-    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:15000,
+  // Las combinaciones con medida van PRIMERO: si "mdf 183" pega, ese es el producto.
+  const _cand=await Promise.all(_combos.concat(_pal.slice(0,3)).slice(0,6).map(function(_w){
+    return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
-          params:{name:'buscar_producto', arguments:{q:_w, limit:25} } })})
+          params:{name:'buscar_producto', arguments:{q:_w, limit:40} } })})
       .then(function(t){ const o=JSON.parse(sacarTexto(t)); return (o && o.total>0) ? {w:_w, o:o} : null; })
       .catch(function(){ return null; });
   }));
@@ -4021,7 +4043,10 @@ const _sinStock=[];
 _txt.forEach(function(t,ix){ try{ const o=JSON.parse(t);
   if(o && o.hay_disponibilidad===false && o.item_code) _sinStock.push({ix:ix, item:o.item_code, ciudad:o.ciudad});
 }catch(e){} });
-for(const _f of _sinStock.slice(0,3)){          // tope: el cliente está esperando
+// 2026-08-20 (cotización MDF de Deicy: "Armar consulta R4" tardó 151 SEGUNDOS): estos dos bloques iban
+// producto por producto EN SERIE, y con el MCP lento cada uno sumaba su propia espera. El cliente es uno
+// solo esperando: todos los productos se consultan A LA VEZ y la espera es la del más lento, no la suma.
+await Promise.all(_sinStock.slice(0,3).map(async function(_f){
   try{
     const _hall=await _otrasCiudades(_f.item, _f.ciudad);
     if(_hall){ const o=JSON.parse(_txt[_f.ix]);
@@ -4029,15 +4054,15 @@ for(const _f of _sinStock.slice(0,3)){          // tope: el cliente está espera
       o.ciudades_revisadas='se revisaron TODAS las ciudades donde tenemos punto de venta';
       _txt[_f.ix]=JSON.stringify(o); }
   }catch(e){}
-}
-for(let _j=0; _j<_txt.length; _j++){
+}));
+await Promise.all(_txt.map(async function(_t,_j){
   try{
-    const o=JSON.parse(_txt[_j]);
-    if(!o || !o.item_code || !(Number(o.precio_con_iva)>0)) continue;
+    const o=JSON.parse(_t);
+    if(!o || !o.item_code || !(Number(o.precio_con_iva)>0)) return;
     const _u=await _tiendaUrl(o.item_code, Number(o.precio_con_iva));
     if(_u){ o.url_tienda=_u; _txt[_j]=JSON.stringify(o); }
   }catch(e){}
-}
+}));
 const resultados=items.map((it,ix)=>({type:'tool_result', tool_use_id:(tuses[ix]||{}).id||'',
   content:[{type:'text', text:[..._txt[ix]].slice(0,4000).join('')}]}));
 """ + (r"""
@@ -5323,7 +5348,11 @@ for _n in nodes:
         _n["position"] = list(_POS[_n["name"]])
 
 wf = {"id":"botArdisaFase1x","name":"Bot WhatsApp Grupo Ardisa — IA (Fase 1) ✅ EN VIVO",
- "nodes":nodes,"connections":connections,"active":False,"settings":{"executionOrder":"v1"}}
+ "nodes":nodes,"connections":connections,"active":False,
+ # 2026-08-20 (la cotización del MDF corrió 4 min 38 s y pareció "colgada"): techo duro por ejecución.
+ # Ningún camino legítimo del bot pasa de ~2 min con los timeouts nuevos; a los 5 min n8n la mata y el
+ # rescate del cron entrega el cierre igual (el cliente no se queda esperando a un workflow zombi).
+ "settings":{"executionOrder":"v1","executionTimeout":300}}
 _serialized = json.dumps(wf, ensure_ascii=False, indent=2)
 # Guard: el token NUNCA debe quedar embebido en el JSON (debe ir por credencial cifrada).
 if "Bearer EAA" in _serialized or ("Bearer %s" % TOKEN) in _serialized:

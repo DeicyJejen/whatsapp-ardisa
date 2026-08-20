@@ -184,6 +184,11 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const r = correr({ datos: ev(DEMO,{ texto:'y en 15mm la tienen?' }), sd, pend:CFG });
   chequear('Pregunta de seguimiento -> nueva consulta con historial', r.hay_cot===true && (r.cot_req.messages||[]).length>=3,
            'msgs='+JSON.stringify((r.cot_req||{}).messages||[]).slice(0,150));
+  // 2026-08-20 (Deicy: "cada vez que va a consultar me deja sin respuesta"): el acuse salía solo en la
+  // PRIMERA consulta; las vueltas siguientes dejaban al cliente 15-60 s en silencio mientras corría SAP.
+  chequear('Y el cliente recibe acuse INMEDIATO también en las vueltas siguientes',
+           !!(r.wpp_body && /verific/i.test(((r.wpp_body||{}).text||{}).body||'')),
+           'wpp_body='+JSON.stringify(r.wpp_body||null).slice(0,140));
 }
 
 // ══ 5. COMPRA: "lo quiero" -> AQUÍ entra el humano (cierre de siempre) ══════════
