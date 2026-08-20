@@ -115,7 +115,7 @@ let paso_actual = '';
 try { const _s = $getWorkflowStaticData('global'); paso_actual = (_s.ses && _s.ses[wa_id] && _s.ses[wa_id].paso) || ''; } catch(e){}
 // La IA corre en los pasos de decisión; y TAMBIÉN durante la recolección (nombre/ciudad/perfil) SI el cliente escribe algo que parece un PRODUCTO
 // (para clasificar bien Construcción/Acabados aunque lo diga antes de tiempo). En respuestas cortas (un nombre, una ciudad) NO gasta IA.
-const _pareceProducto = (texto||'').trim().length>=12 && ( /\d/.test(texto||'') || /(cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|cemento|varilla|hierro|acero|cer[aá]mic|porcelan|loseta|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|pintura|tablero|mdf|melamin|madera|drywall|arena|ladrillo|teja|tubo|l[aá]mina|mueble|combo|electrodom|nevera|estufa|lavadora|aluminio|eterboard|fibrocemento|bulto|metro|m2)/i.test(_low) );
+const _pareceProducto = (texto||'').trim().length>=12 && ( /\d/.test(texto||'') || /(cotiz|precio|presupuesto|necesito|requiero|quiero|busco|comprar|venden?|manejan?|tienen|distribuyen|cemento|varilla|hierro|acero|cer[aá]mic|porcelan|loseta|baldosa|grifer|sanitario|inodoro|lavamanos|ducha|pintura|tablero|mdf|melamin|madera|drywall|arena|ladrillo|teja|tubo|l[aá]mina|mueble|combo|electrodom|nevera|estufa|lavadora|aluminio|eterboard|fibrocemento|bulto|metro|m2)/i.test(_low) );
 const _pasoRecolec = (paso_actual==='nombre'||paso_actual==='ciudad'||paso_actual==='ciudadOtra'||paso_actual==='ocuArd'||paso_actual==='ocupacion'||paso_actual==='punto');
 const espera_ia = (paso_actual==='' || paso_actual==='cerrado' || paso_actual==='detalle' || paso_actual==='marca' || paso_actual==='consent' || paso_actual==='confirmGrupo') || (_pasoRecolec && _pareceProducto);
 return [{ json: { es_mensaje: true, wa_id, msg_id, mtype, es_media, media_id, media_caption, texto, opcion_id, profileName, usuario_wa,
@@ -418,7 +418,9 @@ function ciudadMenu(cuerpo, lst){
   return lista(wa, cuerpo, 'Ver ciudades', 'Ciudades', lst);
 }
 // Menú de LÍNEA/grupo Ardisa: 3 opciones (Construcción, Acabados, Proyecto Arquitectónico) con descripción -> lista.
-function grupoMenu(pre){ return lista(wa, (pre||'')+'Para pasarte con el asesor correcto, ¿qué necesitas? 👇','Elegir opción','Tipo de solicitud',[
+function grupoMenu(pre, yaDicho){ return lista(wa, (pre||'')+(yaDicho
+  ? 'Para pasarte con el asesor correcto, ¿en cuál de estas líneas va tu solicitud? 👇'
+  : 'Para pasarte con el asesor correcto, ¿qué necesitas? 👇'),'Elegir opción','Tipo de solicitud',[
   ['GRP_CONS','🧱 Construcción','Cemento, arena, hierro, PVC, obra gris…'],
   ['GRP_ACAB','🚿 Acabados','Cerámica, grifería, sanitarios, pintura, Sika…'],
   ['GRP_MOBIL','🛋️ Proyecto a tu medida','Arquitectónico: cocinas, closets, muebles de baño - proyectos completos']
@@ -1301,7 +1303,7 @@ const OCA=[['OCA_CARP','🔨 Carpintero','Fabricante de muebles'],['OCA_IND','�
 const CAB_PERFIL_ARD  = '🧑‍💼 ¿Cómo te identificas? Así te atendemos según tu tipo de compra.\n\n👇 Toca *Elegir opción*';
 const CAB_PERFIL_CARP = '🪵 ¿Cómo te identificas? Así te atendemos según tu tipo de compra.\n\n👇 Toca *Elegir opción*';
 // Ruteo Ardisa por PRODUCTO (bajo el capó, SIN preguntar): detecta en la solicitud del cliente si es Construcción o Acabados.
-const KW_CONS=/\b(cemento|cementos|concreto|hormig[oó]n|mortero|arena|gravilla|grava|triturado|cascajo|recebo|ladrillo|bloque|bloqueta|adoqu[ií]n|hierro|varilla|acero|alambre|malla|teja|tejas|tejado|zinc|canaleta|pvc|tuber[ií]a|tubo|aluminio|drywall|dry ?wall|superboard|eterboard|fibrocemento|durock|yeso|lavadero|obra gris|obra negra|columna|viga|vigueta|losa|placa|cimiento|estribo|fleje|cal viva|puntilla|formaleta|andamio)/;
+const KW_CONS=/\b(cemento|cementos|concreto|hormig[oó]n|mortero|arena|gravilla|grava|triturado|cascajo|recebo|ladrillo|bloque|bloqueta|adoqu[ií]n|hierro|varilla|acero|alambre|malla|teja|tejas|tejado|zinc|canaleta|pvc|tuber[ií]a|tubo|aluminio|drywall|dry ?wall|superboard|eterboard|fibrocemento|durock|yeso|lavadero|obra gris|obra negra|columna|viga|vigueta|losa|placa|cimiento|estribo|fleje|cal viva|puntilla|formaleta|andamio|policarbonato|domos?|transl[uú]cid\w*)/;
 // 2026-07-29 (auditoría, caso Esperanza Chaparro #126/#145): "campa[nñ]a" cubre el típico error de tipeo
 // "campaña Challenger de 60" por "campana extractora" — es un electrodoméstico, NO un proyecto a medida.
 const KW_ACAB=/\b(electrodom|nevera|refrigerador|congelador|estufa|horno|microondas|campana|campa[nñ]a|extractor|lavadora|secadora|lavavajillas|lavaplatos|calentador|aire acondicionado|licuadora|freidora|air ?fryer|cer[aá]mic|porcelanato|porcel[aá]nic|porcel[aá]nato|enchape|azulejo|baldosa|baldos[ií]n|loseta|losetas|laminado|grifer[ií]|grifo|sanitario|inodoro|poceta|orinal|bid[eé]|lavamanos|ducha|regadera|ba[nñ]o|ba[nñ]era|combo|mueble|espejo|sif[oó]n|mes[oó]n|tina|jacuzzi|hidromasaje|pintura|esmalte|vinilo|viniltex|estuco|sika|sikaflex|impermeabiliz)/;
@@ -1460,8 +1462,12 @@ function finalizeIA(st){   // cierra un lead con marca+detalle; si es Ardisa sin
   st.tiposol = st.tiposol || 'Cotización / Info';
   if(st.marca==='Ardisa' && !st.grupo){
     st.paso='confirmGrupo'; etapa='confirmGrupo';
-    const _op = st.acuse ? (st.acuse+'\n\n') : ''; st.acuse='';
-    wpp_body=grupoMenu(_op);
+    let _op = st.acuse ? (st.acuse+'\n\n') : ''; st.acuse='';
+    // 2026-08-20 (caso Salomé, policarbonato): pedirle "¿qué necesitas?" a quien YA escribió su producto
+    // suena a que el bot la ignoró. Si la solicitud está anotada, el menú lo dice y solo pide ubicarla.
+    const _prodDicho = String(st.iaProd || st.detalle || '').replace(/\s+/g,' ').trim();
+    if(!_op && _prodDicho){ _op='📝 Tu solicitud ya quedó anotada: «'+[..._prodDicho].slice(0,90).join('')+'» ✅\n\n'; }
+    wpp_body=grupoMenu(_op, !!_prodDicho);
   } else {
     if(intentaCotizar()) return;   // Fase 2: producto conocido + piloto activo -> cotiza ANTES de cerrar
     const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre';
@@ -2690,7 +2696,10 @@ if(preguntaHorario){
       // ("es sellador para concreto"). Antes se descartaba y el asesor nunca lo veía.
       // Ojo: otro guard más arriba ya guarda lo que el cliente escribe donde se le pide el nombre, así que
       // aquí solo se suma lo que NO haya quedado ya — si no, la asesora ve el producto repetido dos veces.
-      if(tieneProdConc(texto)){
+      // 2026-08-20 (caso Salomé + "membrana geodésica"): la vara no puede ser solo NUESTRO vocabulario —
+      // si la IA de ESTE mensaje capturó un producto concreto, eso también cuenta (la IA manda).
+      const _iaVioProd = !!(ia && Array.isArray(ia.productos) && ia.productos.some(function(p){ return String(p||'').trim().length>=4; }));
+      if(tieneProdConc(texto) || _iaVioProd){
         const _t=[...String(texto)].slice(0,200).join('');
         const _yaEsta = String(st.detalle||'').indexOf(_t)>=0 || String(st.notas||'').indexOf(_t)>=0;
         if(!_yaEsta) st.notas = ((st.notas?(st.notas+' | '):'') + _t).slice(0,1200);
@@ -2763,7 +2772,9 @@ if(preguntaHorario){
           if(!intentaCotizar()){ const R=cerrarLead(st,{}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias; pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre'; }
         } else {   // SEGURIDAD: no estamos seguros del grupo -> PREGUNTAMOS (1 toque), NUNCA adivinamos el asesor
           st.paso='confirmGrupo'; etapa='confirmGrupo';
-          wpp_body=grupoMenu();
+          // el producto YA está anotado (st.detalle=st.notas unas líneas arriba): el menú lo reconoce
+          const _pd=String(st.detalle||'').replace(/\s+/g,' ').trim();
+          wpp_body=grupoMenu(_pd?('📝 Tu solicitud ya quedó anotada: «'+[..._pd].slice(0,90).join('')+'» ✅\n\n'):'', !!_pd);
         }
       } else { st.paso='detalle'; etapa='detalle'; wpp_body=txt(wa,MSG_DETALLE); } } }
 } else if(st.paso==='ocupacion'){   // solo Carpincentro
@@ -3285,7 +3296,7 @@ LENGUAJE REAL: los clientes escriben con errores de ortografía, sin tildes, abr
 MARCAS: ARDISA -> CONSTRUCCION (cemento, concreto, arena, ladrillo, hierro, varilla, tejas, tubería PVC, drywall, lavaderos, obra gris...) o ACABADOS (electrodomésticos: nevera, estufa, lavadora, horno...; cerámica, porcelanato, grifería, sanitarios, lavamanos, ducha, muebles/combos de baño, pintura, productos SIKA). CARPINCENTRO -> maderas, tableros/aglomerados/MDF/MDP/melamina, triplex, herrajes, bisagras, correderas, fórmica, laca.
 MARCAS Y REFERENCIAS REALES (vistas en pedidos de clientes de Ardisa; si aparece una, la marca queda decidida):
 - CARPINCENTRO (tableros y carpintería): DURATEX, YUTEX, GRAFFO, LAMITECH, PELIKAN, BARDOLI, TABLEMAC, UNICOR, WENGUE TEX, MADERKIT, ARAUCO, MASISA. Palabras: aglomerado, MDP, MDF (a veces mal escrito "MPF"), melamínico, melamina, formaleta, tapacanto, canto, despiece, chapado, riel, corredera, bisagra, herraje, RH, laca, triplex, fórmica.
-- ARDISA CONSTRUCCION (ferretería y obra): ladrillo H10, varilla, gravilla, PVC presión RDE, frescasa, aislante foil, geotextil, manto asfáltico, drywall, SIKA, codo, racor, teflón, cemento, arena, hierro, acero, tejas.
+- ARDISA CONSTRUCCION (ferretería y obra): ladrillo H10, varilla, gravilla, PVC presión RDE, frescasa, aislante foil, geotextil, manto asfáltico, drywall, SIKA, codo, racor, teflón, cemento, arena, hierro, acero, tejas, policarbonato (láminas para domos/cubiertas/techos translúcidos), teja translúcida, domo.
 - ARDISA ACABADOS: CORONA, PINTUCO, VINILTEX, BARNES, ALFA, GRIVAL, MANSFIELD. Palabras: cerámica, porcelanato, piso, enchape, sanitario, lavamanos, grifería, ducha, cuñete, estufa, campana, horno, nevera, lavadora.
 OJO con las que se confunden: una "lámina" de 18mm en medidas 1.83x2.44 o 2.15x2.44 es un TABLERO -> Carpincentro (NO acabados). Una "puerta" o un "riel" pueden ser de Carpincentro (closets) o de Ardisa: decide por el resto del mensaje, y si no hay pista usa 'desconocido'.
 Razona por SIGNIFICADO aunque el producto no esté en la lista. Deduce la marca por los PRODUCTOS, no porque el cliente la nombre. Ante duda entre CONSTRUCCION y ACABADOS usa 'desconocido' (mejor que adivinar mal). Rellena SIEMPRE los campos; si falta un dato usa el centinela (ciudad "", nombre "", tipo_cliente 'desconocido', productos [], grupo_pista 'desconocido').
@@ -4532,8 +4543,12 @@ else if(p.avisoExtra){ try{ const b=JSON.parse(JSON.stringify(p.aviso)); b.text.
 // 2026-08-20 (cola de Karime): el "también escribió" como texto suelto muere en mediaPend si el asesor no
 // abre su ventana. La BD sí o sí: el extra entra al detalle del lead ANTES del INSERT (y Sumar/Redirigir
 // también lo ven). El tope 1200 es el mismo del detalle (límites heredados, caso Johans #245).
-if(p.tipo!=='reclamo' && p.avisoExtra && p.lead){ try{ p.lead=JSON.parse(JSON.stringify(p.lead));
-  p.lead.detalle=[...String((p.lead.detalle||'')+' ➕ '+p.avisoExtra)].slice(0,1200).join(''); }catch(e){} }
+if(p.tipo!=='reclamo' && p.avisoExtra && p.lead){ try{
+  // solo si el detalle NO lo trae ya (caso Salomé #345: el mismo texto quedó dos veces con ➕)
+  if(String(p.lead.detalle||'').indexOf(p.avisoExtra)<0){
+    p.lead=JSON.parse(JSON.stringify(p.lead));
+    p.lead.detalle=[...String((p.lead.detalle||'')+' ➕ '+p.avisoExtra)].slice(0,1200).join('');
+  } }catch(e){} }
 if(p.avisoCopia){ medias.push(p.avisoCopia); }   // copia de monitoreo (texto) a PRUEBA_NUM cuando el aviso va EN VIVO -> se envía por el mismo canal de reenvío
 if(p.segPrompt){ medias.push(p.segPrompt); }   // SEGUIMIENTO (prueba): botón "Reportar resultado" a Deicy, por el mismo canal de reenvío
 try{ delete store.pendCierre[wa]; }catch(e){}
