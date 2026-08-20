@@ -44,17 +44,43 @@ obtenido = float(tok.get("obtenido_en") or 0)          # lo escribe este script 
 restante = (obtenido + ttl) - time.time() if obtenido else -1
 FORZAR = "--forzar" in sys.argv
 
+# 2026-08-20 (caso real, 10:30): el MCP se REINICIÓ y borró sus clientes OAuth — el token local decía
+# "quedan 49min" pero el servidor lo rechazaba con 401, y este script siguió diciendo "vigente" media
+# hora mientras todas las cotizaciones caían al asesor. El reloj local NO basta: se le pregunta AL
+# SERVIDOR. Si él dice 401, se renueva de una; si la renovación también falla (invalid_client = clientes
+# borrados), la línea ERROR de abajo la ve el vigilante en su ronda horaria y alerta a Deicy.
+def servidor_acepta(token):
+    try:
+        req = urllib.request.Request("https://mcp.ardisa.com/mcp",
+            data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                           "clientInfo": {"name": "refrescador", "version": "1"}}}).encode(),
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/json, text/event-stream",
+                     "Authorization": "Bearer " + token})
+        urllib.request.urlopen(req, timeout=8).read(200)
+        return True
+    except urllib.error.HTTPError as e:
+        return e.code != 401          # solo el 401 delata token muerto; un 500 no es culpa del token
+    except Exception:
+        return True                   # red caída ≠ token malo: no renovar a ciegas
+
+
 # Renovar cuando quede menos del 35% de la vida o menos de 15 min (lo que sea mayor). Si no sabemos
 # cuándo se obtuvo (archivo viejo), se renueva de una: renovar de más es gratis, quedarse corto no.
 umbral = max(15 * 60, ttl * 0.35)
 if not FORZAR and restante > umbral:
-    # aun así, sincroniza la BD por si alguien la vació a mano (el bot lee la BD, no el archivo)
-    if bd("SELECT valor FROM config WHERE clave='mcp_sap_token'") != tok.get("access_token", ""):
-        guardar_bd(tok.get("access_token", ""))
-        print("%s | BD desincronizada -> re-escrita (token vigente, quedan %dmin)" % (AHORA, restante / 60))
+    if not servidor_acepta(tok.get("access_token", "")):
+        print("%s | ⚠️ el SERVIDOR rechaza el token (401) aunque localmente quedaban %dmin — ¿reinicio del "
+              "MCP? renovando ya" % (AHORA, restante / 60))
     else:
-        print("%s | token vigente (quedan %dmin) — sin cambios" % (AHORA, restante / 60))
-    raise SystemExit(0)
+        # aun así, sincroniza la BD por si alguien la vació a mano (el bot lee la BD, no el archivo)
+        if bd("SELECT valor FROM config WHERE clave='mcp_sap_token'") != tok.get("access_token", ""):
+            guardar_bd(tok.get("access_token", ""))
+            print("%s | BD desincronizada -> re-escrita (token vigente, quedan %dmin)" % (AHORA, restante / 60))
+        else:
+            print("%s | token vigente (quedan %dmin) — sin cambios" % (AHORA, restante / 60))
+        raise SystemExit(0)
 
 data = urllib.parse.urlencode({
     "grant_type": "refresh_token", "refresh_token": tok.get("refresh_token", ""),
