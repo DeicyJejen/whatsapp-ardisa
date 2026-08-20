@@ -486,7 +486,12 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
     if (body.method === 'initialize') return { headers: { 'mcp-session-id': 's' }, body: {} };
     const q = body.params.arguments.q;
     buscadas.push(q);
-    const r = (q === 'mdf 183')
+    // El nombre real trae ESPACIOS MÚLTIPLES ("MDF    183X244X2.7"): por eso "mdf 183" (un espacio) no
+    // lo ve y solo la medida pegada "183X244X2.7" lo encuentra — como en el catálogo vivo (SKU 10023222).
+    const r = (q === '183X244X2.7')
+      ? { query:q, total: 1, truncated: false, matches: [
+          { item_code:'10023222', item_name:'MDF    183X244X2.7 CRUDO  T', unidad:'Lámina' }] }
+      : (q === 'mdf 183')
       ? { query:q, total: 3, truncated: false, matches: [
           { item_code:'10012541', item_name:'MDF 183X244X2.5 CRUDO A', unidad:'Lámina' },
           { item_code:'10019449', item_name:'MDF 183X244X2.5 CRUDO C', unidad:'Lámina' },
@@ -507,10 +512,10 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
     text: JSON.stringify({ query:'lamina mdf 2.7', total:0, truncated:false, matches:[] }) }] } })];
   const out = await correrCode(ARMAR, cero, nodos, helpers);
   const d = JSON.parse(out[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
-  chequear('Se intenta la palabra + la medida en centímetros ("mdf 183")',
-           buscadas.indexOf('mdf 183') >= 0, JSON.stringify(buscadas));
-  chequear('Y gana el MDF CRUDO exacto, no los 40 FONDO genéricos',
-           d.busqueda_usada === 'mdf 183' && d.total === 3 && /CRUDO/.test(JSON.stringify(d.matches)),
+  chequear('Se intenta la MEDIDA PEGADA ("183X244X2.7") y la palabra + medida ("mdf 183")',
+           buscadas.indexOf('183X244X2.7') >= 0 && buscadas.indexOf('mdf 183') >= 0, JSON.stringify(buscadas));
+  chequear('Y gana el MDF CRUDO T exacto de 2.7 (espacios múltiples y todo)',
+           d.busqueda_usada === '183X244X2.7' && d.total === 1 && /10023222/.test(JSON.stringify(d.matches)),
            JSON.stringify(d).slice(0, 200));
 
   // 2ª ronda del mismo caso (la prueba de las 9:56): el modelo buscó "MDF" a secas -> 25 FONDOs
@@ -527,8 +532,8 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
                   'Unir pendiente': { cfg_mcp_url:'https://mcp.ardisa.com/mcp', cfg_mcp_token:'tok' } };
   const out2 = await correrCode(ARMAR, trunc, nodos2, helpers2);
   const d2 = JSON.parse(out2[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
-  chequear('Búsqueda TRUNCADA + cliente con medidas -> se afina con "mdf 183"',
-           d2.busqueda_usada === 'mdf 183' && d2.total === 3 && /RECORTADA|afinó/.test(d2.nota||''),
+  chequear('Búsqueda TRUNCADA + cliente con medidas -> se afina y llega al CRUDO T',
+           d2.busqueda_usada === '183X244X2.7' && d2.total === 1 && /RECORTADA|afinó/.test(d2.nota||''),
            JSON.stringify(d2).slice(0, 220));
 }
 

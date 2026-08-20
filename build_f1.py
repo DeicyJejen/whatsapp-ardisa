@@ -3970,11 +3970,12 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   // por el tope. El bot respondió "no lo manejamos" con inventario en la mano. En el catálogo las
   // dimensiones van en CENTÍMETROS pegadas al nombre (183X244), así que 2.44 y 1.83 metros se traducen
   // y se prueban ADEMÁS combinadas con la palabra del producto: "mdf 183" da 3 resultados exactos.
-  const _dims=[];
+  const _dims=[], _esp=[];
   (String(q0+' '+(textoCliente||'')).match(/\d+(?:[.,]\d+)?/g)||[]).forEach(function(_n0){
     const _n=_n0.replace(',','.'); const _v=parseFloat(_n); if(!(_v>0)) return;
     if(_v<4 && /[.,]/.test(_n0)){ const _cm=String(Math.round(_v*100)); if(_dims.indexOf(_cm)<0) _dims.push(_cm); }
     else if(_v>=100 && _v<400 && _dims.indexOf(_n)<0) _dims.push(_n);   // ya viene en cm (183, 244)
+    if(_v<10 && /[.,]/.test(_n0) && _esp.indexOf(_n)<0) _esp.push(_n);  // calibre/espesor (2.7, 2.5)
   });
   if(soloAfinar && !_dims.length) return null;         // afinar sin medidas no tiene sentido
   if(_pal.length<2 && !_dims.length) return null;      // de verdad no hay nada más que probar
@@ -3983,7 +3984,17 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   // "MDF 183X244X2.5 CRUDO"). Por eso el combo con medida se arma con CADA palabra, no solo la más
   // larga: "crudo 183" no existe en ese orden, "mdf 183" sí.
   const _combos=[];
-  for(const _w of _pal.slice(0,3)){ for(const _d of _dims.slice(0,3)){ if(_combos.length<6) _combos.push(_w+' '+_d); } }
+  // La MEDIDA PEGADA va primero: los nombres del catálogo traen espacios irregulares ("MDF    183X244X2.7
+  // CRUDO  T", con 4 espacios) y la búsqueda es literal — "mdf 183" con UN espacio no lo encuentra, pero
+  // "183X244X2.7" es un solo bloque sin espacios y siempre pega (caso Deicy 20-ago, SKU 10023222 con 2
+  // láminas vendibles en Ibagué que el bot juró que no existían).
+  const _cmix=_dims.map(Number).filter(function(n){return n>=100&&n<400;}).sort(function(a,b){return a-b;});
+  if(_cmix.length>=2){
+    const _par=_cmix[0]+'X'+_cmix[1];
+    for(const _e of _esp.slice(0,2)){ _combos.push(_par+'X'+_e); }
+    _combos.push(_par);
+  }
+  for(const _w of _pal.slice(0,3)){ for(const _d of _dims.slice(0,3)){ if(_combos.length<7) _combos.push(_w+' '+_d); } }
   const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
   const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
@@ -3994,7 +4005,7 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   // palabra genérica ("pintura") arrastra cientos de referencias y la específica ("drywall") unas pocas,
   // así que el conteo es un buen termómetro de cuál de las dos describe lo que el cliente pidió.
   // Las combinaciones con medida van PRIMERO: si "mdf 183" pega, ese es el producto.
-  const _cand=await Promise.all((soloAfinar ? _combos : _combos.concat(_pal.slice(0,3))).slice(0,6).map(function(_w){
+  const _cand=await Promise.all((soloAfinar ? _combos : _combos.concat(_pal.slice(0,3))).slice(0,8).map(function(_w){
     return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
