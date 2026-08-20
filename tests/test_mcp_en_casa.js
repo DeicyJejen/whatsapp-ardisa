@@ -535,6 +535,43 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   chequear('Búsqueda TRUNCADA + cliente con medidas -> se afina y llega al CRUDO T',
            d2.busqueda_usada === '183X244X2.7' && d2.total === 1 && /RECORTADA|afinó/.test(d2.nota||''),
            JSON.stringify(d2).slice(0, 220));
+
+  // 3ª ronda (caso "MELAMINICO UNICOR MDF BLANCO NEVADO LISO 183X244X15", 20-ago 12:03): el nombre del
+  // catálogo trae espacios DOBLES y la frase literal del cliente da 0; el espesor ENTERO (15) se botaba
+  // por no tener decimales y el reintento buscó "183X244" -> 25 aglomerados equivocados. El patrón
+  // completo AxBxC del cliente ahora se busca TAL CUAL y encuentra el UNICOR exacto.
+  const buscadas3 = []; buscadas.length = 0;
+  const helpers3 = { httpRequest: async (o) => {
+    if (String(o.url).indexOf('graphql') >= 0) return { data: { products: { items: [] } } };
+    const body = typeof o.body === 'string' ? JSON.parse(o.body) : o.body;
+    if (body.method === 'initialize') return { headers: { 'mcp-session-id': 's' }, body: {} };
+    const q = body.params.arguments.q; buscadas3.push(q);
+    const r = (q === '183X244X15')
+      ? { query:q, total: 2, truncated: false, matches: [
+          { item_code:'10013902', item_name:'MELAMINICO  UNICOR  MDF RH BLANCO NEVADO LISO 183X244X15  1C/ SIN BACKER', unidad:'Lámina' },
+          { item_code:'10030748', item_name:'MELAMINICO  UNICOR  MDF  WENGUE TEX MADERA  183X244X15  1C CON BACKER', unidad:'Lámina' }] }
+      : (q === '183X244')
+      ? { query:q, total: 25, truncated: true, matches: [
+          { item_code:'10016111', item_name:'AGLOMERADO ARAUCO MDP 183X244X15', unidad:'Lámina' }] }
+      : { query:q, total: 0, truncated: false, matches: [] };
+    return 'event: message\ndata: ' + JSON.stringify(
+      { result: { content: [{ type: 'text', text: JSON.stringify(r) }] } }) + '\n';
+  } };
+  const REQ3 = Object.assign({}, COT_REQ, { messages: [{ role:'user',
+    content:'hola quiero saber si venden (MELAMÍNICO UNICOR MDF BLANCO NEVADO LISO 183X244X15) y precio' }] });
+  const nodos3b = { 'Repartir herramientas R1': [{ tuse: { id:'t1', name:'buscar_producto',
+                    input: { q:'MELAMINICO UNICOR MDF BLANCO NEVADO LISO 183X244X15', limit:25 } }, historia: [] }],
+                  'Cerebro conversacional': { cot_req: REQ3, ses_out: JSON.stringify({ marca:'Carpincentro' }) },
+                  'Unir pendiente': { cfg_mcp_url:'https://mcp.ardisa.com/mcp', cfg_mcp_token:'tok' } };
+  const cero3b = [sse({ result: { content: [{ type:'text',
+    text: JSON.stringify({ query:'MELAMINICO UNICOR MDF BLANCO NEVADO LISO 183X244X15', total:0, truncated:false, matches:[] }) }] } })];
+  const out3 = await correrCode(ARMAR, cero3b, nodos3b, helpers3);
+  const d3 = JSON.parse(out3[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('El patrón AxBxC completo se busca tal cual ("183X244X15")',
+           buscadas3.indexOf('183X244X15') >= 0, JSON.stringify(buscadas3));
+  chequear('Y gana el UNICOR exacto, no los 25 aglomerados del par a secas',
+           d3.busqueda_usada === '183X244X15' && /UNICOR/.test(JSON.stringify(d3.matches)),
+           JSON.stringify(d3).slice(0, 220));
 }
 
 // ══ EL PROMPT LE ORDENA COMPARAR (2026-08-20, las 20 varillas) ═══════════════════════════════════

@@ -4014,10 +4014,16 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   // CRUDO  T", con 4 espacios) y la búsqueda es literal — "mdf 183" con UN espacio no lo encuentra, pero
   // "183X244X2.7" es un solo bloque sin espacios y siempre pega (caso Deicy 20-ago, SKU 10023222 con 2
   // láminas vendibles en Ibagué que el bot juró que no existían).
+  // 2026-08-20 tarde (caso "MELAMINICO UNICOR ... 183X244X15" de Deicy): si el cliente escribió el
+  // patrón COMPLETO AxBxC, esa cadena va tal cual y DE PRIMERA — "183X244X15" está pegado en el nombre
+  // del catálogo y esquiva los espacios dobles. El espesor entero (15, 18) no tiene decimales y el
+  // extractor de arriba lo botaba: el reintento buscó "183X244" a secas y cayó en 25 aglomerados.
+  const _mXYZ=String(q0+' '+(textoCliente||'')).match(/(\d{2,3})\s*[xX×]\s*(\d{2,3})\s*[xX×]\s*(\d+(?:[.,]\d+)?)/);
+  if(_mXYZ){ _combos.push(_mXYZ[1]+'X'+_mXYZ[2]+'X'+_mXYZ[3].replace(',','.')); }
   const _cmix=_dims.map(Number).filter(function(n){return n>=100&&n<400;}).sort(function(a,b){return a-b;});
   if(_cmix.length>=2){
     const _par=_cmix[0]+'X'+_cmix[1];
-    for(const _e of _esp.slice(0,2)){ _combos.push(_par+'X'+_e); }
+    for(const _e of _esp.slice(0,2)){ if(_combos.indexOf(_par+'X'+_e)<0) _combos.push(_par+'X'+_e); }
     _combos.push(_par);
   }
   for(const _w of _pal.slice(0,3)){ for(const _d of _dims.slice(0,3)){ if(_combos.length<7) _combos.push(_w+' '+_d); } }
