@@ -74,6 +74,7 @@ _PROD = (r"cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloq
          r"superboard|eterboard|fibrocemento|teja|tubo|tuber|pvc|ceramic|cerámic|porcelan|enchape|azulejo|"
          r"baldosa|grifer|sanitario|inodoro|lavamanos|ducha|baño|bano|meson|mesón|pintura|esmalte|estuco|"
          r"vinilo|sika|impermeabiliz|tabl|mdf|mdp|melamin|formica|fórmica|triplex|tripl|contrachap|madera|"
+         r"perfil|perfiles|policarbonato|domo|"
          r"lamina|lámina|mueble|combo|espejo|electrodom|nevera|refriger|estufa|horno|lavadora|secadora|"
          r"calentador|aluminio|mosaico|lavadero|cielo raso|metaldeck|yeso|resina|novafort|adhesiv|sellador|"
          r"sellante|sellad|silicona|pegante|pegacor|masilla|pañete|panete|mortero|concreto|hormig|aglomerad|"

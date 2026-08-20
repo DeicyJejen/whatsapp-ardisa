@@ -433,7 +433,18 @@ const _mezclaTxt = (a,b) => {
   if(!_n(b)) return a; if(!_n(a)) return b;
   if(_n(a).indexOf(_n(b))>=0) return a;      // b ya está contenido en a
   if(_n(b).indexOf(_n(a))>=0) return b;      // a ya está contenido en b -> b es la versión completa
-  return a+'  ·  '+b;
+  // 2026-08-20 (caso Jessica #346, "quisiera saber... · no se · quisiera saber..."): cuando ninguna
+  // contiene a la otra ENTERA, igual se deduplica TRAMO a tramo — un mensaje repetido o una muletilla
+  // sin contenido ("no sé", "ok") no le aportan nada a la asesora y ensucian la tarjeta.
+  const _MULET=/^(no s[eé]|nose|no|s[ií]|ok|okay|vale|listo|gracias|mmm+|ah+|aja|eh+|\?+|\.+)$/i;
+  const _tr = s => String(s||'').split(/\s+[·|]\s+/).map(function(x){return x.trim();}).filter(Boolean);
+  const _vistos={}; const _out=[];
+  for(const _t of _tr(a).concat(_tr(b))){
+    if(_MULET.test(_t)) continue;
+    const _k=_n(_t); if(_k.length<2 || _vistos[_k]) continue;
+    _vistos[_k]=1; _out.push(_t);
+  }
+  return _out.join('  ·  ') || (a+'  ·  '+b);
 };
 function elige(opts){
   if(id){const o=opts.find(x=>x[0]===id);if(o)return o;}   // tocó una opción (id exacto)
@@ -692,6 +703,8 @@ function cerrarLead(st,opts){
     // 19-ago (caso Edilberto): la frustración del cliente ("puta máquina…") se había colado a st.notas por
     // el guard de "necesito". Un tramo que es grosería sin producto ni cifra no es solicitud: se filtra.
     st.notas = String(st.notas).split(' | ').filter(function(x){
+      // 20-ago (caso Jessica #346): "no se" del paso del punto se colgaba como Nota del cliente
+      if(/^(no s[eé]|nose|no|s[ií]|ok|okay|vale|listo|gracias|mmm+|ah+|aja|eh+|\?+|\.+)$/i.test(String(x).trim())) return false;
       return !(RE_GROSERIA.test(x) && !/\d/.test(x) && !tieneProdConc(x)); }).join(' | ');
     if(!st.notas){ delete st.notas; }
   }
