@@ -4731,8 +4731,21 @@ if(store.pendCierre){
   }
   if(_rw){ out.push({json:{fin_cierre:true, wa_id:_rw, pend_token:store.pendCierre[_rw].token}}); }
 }
+// === CANDADO EN LA BD CONTRA RE-CIERRES (2026-08-20, caso Maryluz 573167404278): recibió "Cerramos esta
+// conversación" TRES veces (9:36, 9:41, 9:43). Causa: una ejecución LARGA (cotización de 4½ min) cargó el
+// staticData al arrancar y lo guardó VIEJO al terminar — pisó el `st.dormido` que este cron había marcado,
+// y el cron re-cerró a la clienta "resucitada". La memoria puede perder; la tabla `mensajes` no: si la BD
+// dice que ya le mandamos el cierre (3h) o el recordatorio (1h), no se repite — se re-marca en silencio.
+let _cerrBD=[], _recBD=[];
+try{
+  let _cj={}; try{ _cj=$input.first().json||{}; }catch(e){ _cj=$('Leer config cron (MySQL)').first().json||{}; }
+  _cerrBD=String(_cj.cerrados_3h||'').split(',').filter(Boolean);
+  _recBD=String(_cj.recordados_1h||'').split(',').filter(Boolean);
+}catch(e){}
 for(const wa in S){
   const st=S[wa]; if(!st||!st.t) continue;
+  if(!st.dormido && _cerrBD.indexOf(wa)>=0){ st.dormido=NOW; delete st.recordado; }   // la BD manda: ya se cerró
+  if(!st.recordado && _recBD.indexOf(wa)>=0){ st.recordado=NOW; }                      // ya se recordó hace <1h
   if(st.dormido){ if((NOW-st.dormido)>3*3600000) delete S[wa]; continue; }   // sesión cerrada por inactividad pero conservada: no la molestamos; se limpia sola a las 3h
   if(st.humano && (NOW-st.humano)<45*60*1000) continue;   // chat híbrido: un humano atiende desde el panel — ni recordatorio ni cierre mientras tanto
   if(st.paso==='cerrado'||st.paso==='porCerrar') continue;
@@ -5107,7 +5120,9 @@ nodes.append(node("Cada 1 min (inactivos)", "n8n-nodes-base.scheduleTrigger", 1.
 # se quedaba quieta hasta el siguiente mensaje entrante. Ahora el propio cron lo lee de la BD, cada minuto.
 nodes.append(node("Leer config cron (MySQL)", "n8n-nodes-base.mySql", 2.5,
     {"operation":"executeQuery",
-     "query":"SELECT (SELECT valor FROM config WHERE clave='tpl_foto' LIMIT 1) AS cfg_tpl_foto"},
+     "query":"SELECT (SELECT valor FROM config WHERE clave='tpl_foto' LIMIT 1) AS cfg_tpl_foto, "
+             "(SELECT GROUP_CONCAT(DISTINCT wa_id SEPARATOR ',') FROM mensajes WHERE etapa='cierre_inactividad' AND creado_en > NOW() - INTERVAL 3 HOUR) AS cerrados_3h, "
+             "(SELECT GROUP_CONCAT(DISTINCT wa_id SEPARATOR ',') FROM mensajes WHERE etapa='recordatorio' AND creado_en > NOW() - INTERVAL 1 HOUR) AS recordados_1h"},
     620, 980, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1000,
                "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 nodes.append(node("Revisar inactivos", "n8n-nodes-base.code", 2, {"jsCode":CODE_INACTIVOS}, 860, 980))
