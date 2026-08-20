@@ -40,11 +40,21 @@ echo "== 4/6  Snapshot para rollback -> $SNAP =="
 curl -s -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF" -o "$SNAP"
 python3 -c "import json;json.load(open('$SNAP'))" && echo "   snapshot OK"
 
-echo "== 5/6  Deploy (deactivate -> PUT -> activate) =="
+echo "== 5/6  Deploy (PUT en caliente, sin desactivar) =="
+# 2026-08-20 (mensaje de Deicy perdido a las 9:25:55, 25 s después de un deploy): el ciclo
+# deactivate->PUT->activate dejaba el webhook MUERTO ~4 segundos y Meta no siempre reintenta lo que
+# rebota ahí. n8n acepta actualizar un workflow ACTIVO (igual que cuando el editor guarda): el webhook
+# no se cae nunca. Probado en un workflow desechable antes de cambiar esto. Si el PUT en caliente
+# fallara, se cae al ciclo viejo como reversa (mejor 4 s de hueco que no desplegar).
 python3 -c "import json;w=json.load(open('workflow-bot-f1.json'));json.dump({'name':w['name'],'nodes':w['nodes'],'connections':w['connections'],'settings':w.get('settings',{})},open('/tmp/deploy-put.json','w'),ensure_ascii=False)"
-curl -s -X POST -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF/deactivate" -o /dev/null -w "   deactivate=%{http_code}\n"
-curl -s -X PUT  -H "X-N8N-API-KEY: $KEY" -H "Content-Type: application/json" --data-binary @/tmp/deploy-put.json "$API/workflows/$WF" -o /dev/null -w "   put=%{http_code}\n"
-curl -s -X POST -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF/activate" -o /dev/null -w "   activate=%{http_code}\n"
+PUTC=$(curl -s -X PUT -H "X-N8N-API-KEY: $KEY" -H "Content-Type: application/json" --data-binary @/tmp/deploy-put.json "$API/workflows/$WF" -o /dev/null -w "%{http_code}")
+echo "   put_en_caliente=$PUTC"
+if [ "$PUTC" != "200" ]; then
+  echo "   ⚠️ PUT en caliente falló -> reversa al ciclo deactivate->PUT->activate"
+  curl -s -X POST -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF/deactivate" -o /dev/null -w "   deactivate=%{http_code}\n"
+  curl -s -X PUT  -H "X-N8N-API-KEY: $KEY" -H "Content-Type: application/json" --data-binary @/tmp/deploy-put.json "$API/workflows/$WF" -o /dev/null -w "   put=%{http_code}\n"
+  curl -s -X POST -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF/activate" -o /dev/null -w "   activate=%{http_code}\n"
+fi
 sleep 3
 
 echo "== 6/6  Verificación automática (diff vivo vs build + webhook) =="
@@ -58,6 +68,16 @@ print(','.join(d) if d else 'OK')")
 ACT=$(python3 -c "import json;print(json.load(open('/tmp/deploy-live.json'))['active'])")
 WH=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"entry":[]}' http://127.0.0.1:5678/webhook/bot-wsp-ardisa-f1)
 
+if [ "$DIF" != "OK" ] || [ "$ACT" != "True" ] || [ "$WH" != "200" ]; then
+  # Si el PUT en caliente dejó algo raro (webhook sin registrar), un ciclo de re-activación lo re-registra.
+  echo "   ⚠️ Primera verificación falló (activo=$ACT webhook=$WH dif=[$DIF]) -> ciclo de re-activación"
+  curl -s -X POST -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF/deactivate" -o /dev/null
+  curl -s -X POST -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF/activate"   -o /dev/null
+  sleep 3
+  curl -s -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF" -o /tmp/deploy-live.json
+  ACT=$(python3 -c "import json;print(json.load(open('/tmp/deploy-live.json'))['active'])")
+  WH=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"entry":[]}' http://127.0.0.1:5678/webhook/bot-wsp-ardisa-f1)
+fi
 if [ "$DIF" != "OK" ] || [ "$ACT" != "True" ] || [ "$WH" != "200" ]; then
   echo "❌ VERIFICACIÓN FALLÓ — activo=$ACT webhook=$WH nodos-distintos=[$DIF]"
   echo "   Rollback: curl -X PUT con $SNAP y activar. (ver docs/RUNBOOK.md)"
