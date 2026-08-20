@@ -512,6 +512,24 @@ const COT_REQ = { model: 'claude-sonnet-5', max_tokens: 700, system: 'REGLAS...'
   chequear('Y gana el MDF CRUDO exacto, no los 40 FONDO genéricos',
            d.busqueda_usada === 'mdf 183' && d.total === 3 && /CRUDO/.test(JSON.stringify(d.matches)),
            JSON.stringify(d).slice(0, 200));
+
+  // 2ª ronda del mismo caso (la prueba de las 9:56): el modelo buscó "MDF" a secas -> 25 FONDOs
+  // TRUNCADOS y se aceptaban tal cual (el reintento solo corría con CERO resultados). Si la lista viene
+  // recortada y el cliente dio medidas, se AFINA con ellas.
+  const buscadas2 = []; buscadas.length = 0;
+  const helpers2 = Object.assign({}, helpers);
+  const trunc = [sse({ result: { content: [{ type:'text',
+    text: JSON.stringify({ query:'MDF', total:40, truncated:true, matches:[
+      { item_code:'10010398', item_name:'FONDO PINTUFONDO MDF BLANCO 185X244X3', unidad:'Lámina' }] }) }] } })];
+  const nodos2 = { 'Repartir herramientas R1': [{ tuse: { id:'t1', name:'buscar_producto',
+                    input: { q:'MDF', limit:25 } }, historia: [] }],
+                  'Cerebro conversacional': { cot_req: REQ, ses_out: JSON.stringify({ marca:'Carpincentro' }) },
+                  'Unir pendiente': { cfg_mcp_url:'https://mcp.ardisa.com/mcp', cfg_mcp_token:'tok' } };
+  const out2 = await correrCode(ARMAR, trunc, nodos2, helpers2);
+  const d2 = JSON.parse(out2[0].json.cot_req.messages.slice(-1)[0].content[0].content[0].text);
+  chequear('Búsqueda TRUNCADA + cliente con medidas -> se afina con "mdf 183"',
+           d2.busqueda_usada === 'mdf 183' && d2.total === 3 && /RECORTADA|afinó/.test(d2.nota||''),
+           JSON.stringify(d2).slice(0, 220));
 }
 
 // ══ EL PROMPT LE ORDENA COMPARAR (2026-08-20, las 20 varillas) ═══════════════════════════════════

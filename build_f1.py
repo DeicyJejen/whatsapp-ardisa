@@ -3802,6 +3802,33 @@ def _http_mcp_call(nombre, repartir, x, y):
          "options":{"timeout":45000,"response":{"response":{"responseFormat":"text"}}}},
         x, y, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":3,"waitBetweenTries":1500})
 
+# 2026-08-20 ("se demora muchísimo": 'SAP consulta R3' tardó 64 s en la prueba del MDF): el nodo HTTP de
+# arriba ejecuta las llamadas del modelo UNA POR UNA — 6 consultas en serie, y el modelo a veces manda la
+# misma dos veces. Este nodo de código las DEDUPLICA y las lanza TODAS A LA VEZ: la espera es la de la
+# más lenta, no la suma. La salida imita a la del nodo HTTP ({data: <cuerpo SSE>}, un item por llamada,
+# en el MISMO orden) para que 'Armar consulta' no note la diferencia. Cada llamada tiene 1 reintento.
+def _code_mcp_call(repartir):
+    return r"""
+const _H=(this&&this.helpers)?this.helpers:null;
+const _cfg=$('Unir pendiente').first().json||{};
+let _sid=''; try{ const h=$input.first().json.headers||{}; _sid=String(h['mcp-session-id']||h['Mcp-Session-Id']||''); }catch(e){}
+const _tuses=$('""" + repartir + r"""').all().map(function(i){ return (i.json||{}).tuse||{}; });
+const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
+            'Authorization':'Bearer '+_cfg.cfg_mcp_token, 'mcp-session-id':_sid};
+const _llaves=_tuses.map(function(t){ return JSON.stringify({n:t.name||'', a:t.input||{}}); });
+const _unicos={};
+_llaves.forEach(function(k){ if(!(k in _unicos)) _unicos[k]=null; });
+await Promise.all(Object.keys(_unicos).map(async function(k){
+  const t=JSON.parse(k);
+  if(!t.n || !_H || !_cfg.cfg_mcp_url){ _unicos[k]='ERROR: la herramienta no respondió'; return; }
+  const _va=function(){ return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:45000,
+    headers:_hdr, body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:t.n, arguments:t.a} })}); };
+  try{ _unicos[k]=await _va(); }
+  catch(e){ try{ _unicos[k]=await _va(); }catch(e2){ _unicos[k]='ERROR: la herramienta no respondió'; } }
+}));
+return _llaves.map(function(k){ return {json:{data:String(_unicos[k])}}; });
+"""
+
 def _code_repartir(fuente_req):
     # Decide si el modelo TERMINÓ (texto/error -> pasa derecho a Entregar) o PIDIÓ herramientas
     # (un item por llamada, con la historia completa para armar la siguiente vuelta).
@@ -3925,7 +3952,7 @@ const _RELLENO=['de','del','la','el','los','las','un','una','unos','unas','para'
   'que','en','al','mi','su','me','necesito','quiero','vale','cuanto','cuánto','cotizar','cotizacion',
   'cotización','precio','precios','valor','tienen','tiene','hay','manejan','maneja','busco','buscando',
   'x','mm','cm','mt','mts','m2','kg','kilos','kilo','gr','pulgadas','pulgada','metros','metro','unidades','tambor','galon','galón','cuñete','cunete','caneca','balde','bulto','saco','rollo','caja','cajas','lamina','lámina','unidad','und','presentacion','presentación'];
-async function _reintentarBusqueda(q0, textoCliente){
+async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   if(!_H || !_cfg.cfg_mcp_url || !_cfg.cfg_mcp_token) return null;
   const _limpia = t => String(t||'').toLowerCase().replace(/[^a-záéíóúñü0-9\s]/g,' ').split(/\s+/)
     .filter(function(w){ return w.length>2 && _RELLENO.indexOf(w)<0 && !/^\d+$/.test(w); });
@@ -3949,10 +3976,14 @@ async function _reintentarBusqueda(q0, textoCliente){
     if(_v<4 && /[.,]/.test(_n0)){ const _cm=String(Math.round(_v*100)); if(_dims.indexOf(_cm)<0) _dims.push(_cm); }
     else if(_v>=100 && _v<400 && _dims.indexOf(_n)<0) _dims.push(_n);   // ya viene en cm (183, 244)
   });
+  if(soloAfinar && !_dims.length) return null;         // afinar sin medidas no tiene sentido
   if(_pal.length<2 && !_dims.length) return null;      // de verdad no hay nada más que probar
   _pal.sort(function(a,b){ return b.length-a.length; });   // primero las largas: las cortas suelen ser genéricas
+  // El buscador de SAP busca la FRASE LITERAL dentro del nombre ("MDF crudo" da 0 porque el nombre es
+  // "MDF 183X244X2.5 CRUDO"). Por eso el combo con medida se arma con CADA palabra, no solo la más
+  // larga: "crudo 183" no existe en ese orden, "mdf 183" sí.
   const _combos=[];
-  if(_pal.length){ for(const _d of _dims.slice(0,3)){ _combos.push(_pal[0]+' '+_d); } }
+  for(const _w of _pal.slice(0,3)){ for(const _d of _dims.slice(0,3)){ if(_combos.length<6) _combos.push(_w+' '+_d); } }
   const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
   const _ini=await _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
@@ -3963,7 +3994,7 @@ async function _reintentarBusqueda(q0, textoCliente){
   // palabra genérica ("pintura") arrastra cientos de referencias y la específica ("drywall") unas pocas,
   // así que el conteo es un buen termómetro de cuál de las dos describe lo que el cliente pidió.
   // Las combinaciones con medida van PRIMERO: si "mdf 183" pega, ese es el producto.
-  const _cand=await Promise.all(_combos.concat(_pal.slice(0,3)).slice(0,6).map(function(_w){
+  const _cand=await Promise.all((soloAfinar ? _combos : _combos.concat(_pal.slice(0,3))).slice(0,6).map(function(_w){
     return _H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
@@ -3976,9 +4007,13 @@ async function _reintentarBusqueda(q0, textoCliente){
   _vivos.sort(function(a,b){ return a.o.total-b.o.total; });
   const _g=_vivos[0];
   _g.o.busqueda_original=q0; _g.o.busqueda_usada=_g.w;
-  _g.o.nota='La búsqueda "'+q0+'" no existe con esas palabras en el catálogo; se repitió con "'+_g.w
-           +'" y estos son los resultados reales. Trabaja con ellos: NO le digas al cliente que no lo '
-           +'manejamos ni vuelvas a buscar lo mismo.';
+  _g.o.nota= soloAfinar
+    ? ('La búsqueda "'+q0+'" devuelve demasiados resultados y la lista venía RECORTADA. Con las MEDIDAS '
+      +'que dio el cliente se afinó a "'+_g.w+'" y ESTOS son los que encajan con lo pedido: elige entre '
+      +'ellos antes que entre los genéricos.')
+    : ('La búsqueda "'+q0+'" no existe con esas palabras en el catálogo; se repitió con "'+_g.w
+      +'" y estos son los resultados reales. Trabaja con ellos: NO le digas al cliente que no lo '
+      +'manejamos ni vuelvas a buscar lo mismo.');
   return JSON.stringify(_g.o);
 }
 // === LA TIENDA EN LÍNEA COMO SEGUNDO BUSCADOR (2026-08-18, pedido de Deicy) ===
@@ -4022,20 +4057,28 @@ const _txt=items.map(function(it){ return compactar(sacarTexto(it.json)); });
 for(let _i=0; _i<_txt.length; _i++){
   try{
     const _o=JSON.parse(_txt[_i]);
-    if(!_o || _o.total!==0 || !Array.isArray(_o.matches)) continue;
+    if(!_o || !Array.isArray(_o.matches)) continue;
     const _q0=((tuses[_i]||{}).input||{}).q || _o.query || '';
     // lo que el cliente escribió de su puño: el primer turno de la conversación con el modelo
     const _txtCli=(function(){ try{ const m=(req.messages||[])[0];
       return (m && typeof m.content==='string') ? m.content : ''; }catch(e){ return ''; } })();
-    const _mejor=await _reintentarBusqueda(_q0, _txtCli);
-    if(_mejor){ _txt[_i]=_mejor; continue; }
-    const _web=await _tiendaBuscar(_q0);
-    if(_web){
-      _txt[_i]=JSON.stringify({query:_q0, total:0, catalogo_tienda:_web,
-        nota:'Nuestro buscador interno no encontró nada con esas palabras, pero el catálogo de la tienda '
-            +'en línea SÍ. Estos item_code son válidos y son los mismos del sistema: consulta con ellos '
-            +'precio y disponibilidad como con cualquier otro producto. NO le digas al cliente que no lo '
-            +'manejamos, y NO uses los precios de esta lista (no los trae).'});
+    if(_o.total===0){
+      const _mejor=await _reintentarBusqueda(_q0, _txtCli);
+      if(_mejor){ _txt[_i]=_mejor; continue; }
+      const _web=await _tiendaBuscar(_q0);
+      if(_web){
+        _txt[_i]=JSON.stringify({query:_q0, total:0, catalogo_tienda:_web,
+          nota:'Nuestro buscador interno no encontró nada con esas palabras, pero el catálogo de la tienda '
+              +'en línea SÍ. Estos item_code son válidos y son los mismos del sistema: consulta con ellos '
+              +'precio y disponibilidad como con cualquier otro producto. NO le digas al cliente que no lo '
+              +'manejamos, y NO uses los precios de esta lista (no los trae).'});
+      }
+    } else if(_o.truncated && !/\d/.test(_q0)){
+      // 2026-08-20 (MDF 2.7 de Deicy, 2ª ronda): "MDF" devolvió 25 FONDOs truncados y se aceptaron —
+      // el reintento solo corría con CERO resultados. Si la lista viene recortada y el cliente dio
+      // MEDIDAS que la búsqueda no usó, se afina: "mdf 183" trae los 3 CRUDO exactos.
+      const _fino=await _reintentarBusqueda(_q0, _txtCli, true);
+      if(_fino) _txt[_i]=_fino;
     }
   }catch(e){}
 }
@@ -4114,13 +4157,13 @@ nodes.append(_http_anthropic("💰 IA Cotización (SAP)", 1540, 640))
 nodes.append(node("Repartir herramientas R1", "n8n-nodes-base.code", 2, {"jsCode":_code_repartir("Cerebro conversacional")}, 1760, 560))
 nodes.append(_if_fin("¿Fin R1?", 1980, 560))
 nodes.append(_http_mcp_init("SAP sesión R1", 2200, 560))
-nodes.append(_http_mcp_call("SAP consulta R1", "Repartir herramientas R1", 2420, 560))
+nodes.append(node("SAP consulta R1", "n8n-nodes-base.code", 2, {"jsCode":_code_mcp_call("Repartir herramientas R1")}, 2420, 560))
 nodes.append(node("Armar consulta R2", "n8n-nodes-base.code", 2, {"jsCode":_code_armar("Repartir herramientas R1", "Cerebro conversacional")}, 2640, 560))
 nodes.append(_http_anthropic("💰 IA R2", 2860, 560))
 nodes.append(node("Repartir herramientas R2", "n8n-nodes-base.code", 2, {"jsCode":_code_repartir("Armar consulta R2")}, 3080, 560))
 nodes.append(_if_fin("¿Fin R2?", 3300, 560))
 nodes.append(_http_mcp_init("SAP sesión R2", 3520, 560))
-nodes.append(_http_mcp_call("SAP consulta R2", "Repartir herramientas R2", 3740, 560))
+nodes.append(node("SAP consulta R2", "n8n-nodes-base.code", 2, {"jsCode":_code_mcp_call("Repartir herramientas R2")}, 3740, 560))
 _EMPUJE_R3 = ("Este es tu ÚLTIMO turno con herramientas. NO vuelvas a buscar productos: con lo que ya "
   "tienes, elige el item_code que mejor encaje con cada cosa pedida y llama AHORA, en este mismo turno y "
   "en paralelo, precio y disponibilidad de TODOS ellos. Si de algún producto no encontraste nada, "
@@ -4136,7 +4179,7 @@ nodes.append(_http_anthropic("💰 IA R3", 4180, 560))
 nodes.append(node("Repartir herramientas R3", "n8n-nodes-base.code", 2, {"jsCode":_code_repartir("Armar consulta R3")}, 4400, 560))
 nodes.append(_if_fin("¿Fin R3?", 4620, 560))
 nodes.append(_http_mcp_init("SAP sesión R3", 4840, 560))
-nodes.append(_http_mcp_call("SAP consulta R3", "Repartir herramientas R3", 5060, 560))
+nodes.append(node("SAP consulta R3", "n8n-nodes-base.code", 2, {"jsCode":_code_mcp_call("Repartir herramientas R3")}, 5060, 560))
 nodes.append(node("Armar consulta R4", "n8n-nodes-base.code", 2, {"jsCode":_code_armar("Repartir herramientas R3", "Armar consulta R3", final=True)}, 5280, 560))
 nodes.append(_http_anthropic("💰 IA R4 (sin herramientas)", 5500, 560))
 nodes.append(node("Cerrar cotización R4", "n8n-nodes-base.code", 2, {"jsCode":_CODE_CERRAR_FINAL}, 5720, 560))
