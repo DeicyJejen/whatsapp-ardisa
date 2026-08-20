@@ -259,6 +259,17 @@ app.<span class="k">post</span>('/webhook/bot', (req, res) =&gt; {
   </ol>
   <div class="caso"><b>La falla de hoy (y la lección):</b> el servidor MCP se reinició y olvidó los clientes registrados. El token "se veía" vigente (le quedaban 49 min según el reloj local) pero el servidor lo rechazaba con 401. <b>Lección: la validez de una credencial la decide quien la recibe, no quien la tiene.</b> El refrescador ahora le pregunta AL SERVIDOR (una llamada de sondeo) en vez de confiar en su reloj. Y la recuperación fue: borrar las credenciales muertas → re-registrar el cliente → repetir la autorización.</div>
   <div class="frase"><span class="tag">Frase de entrevista</span><p>"Depuré un 401 en producción hasta la causa raíz: el servidor OAuth perdió el registro del cliente tras un reinicio. Dejé un monitoreo que valida el token contra el servidor — no contra el reloj local — y documenté la recuperación."</p></div>
+  <h3>¿Y qué es "MCP"?</h3>
+  <p><b>MCP (Model Context Protocol)</b> es un protocolo estándar para que una IA use herramientas externas
+  sin tocarlas: el servidor publica un CATÁLOGO de herramientas (nombre + parámetros) y el modelo solo
+  DECLARA cuál quiere llamar y con qué argumentos — quien la ejecuta es tu infraestructura. En nuestro
+  sistema, <code>mcp.ardisa.com</code> expone 20 herramientas de solo lectura sobre SAP
+  (<code>buscar_producto</code>, <code>precio_articulo</code>, <code>disponibilidad_ciudad</code>…); el
+  modelo pide "precio del 10004837 en Bucaramanga", n8n hace la llamada HTTP con el token, y le devuelve
+  el JSON. La joya de diseño ("MCP en casa"): <b>la credencial de SAP jamás viaja al proveedor de IA</b> —
+  el modelo declara, n8n ejecuta. Si una API es un mesero, MCP es la carta del menú escrita en un formato
+  que cualquier IA sabe leer.</p>
+  <div class="frase"><span class="tag">Frase de entrevista</span><p>"Integramos un LLM con SAP usando MCP: el servidor expone un catálogo de herramientas de solo lectura autenticadas con OAuth; el modelo declara las llamadas y nuestra capa de orquestación las ejecuta — el token nunca sale de nuestra infraestructura."</p></div>
 </section>
 
 <section id="conceptos">
