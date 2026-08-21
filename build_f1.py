@@ -624,6 +624,10 @@ function cerrarLead(st,opts){
   { const _avNow = avisoHorario(st.marca); if(_avNow){ st.fuera=true; st.cuando=_avNow.cuando; } else { st.fuera=false; delete st.cuando; } }
   // === SOLICITUD VAGA (2026-07-16, caso Sergio Aceros): el cliente pidió "cotización/ayuda/info" pero SIN decir el PRODUCTO.
   // No pasamos un lead a medias al asesor: le pedimos el producto UNA sola vez. Si trae foto/documento o pidió humano, NO preguntamos (ya hay contexto). ===
+  // 2026-08-21 (Deicy, lead #352): el veredicto se GUARDA aquí para las dos vías donde el lead sale igual sin
+  // producto — el rescate por inactividad y el segundo intento — y así la tarjeta le dice al asesor qué le
+  // falta preguntar. Antes salía mudo: a Natalia le llegó "Hola! Estoy buscando asesoría", sin ciudad ni nombre.
+  let _sinProducto = false;
   {
     const _dv = (String(st.detalle||'')+' '+String(st.notas||'')).toLowerCase().trim();   // detalle Y notas: el producto puede estar en cualquiera (2026-07-23, caso Andrés #104)
     const _tieneMedia = !!st.mediaId || !!(store.medias && store.medias[wa] && store.medias[wa].length) || ADJ_BD.length>0;
@@ -663,6 +667,13 @@ function cerrarLead(st,opts){
     // genérica o una cortesía, se le pregunta igual (una sola vez, como siempre).
     const _dvPal = _dv.replace(/[^a-z0-9áéíóúñü ]/gi,' ').replace(/\s+/g,' ').trim();
     const _genericoPuro = /^(un |una |unos |unas |el |la |los |las )?(producto|productos|material|materiales|art[ií]culo|art[ií]culos|mercanc[ií]a|cosa|cosas|varios|varias|surtido|de todo|algo|cotizaci[oó]n|cotizar|precio|precios|informaci[oó]n|info|asesor[ií]a|ayuda)$/i.test(_dvPal);
+    // Sin producto Y sin nada que lo supla (adjunto, proyecto a medida, "quiero un asesor"): el asesor tendrá
+    // que preguntarlo él. Se marca para la tarjeta, aunque la pregunta de abajo no llegue a salir — que es
+    // justo lo que pasa en el RESCATE (el cliente ya se fue) y cuando lo único escrito es una palabra hueca.
+    // No se marca si el cliente SÍ contestó qué necesita con algo propio: su palabra vale aunque no esté en
+    // nuestro vocabulario, y una tarjeta que pide confirmar lo que ya dijo sería ruido para el asesor.
+    _sinProducto = !_tieneProd && !_tieneMedia && !st.pidioHumano && !ES_PROYECTO.test(_dv)
+                   && (opts.rescate || _genericoPuro || !_dvPal);
     if(!_tieneProd && !opts.rescate && (!opts.desdeDetalle || _genericoPuro) && !_tieneMedia && !st.pidioHumano && !st.asesoriaAsk && !ES_PROYECTO.test(_dv)){
       st.asesoriaAsk=true; st.paso='detalle';
       return {wpp_body: txt(wa,'¡Con gusto'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 🤝 Para pasarte con el asesor correcto y darte una cotización precisa, cuéntame: *¿qué producto(s) necesitas cotizar?*\nPor ejemplo: cemento, cerámica, grifería, tableros, láminas, sanitarios, pintura...'), aviso_body:null, aviso_medias:null, pend_cierre:false, pend_token:0};
@@ -948,6 +959,23 @@ function cerrarLead(st,opts){
   if(st.imgDesc){ _detExcel = (_detExcel?_detExcel+' | ':'') + '📎 Imagen'+(_nAdj>1?'es ('+_nAdj+')':'')+': '+st.imgDesc; }
   else if(_nAdj>0){ _detExcel = (_detExcel?_detExcel+' | ':'') + '📎 El cliente envió '+(_nAdj>1?(_nAdj+' adjuntos'):'un adjunto')+' (foto/documento) — revísalo en el chat'; }
   if(!_detExcel) _detExcel = _detShown;
+  // === LO QUE EL ASESOR TIENE QUE PREGUNTAR (2026-08-21, Deicy — lead #352) ===
+  // "Solo escribió asesoría; cuando es así toca pedirle la información completa... lo envió al asesor y ni
+  // siquiera supo de dónde es." Hay dos caminos por los que un lead sale incompleto y ninguno es un error del
+  // cliente: el RESCATE (se fue a mitad del formulario y preferimos entregarlo antes que perderlo) y el
+  // segundo intento (ya le preguntamos una vez y no concretó). En ambos el lead sigue saliendo —eso no
+  // cambia—, pero la tarjeta deja de disimular: dice EXACTAMENTE qué falta, para que el asesor abra la
+  // conversación preguntándolo en vez de llamar a ciegas. Nunca se nombra al bot ni el motivo interno
+  // (regla de Deicy 12-ago): es una lista de pendientes, no una disculpa.
+  const _porConfirmar = [];
+  if(_sinProducto) _porConfirmar.push('*qué producto* necesita');
+  if(!st.ciudad) _porConfirmar.push('*en qué ciudad* está');
+  if(!st.nombre || st.nombre==='Cliente') _porConfirmar.push('*su nombre*');
+  const _notaConf = _porConfirmar.length ? ('⚠️ *Por confirmar al contactar:* '+_porConfirmar.join(' · ')) : '';
+  if(_notaConf){
+    _detShown  = (_detShown && _detShown!==_detFallback ? _detShown+'\n' : '') + _notaConf;
+    _detExcel  = (_detExcel ? _detExcel+' · ' : '') + _notaConf.replace(/\*/g,'');
+  }
   // Carpincentro: punto/tienda más cercano que eligió el cliente -> NOMBRE + DIRECCIÓN exacta en la tarjeta.
   const _ptObj = (st.marca==='Carpincentro' && st.puntoIdx!=null && DIR_CARP[st.ciudadId] && DIR_CARP[st.ciudadId][st.puntoIdx]) ? DIR_CARP[st.ciudadId][st.puntoIdx] : null;
   const _puntoNom = _ptObj ? _ptObj.tienda : '';
@@ -1039,7 +1067,12 @@ function cerrarLead(st,opts){
   const _tk = NOW;
   store.pendCierre = store.pendCierre || {};
   store.pendCierre[wa] = { token:_tk, t:NOW, destino:destino, aviso:aviso, medias:aviso_medias.slice(0,10), avisoTpl:_avisoTplHold, avisoCopia:avisoCopia, copiaTo:((COPIA_MONITOR && COPIA_MONITOR!==destino)?COPIA_MONITOR:null), avisoExtra:'', lead:leadRow, segPrompt:_segPrompt,
-                           fuera:!!st.fuera, sendAfter:(st.fuera?proximaApertura(st.marca):0), marca:(st.marca||'') };   // fuera de horario: el aviso al asesor se RETIENE y se envía a la apertura
+                           fuera:!!st.fuera, sendAfter:(st.fuera?proximaApertura(st.marca):0), marca:(st.marca||''),
+                           // Qué le falta a este lead (2026-08-21). Viaja con el paquete porque el SIMULACRO del
+                           // rescate lo copia entero: así el cron de inactividad puede pedirle al cliente justo
+                           // eso en el último mensaje, antes de cerrar. El cron no comparte scope con el Cerebro
+                           // y no podría recalcularlo (el detector de producto vive aquí).
+                           falta:{prod:_sinProducto, ciu:!st.ciudad, nom:(!st.nombre||st.nombre==='Cliente')} };   // fuera de horario: el aviso al asesor se RETIENE y se envía a la apertura
   // NO borramos store.medias[wa] todavía: el finalizador reenviará TODAS (incluidas las que lleguen durante la espera).
   // En vez de borrar la sesión, la dejamos en estado 'cerrado' conservando nombre/ciudad:
   S[wa]={paso:'cerrado', t:NOW, closedAt:NOW, nombre:st.nombre, ciudad:st.ciudad, ciudadId:st.ciudadId,
@@ -4807,7 +4840,24 @@ for(const wa in S){
   const _nom = st.nombre ? (' '+String(st.nombre).split(' ')[0]) : '';
   if(!st.recordado && inact>=REMIND && inact<=MAXREM){
     st.recordado=NOW;
-    out.push(emit(wa,st,'Hola'+_nom+'. 👋 ¿Continuamos con tu solicitud? Si no recibimos respuesta en unos minutos, cerraremos la conversación y podrás retomarla cuando nos escribas de nuevo. 🤝','recordatorio'));
+    // === EL ÚLTIMO MENSAJE PIDE LO QUE FALTA (2026-08-21, Deicy — lead #352) ===
+    // "¿Continuamos con tu solicitud?" no pide NADA: el cliente que ya se distrajo no vuelve por una pregunta
+    // de sí/no, y a los 18 minutos el rescate entregaba lo poco que hubiera. Este es el último mensaje que el
+    // cliente va a leer antes de que se cierre, así que se usa para lo único que sirve: pedirle los datos que
+    // faltan, por su nombre, en una sola lista corta. Lo que falta lo dice el paquete del rescate, que lo
+    // calculó el Cerebro (allá vive el detector de producto). Si no hay paquete —no eligió ni la línea— no
+    // sabemos qué preguntarle todavía y sigue el recordatorio de siempre.
+    const _fl = (store.rescate && store.rescate[wa] && store.rescate[wa].falta) || null;
+    const _pide=[];
+    if(_fl){
+      if(_fl.nom || !st.nombre) _pide.push('👤 Tu *nombre y apellido*');
+      if(_fl.prod)              _pide.push('🛒 *¿Qué producto necesitas?* (ej.: cemento, cerámica, tableros, láminas, pintura…)');
+      if(_fl.ciu || !st.ciudad) _pide.push('📍 *¿En qué ciudad estás?*');
+    }
+    out.push(emit(wa,st, _pide.length
+      ? ('Hola'+_nom+'. 👋 Seguimos aquí para ayudarte. Para dejar tu solicitud lista y que tu asesor te contacte con la información precisa, cuéntanos:\n\n'+_pide.join('\n')+'\n\nSi no recibimos respuesta en unos minutos, cerraremos la conversación y podrás retomarla cuando nos escribas de nuevo. 🤝')
+      : ('Hola'+_nom+'. 👋 ¿Continuamos con tu solicitud? Si no recibimos respuesta en unos minutos, cerraremos la conversación y podrás retomarla cuando nos escribas de nuevo. 🤝')
+    ,'recordatorio'));
   } else if(st.recordado && (NOW-st.recordado)>=CLOSE){
     // === RESCATE (2026-08-03, decisión Deicy: "si ya dijo qué necesita, que no se pierda") ===
     // El Cerebro dejó listo el paquete de cierre en store.rescate[wa] (asesor ya elegido según la LÍNEA).
