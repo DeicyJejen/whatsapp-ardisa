@@ -184,6 +184,11 @@ const RE_PRODCONC = /(cemento|arena|gravilla|grava|hierro|varilla|acero|malla|la
 const _bv = s => String(s||'').toLowerCase().replace(/[bv]/g,'v');
 const RE_PRODCONC_BV = new RegExp(RE_PRODCONC.source.replace(/[bv]/g,'v'), 'i');
 const tieneProdConc = s => RE_PRODCONC.test(String(s||'')) || RE_PRODCONC_BV.test(_bv(s));
+// Palabras que la IA devuelve como "producto" pero NO lo son ('asesoría', 'cotización', 'información'):
+// si se dejan pasar, el bot se contesta solo — cree que ya sabe qué necesita el cliente y hasta se pondría
+// a buscarlas en la tienda. Una sola definición para el chequeo de solicitud vaga Y para los links de la
+// tienda: si divergen, una rama vuelve a colar lo que la otra descarta.
+const RE_GEN_PROD = /^(asesor[ií]a|asesoramiento|ayuda|informaci[oó]n|informes?|cotizaci[oó]n|cotizar|precio|precios|presupuesto|producto|productos|material|materiales|art[ií]culos?|varios|surtido|mercanc[ií]a)$/i;
 // La frustración del cliente no viaja al asesor como "su solicitud" (19-ago, caso Edilberto). Se registra
 // en `mensajes` igual (auditoría completa), solo se filtra del detalle de la tarjeta y del Excel.
 const RE_GROSERIA=/(put[ao]s?|hijue|malparid|gonorrea|est[uú]pid|imb[eé]cil|idiota|mierda|carajo|maldit)/i;
@@ -640,7 +645,7 @@ function cerrarLead(st,opts){
     // aquí solo se miraba `iaProd`, que se llena en UNA sola ruta. Se suma el mejor veredicto de la IA de toda
     // la conversación, descartando las palabras que NO son un producto ('asesoría', 'cotización',
     // 'información'): si no, la IA se contesta sola y el bot cierra creyendo que ya sabe qué necesita.
-    const _GEN_IA = /^(asesor[ií]a|asesoramiento|ayuda|informaci[oó]n|informes?|cotizaci[oó]n|cotizar|precio|precios|presupuesto|producto|productos|material|materiales|art[ií]culos?|varios|surtido|mercanc[ií]a)$/i;
+    const _GEN_IA = RE_GEN_PROD;   // definida arriba, junto al detector de producto (una sola lista)
     const _iaProds = []
       .concat(st.iaProd ? String(st.iaProd).split(/[,;]/) : [])
       .concat((st.iaBest && st.iaBest.productos) ? st.iaBest.productos : [])
@@ -2306,6 +2311,41 @@ if((id==='CONSENT_SI' || id==='CONSENT_NO') && !st){
   st=S[wa]={paso:'marca', t:NOW, consent:true}; store.consent[wa]=NOW;
   return [{json:{etapa:'marca', wa_id:wa, wpp_body:boton(wa,'¡Perfecto! Revisa cuál de estas opciones corresponde a lo que necesitas y te asignamos el asesor experto:\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._\n\n*¿Cuál eliges?* 👇',MARCA), aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null, chat:null, consent_log:{ creado_en:fechaCol(), telefono:wa, nombre:(d.profileName||''), decision:'SI', politica:POLITICA_URL, canal:'whatsapp', msg_id:msg_id }, pend_cierre:false, pend_token:0}}];
 }
+// === EL CLIENTE ELIGIÓ UNA OPCIÓN DE LA TIENDA (2026-08-21, pedido de Deicy) ===
+// Segunda mitad de "primero los calibres, después el link": tocó una fila de la lista que le mandamos y
+// ahora se le pasa SU producto — nombre, precio publicado y link a la ficha. El id trae todo lo necesario
+// ('WEB|marca|precio|url_key'), así que no hace falta memoria: si n8n se reinicia entre el menú y el toque,
+// el link sigue saliendo bien. El paso del formulario NO se toca: la conversación sigue donde iba, y por eso
+// el mensaje termina retomando lo que le estábamos preguntando.
+// Lo que eligió SÍ viaja al asesor: es la mejor pista de qué quiere comprar.
+if(String(id||'').indexOf('WEB|')===0){
+  const _pw = String(id).split('|');
+  const _wWeb = (_pw[1]==='C') ? 'https://www.carpincentro.com' : 'https://www.ardisa.com';
+  const _wPre = Math.floor(Number(_pw[2])||0);
+  const _wKey = _pw[3] || '';
+  // el nombre COMPLETO viaja en el id: el título de la fila va recortado a 24 y no sirve para el mensaje
+  const _wNom = (_pw.slice(4).join('|').trim()) || String(d.opcion_txt||'').trim() || 'el producto';
+  const _wPes = '$'+String(_wPre).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  if(st){
+    st.t=NOW;
+    const _nt='Le interesa de la tienda: '+_wNom;
+    if(String(st.notas||'').indexOf(_nt)<0) st.notas=((st.notas?(st.notas+' | '):'')+_nt).slice(0,1200);
+  }
+  const _paso = (st && st.paso) || '';
+  const _sigue = (_paso==='nombre') ? '\n\nSeguimos con tu solicitud: ¿nos confirmas tu *nombre y apellido*? ✍️'
+    : (_paso==='ciudadOtra') ? '\n\nSeguimos: ¿en qué *ciudad* estás? 📍'
+    : (_paso==='detalle') ? '\n\nCuéntanos si necesitas algo más y lo sumamos a tu solicitud. 🤝'
+    : (_paso==='cerrado'||_paso==='porCerrar') ? '\n\nSi necesitas algo más, escríbenos y lo sumamos a tu solicitud. 🤝'
+    : (['marca','ciudad','ocupacion','ocuArd','punto','confirmGrupo','consent'].indexOf(_paso)>=0)
+        ? '\n\nPara continuar, elige la opción en el menú que te enviamos. 👆' : '';
+  const _wBody = '🛒 *'+_wNom+'*\n'+(_wPre>0?(_wPes+'\n'):'')+_wWeb+'/'+_wKey+'.html\n\n'
+    + 'Allí encuentras las medidas y la ficha completa. El *valor final y la disponibilidad* te los confirma tu asesor. 🤝'+_sigue;
+  return [{json:{etapa:'tienda_pick', wa_id:wa, wpp_body:{messaging_product:'whatsapp', to:wa, type:'text', text:{body:_wBody, preview_url:true}},
+    aviso_body:null, aviso_medias:null, hay_aviso:false, hay_media:false, lead:null,
+    chat:{creado_en:fechaCol(), wa_id:wa, nombre:((st&&st.nombre)||d.profileName||''), entrada:('(eligió en la tienda) '+_wNom),
+          salida:_wBody.slice(0,2000), etapa:'tienda_pick', media_id:null, media_tipo:null},
+    consent_log:null, pend_cierre:false, pend_token:0, ses_tel:wa, ses_out:JSON.stringify(S[wa]||null)}}];
+}
 // DOBLE TOQUE DE MARCA (fix 2026-07-16): si el cliente YA eligió marca y toca la OTRA en un paso posterior (p.ej. tocó Ardisa y luego Carpincentro),
 // lo IGNORAMOS -> no lo malinterpretamos como nombre/ciudad ni lo confundimos. Se queda con la primera que eligió.
 if((id==='MAR_ARD'||id==='MAR_CARP') && st && st.marca && st.paso!=='marca'){
@@ -3303,16 +3343,37 @@ try{
 // —el lead se crea igual— pero le da algo REAL en el momento, que es lo que se pierde cuando toca esperar.
 // El Cerebro no consulta la web (no puede bloquear la respuesta): solo deja pedido QUÉ buscar; la búsqueda
 // y el envío van por su propia rama, y si la tienda no responde no pasa nada.
-let web_q='';
+let web_q='', web_cierre=false;
 try{
   // Igual que el piloto de cotización: 'demo' = solo los números de prueba (para verlo sin exponerlo a
   // clientes), 'si' = en vivo para todos. Las dos son un UPDATE, sin desplegar.
   const _tl = String(PEND.cfg_tienda_links||'').trim().toLowerCase();
   const _tlOK = (_tl==='si') || (_tl==='demo' && CLIENTES_PRUEBA.indexOf(wa)>=0);
-  if(_tlOK && etapa==='cierre'){
-    const _st2 = S[wa] || st || {};
-    const _prod = String((_st2.iaProd||'') || (_st2.detalle||'')).replace(/[\r\n]+/g,' ').trim();
-    if(_prod && [..._prod].length>=3) web_q=[..._prod].slice(0,80).join('');
+  const _st2 = S[wa] || st || {};
+  // 2026-08-21 (Deicy): "que el bot consulte la página cuando yo le escribo qué necesito —ejemplo
+  // lavamanos— y le envíe los links para que lo vea allá". Hasta hoy los links salían SOLO en el cierre,
+  // o sea después de nombre + ciudad + perfil: el cliente que pregunta por un lavamanos a las 8 a.m. no
+  // veía nada hasta el final, y si se iba antes no veía nada nunca. Ahora salen EN CALIENTE, en el mismo
+  // momento en que dice qué necesita. El formulario NO se interrumpe: los links van por su propia rama,
+  // después de la respuesta del bot, y la conversación sigue en el paso donde iba.
+  // Una sola vez por conversación (`webSent`): si en cada mensaje le llegara la misma lista de la tienda,
+  // dejaría de ser una ayuda y sería ruido — y al cerrar se le repetiría lo mismo que ya le mandamos.
+  const _yaWeb = !!(_st2.webSent && (NOW-_st2.webSent) < 6*3600000);
+  if(_tlOK && !_yaWeb){
+    // EN CALIENTE manda lo que la IA reconoció en ESTE mensaje: `detalle` arrastra saludos y frases sueltas
+    // ("hola buenos días") y buscar eso en la tienda no devuelve nada útil. En el CIERRE se conserva el
+    // comportamiento de siempre (ahí sí vale todo lo que dijo, aunque la IA no haya corrido).
+    const _iaAhora = (ia && Array.isArray(ia.productos))
+      ? ia.productos.map(function(p){ return String(p||'').trim(); }).filter(function(p){ return p.length>=3 && !RE_GEN_PROD.test(p); })
+      : [];
+    const _prod = (etapa==='cierre')
+      ? String((_st2.iaProd||'') || (_st2.detalle||'')).replace(/[\r\n]+/g,' ').trim()
+      : _iaAhora.join(' ');
+    if(_prod && [..._prod].length>=3){
+      web_q=[..._prod].slice(0,80).join('');
+      web_cierre = (etapa==='cierre');
+      if(S[wa]) S[wa].webSent = NOW;   // marcado en la sesión REAL: la próxima vuelta ya no repite
+    }
   }
 }catch(e){}
 // El aviso de datos es un mensaje aparte para el cliente -> también es una FILA aparte en el registro.
@@ -3327,7 +3388,7 @@ try{
   }
 }catch(e){}
 return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,chat_pre:chat_pre,consent_log:consent_log,pend_cierre,pend_token,
-  web_q:web_q, hay_web:!!web_q, web_marca:((S[wa]&&S[wa].marca)||(st&&st.marca)||'Ardisa'), web_nombre:((S[wa]&&S[wa].nombre)||(st&&st.nombre)||''),
+  web_q:web_q, hay_web:!!web_q, web_cierre:web_cierre, web_marca:((S[wa]&&S[wa].marca)||(st&&st.marca)||'Ardisa'), web_nombre:((S[wa]&&S[wa].nombre)||(st&&st.nombre)||''),
   cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
   wpp_pre:(wpp_pre||null), hay_pre:!!wpp_pre,   // aviso de datos como mensaje aparte, ANTES del principal
   sumar_add:(sumar_add||null),   // adición tras cerrar: también se suma al detalle del lead en la BD (no depende de la ventana 24h)
@@ -4441,6 +4502,7 @@ CODE_TIENDA = r"""
 const j = $input.first().json;
 const TIENDA = {Ardisa:'https://www.ardisa.com', Carpincentro:'https://www.carpincentro.com'};
 const WEB = TIENDA[j.web_marca] || TIENDA.Ardisa;
+let WEB_OUT = WEB;   // la web donde SÍ existe la ficha (ver la comprobación de links más abajo)
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const _pz=n=>String(n).padStart(2,'0'); const _cd=new Date(Date.now()-5*3600000);
 const FECHA=_cd.getUTCFullYear()+'-'+_pz(_cd.getUTCMonth()+1)+'-'+_pz(_cd.getUTCDate())+' '+_pz(_cd.getUTCHours())+':'+_pz(_cd.getUTCMinutes())+':'+_pz(_cd.getUTCSeconds());
@@ -4454,20 +4516,112 @@ try{
   if(q.length >= 3){
     const r = await this.helpers.httpRequest({method:'POST', url:WEB+'/graphql', json:true, timeout:9000,
       headers:{'Content-Type':'application/json','User-Agent':UA},
-      body:{query:'{products(search:"'+q+'",pageSize:4){total_count items{sku name url_key price_range{minimum_price{final_price{value} } } } } }'} });
+      body:{query:'{products(search:"'+q+'",pageSize:10){total_count items{sku name url_key price_range{minimum_price{final_price{value} } } } } }'} });
     const items = (((r||{}).data||{}).products||{}).items || [];
-    const buenos = items.filter(function(i){
+    let buenos = items.filter(function(i){
       const p=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
       return i && i.url_key && p>0;
-    }).slice(0,3);
+    });
+    // === EL PRODUCTO QUE PIDIÓ VA PRIMERO (2026-08-21) ===
+    // Magento ordena por relevancia de texto y eso NO es lo que el cliente quiere ver: pidiendo
+    // "lavamanos" devolvía 1º un sifón y 2º y 3º dos griferías —los lavamanos de verdad estaban en las
+    // posiciones 8, 9 y 10— y el bot mandaba justo los tres primeros. Se piden 10 y se reordenan: gana el
+    // producto cuyo NOMBRE empieza por lo que pidió ("Lavamanos Marsella"), después el que lo trae más
+    // adelante ("Griferia para Lavamanos"). Sin tildes ni mayúsculas, porque los nombres del catálogo las
+    // usan a su manera. Empate = se respeta el orden de la tienda.
+    const _sinT = t => String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    const _claves = _sinT(q).split(/[^a-z0-9]+/).filter(function(w){ return w.length>=4; });
+    if(_claves.length){
+      buenos = buenos.map(function(i,ix){
+        const _n=_sinT(i.name);
+        let _pos=999; _claves.forEach(function(w){ const p=_n.indexOf(w); if(p>=0 && p<_pos) _pos=p; });
+        return {i:i, pos:_pos, ix:ix};
+      }).sort(function(a,b){ return (a.pos-b.pos) || (a.ix-b.ix); }).map(function(x){ return x.i; });
+    }
+    // === NUNCA MANDAR UN LINK ROTO (2026-08-21) ===
+    // El catálogo es UNO solo, pero cada web publica su parte: la varilla de hierro abre en ardisa.com y
+    // da 404 en carpincentro.com; la bisagra abre en las dos. Y el /graphql de carpincentro.com responde
+    // con la vista de Ardisa (store_code 'default'), así que la lista NO viene filtrada por marca. Se
+    // comprueba cada ficha con un HEAD (~0,2 s, en paralelo) y solo sobreviven las que existen en la web
+    // de SU marca. Si en la suya no hay ninguna, se prueba la otra —somos la misma casa y es mejor que
+    // no mandarle nada—; si tampoco, esta rama se calla, igual que cuando la tienda no responde.
+    const _vive = async function(base, i){
+      try{ await this.helpers.httpRequest({method:'HEAD', url:base+'/'+i.url_key+'.html', timeout:6000,
+             headers:{'User-Agent':UA}, json:false}); return true; }catch(e){ return false; }
+    }.bind(this);
+    const _filtrar = async function(base, lista){
+      const _r = await Promise.all(lista.map(function(i){ return _vive(base, i); }));
+      return lista.filter(function(i,ix){ return _r[ix]; });
+    };
+    let _base = WEB;
+    let _vivos = await _filtrar(WEB, buenos.slice(0,6));
+    if(!_vivos.length){
+      const _otra = (WEB===TIENDA.Carpincentro) ? TIENDA.Ardisa : TIENDA.Carpincentro;
+      _vivos = await _filtrar(_otra, buenos.slice(0,6));
+      if(_vivos.length) _base = _otra;
+    }
+    buenos = _vivos.slice(0,3);
+    WEB_OUT = _base;
+    // === PRIMERO LAS OPCIONES, DESPUÉS EL LINK (2026-08-21, pedido de Deicy) ===
+    // "primero yo digo quiero varilla y le envíe el mensaje 'tenemos los calibres', y cuando le responda
+    // cuál, enviarle el link". Mandar tres links de golpe es una vitrina: el cliente que pidió varilla no
+    // sabe cuál de las tres es la suya. Con varias opciones se le muestra la LISTA de WhatsApp (los
+    // calibres, con su precio) y el link sale cuando toca la que necesita — que es como lo haría un
+    // vendedor. Con una sola coincidencia no se le pregunta nada: se le manda el link de una.
+    // La respuesta vuelve como opción con id 'WEB|marca|precio|url_key': no se confunde con el nombre ni
+    // con la ciudad que el bot esté pidiendo en ese momento, y no hace falta guardar estado en ningún lado.
+    if(buenos.length>1){
+      const _nom1 = j.web_nombre ? (' '+String(j.web_nombre).split(' ')[0]) : '';
+      const _mk = (WEB_OUT===TIENDA.Carpincentro) ? 'C' : 'A';
+      const _elegidos = buenos.slice(0,6);
+      const _limpio = _elegidos.map(function(i){ return String(i.name).replace(/\s+/g,' ').trim(); });
+      // === QUE SE VEA EL CALIBRE, NO EL NOMBRE REPETIDO (2026-08-21) ===
+      // El título de una fila de WhatsApp muere a los 24 caracteres, y los nombres del catálogo empiezan
+      // todos igual: "Varilla De Hierro N4 1/2…", "Varilla De Hierro N2 1/4…" se cortaban en "Varilla De
+      // Hierro N4   1" — el cliente veía tres filas casi idénticas y el 1/2 partido por la mitad. Se quita
+      // el arranque que COMPARTEN todas (eso va en el encabezado, dicho una sola vez) y en cada fila queda
+      // lo que las diferencia: el calibre y la medida, que es lo que el cliente está eligiendo.
+      let _pref = [];
+      if(_limpio.length>1){
+        const _pal = _limpio.map(function(n){ return n.split(' '); });
+        for(let k=0;k<_pal[0].length-1;k++){
+          const w = _pal[0][k].toLowerCase();
+          if(_pal.every(function(p){ return p[k] && p[k].toLowerCase()===w; })) _pref.push(_pal[0][k]); else break;
+        }
+      }
+      const _corto = function(n){ const t = _pref.length ? n.split(' ').slice(_pref.length).join(' ').trim() : n; return t || n; };
+      const _rows = _elegidos.map(function(i,ix){
+        const p=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
+        return { id:('WEB|'+_mk+'|'+Math.floor(Number(p)||0)+'|'+String(i.url_key).slice(0,90)+'|'+[..._limpio[ix]].slice(0,60).join('')).slice(0,200),
+                 title:[..._corto(_limpio[ix])].slice(0,24).join('').trim(),
+                 description:[...(_pesos(p)+' · '+_limpio[ix])].slice(0,72).join('') };
+      });
+      const _quePide = _pref.length>=2 ? _pref.join(' ') : String(j.web_q).slice(0,40);
+      const _cuerpo = '¡Claro'+_nom1+'! 🙌 Tenemos varias opciones de *'+_quePide+'* 👇\n\n'
+        + 'Elige cuál te interesa y te paso el *link con la ficha y el precio*.'
+        + (j.web_cierre ? '' : '\n\n_Seguimos con tu solicitud aquí mismo._');
+      const msgL = {messaging_product:'whatsapp', to:j.wa_id, type:'interactive',
+        interactive:{ type:'list', body:{text:_cuerpo},
+          action:{ button:'Ver opciones', sections:[{ title:'En nuestra tienda', rows:_rows }] } }};
+      out.push({json:{msg:msgL, chat:{creado_en:FECHA, wa_id:j.wa_id, nombre:(j.web_nombre||''),
+        entrada:'(opciones tienda)', salida:(_cuerpo+'\n'+_rows.map(function(r){return '• '+r.description;}).join('\n')).slice(0,2000),
+        etapa:'tienda_opciones', media_id:null, media_tipo:null}}});
+      return out;
+    }
     if(buenos.length){
       const _nom = j.web_nombre ? (' '+String(j.web_nombre).split(' ')[0]) : '';
-      let cuerpo = 'Mientras tu asesor te contacta'+_nom+', puedes ver esto en nuestra tienda en línea 👇\n';
+      // El encabezado depende del MOMENTO (2026-08-21): si esto sale mientras todavía le estamos pidiendo
+      // los datos, "mientras tu asesor te contacta" es falso — todavía no tiene asesor. Ahí se le dice lo
+      // que sí es cierto: mira esto de una vez, y seguimos con lo tuyo.
+      let cuerpo = j.web_cierre
+        ? ('Mientras tu asesor te contacta'+_nom+', puedes ver esto en nuestra tienda en línea 👇\n')
+        : ('¡Claro'+_nom+'! 🙌 Esto es lo que tenemos en nuestra tienda en línea 👇\n');
       buenos.forEach(function(i){
         const p=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
-        cuerpo += '\n🛒 *'+String(i.name).slice(0,70)+'*\n'+_pesos(p)+'\n'+WEB+'/'+i.url_key+'.html\n';
+        cuerpo += '\n🛒 *'+String(i.name).slice(0,70)+'*\n'+_pesos(p)+'\n'+WEB_OUT+'/'+i.url_key+'.html\n';
       });
-      cuerpo += '\nAllí encuentras las medidas y la ficha completa. El *valor final y la disponibilidad* te los confirma tu asesor. 🤝';
+      cuerpo += '\nAllí encuentras las medidas y la ficha completa. El *valor final y la disponibilidad* te los confirma tu asesor. 🤝'
+             + (j.web_cierre ? '' : '\n\nSeguimos con tu solicitud aquí mismo. 👇');
       const msg = {messaging_product:'whatsapp', to:j.wa_id, type:'text', text:{body:cuerpo, preview_url:true}};
       out.push({json:{msg:msg, chat:{creado_en:FECHA, wa_id:j.wa_id, nombre:(j.web_nombre||''),
         entrada:'(links tienda)', salida:cuerpo.slice(0,2000), etapa:'tienda_links',
