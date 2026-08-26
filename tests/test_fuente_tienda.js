@@ -80,8 +80,11 @@ function correr(tuses, srv, marca, fuente) {
     chequear('La búsqueda se resuelve contra la TIENDA, no contra el MCP',
              srv.pedidas.length > 0 && srv.pedidas.every(u => /carpincentro\.com\//.test(u)) &&
              srv.pedidas.some(u => /\/graphql/.test(u)), JSON.stringify(srv.pedidas));
+    // 2026-08-26: exigía `length === 2`, pero la consulta es "cemento gris" y el fixture trae un
+    // cemento y un MELAMÍNICO. Con el filtro de relevancia el melamínico se bota — y eso es el
+    // acierto. Lo que aquí importa es que el cemento llegue con su SKU.
     chequear('Cada resultado trae item_code (= el SKU, que es el de SAP)',
-             d.matches.length === 2 && d.matches[0].item_code === '10021733', JSON.stringify(d).slice(0, 160));
+             d.matches.length >= 1 && d.matches[0].item_code === '10021733', JSON.stringify(d).slice(0, 160));
     chequear('…su precio con IVA',
              d.matches[0].precio_con_iva === 34999.99, JSON.stringify(d.matches[0]).slice(0, 140));
     chequear('…y su ENLACE, que es lo que faltaba todo el día',
@@ -377,8 +380,13 @@ function correr(tuses, srv, marca, fuente) {
   {
     const r = await correrBog({ name:'buscar_producto', input:{ q:'cemento' } }, bogota());
     const d = JSON.parse(r[0].json.data);
+    // 2026-08-26: antes se exigía `=== ITEMS.length`. Con el filtro de relevancia esa medida quedó
+    // MAL: el fixture trae un cemento y un melamínico, y la consulta es "cemento" — botar el
+    // melamínico es el acierto, no el fallo. Lo que esta prueba defiende es que la guarda de
+    // `no_source` no DEJE LA LISTA EN CERO; eso es lo que se mide ahora.
     chequear('Bogotá · la lista NO se vacía aunque todo venga en no_source',
-             d.matches.length === ITEMS.length, JSON.stringify(d).slice(0, 140));
+             d.matches.length > 0 && d.matches.some(m => /Cemento/i.test(m.item_name)),
+             JSON.stringify(d).slice(0, 140));
     chequear('Bogotá · NO se etiqueta nada como agotado (el dato no es de fiar en esa plaza)',
              d.matches.every(m => m.se_vende === undefined && m.disponibilidad === undefined),
              JSON.stringify(d.matches[0]).slice(0, 160));
@@ -405,4 +413,37 @@ function correr(tuses, srv, marca, fuente) {
 
   console.log('\n' + ok + '/' + total + ' pruebas pasan');
   process.exit(ok === total ? 0 : 1);
+})();
+
+// ══ EL BUSCADOR DE LA TIENDA ENGANCHA CUALQUIER COSA CON DOS PALABRAS (26-ago-2026) ═══════════
+// Medido contra la tienda real: "llanta de carro" -> 2.066 resultados, el primero Sika Transparente;
+// "disco corte" -> 17 de grifería. El modelo presenta lo que le den, así que el freno va en el código.
+// Se compara por la RAÍZ DE 5 LETRAS para que "capuchino" (cliente) case con "Capuccino" (catálogo).
+(function relevancia(){
+  const STOP=['de','del','la','el','los','las','para','con','por','en','un','una','y','o','que','mas','tipo','color'];
+  const SIN={TUBER:'TUBO', CANER:'TUBO', LAMIN:'LAMIN', TEJAS:'TEJA', DISCO:'DISCO'};
+  const sinT=(t)=>String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+  function relevantes(q, lista){
+    const t=sinT(q).split(/[^A-Z0-9]+/).filter(w=>w.length>=4 && STOP.indexOf(w.toLowerCase())<0);
+    if(!t.length) return lista;
+    const r=t.map(w=>{ const x=w.slice(0,5); return SIN[x]||x; });
+    return lista.filter(m=>r.some(x=>sinT(m.item_name||'').indexOf(x)>=0));
+  }
+  const P=(n)=>({item_name:n});
+  const casos=[
+    ['llanta de carro', ['Sika Transparente 5 De 16 Kg','Sika Transparente 5 De 3 Kg'], 0, 'la basura se bota'],
+    ['disco corte',     ['Griferia Stretto Lavamanos Sencillo Cruz'],                    0, 'grifería no es un disco'],
+    ['revestimiento',   ['Perfil Esquinero Grande','Pegacor Ceramico Blanco 25 Kg'],     0, 'perfiles no son revestimiento'],
+    ['rh capuchino',    ['Melaminico Supercor Pb RH Capuccino Tex Madera 183X244X15'],   1, 'capuchino ≈ Capuccino (la raíz)'],
+    ['teja zinc',       ['Teja Zinc Acesco 0.8X3.66 (3X12) Cal.33'],                     1, 'el acierto obvio no se pierde'],
+    ['cemento gris',    ['Cemento Gris Alion Bulto X 50Kg'],                             1, 'idem'],
+    ['tuberia pvc',     ['Tubo Presion De 3/4 pulgadas RDE 11 6m'],                      1, 'tubería → tubo (sinónimo)'],
+    ['rh',              ['Cualquier Cosa Sin Relacion'],                                 1, 'solo palabras cortas: no se juzga'],
+  ];
+  casos.forEach(function(c){
+    const r=relevantes(c[0], c[1].map(P));
+    const ok=(r.length>0)===(c[2]>0);
+    console.log('  '+(ok?'✅':'❌')+' "'+c[0]+'" -> quedan '+r.length+'  ('+c[3]+')');
+    if(!ok) fallos++;
+  });
 })();

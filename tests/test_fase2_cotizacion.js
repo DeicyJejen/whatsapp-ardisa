@@ -34,6 +34,14 @@ const sysTxt = (r) => Array.isArray(r && r.system)
 const sysCacheado = (r) => Array.isArray(r && r.system) &&
   r.system.some(b => b.cache_control && b.cache_control.type === 'ephemeral');
 
+// 2026-08-26: el tope de vueltas subió de 5 a 20 (Deicy: "una cotización de verdad son varias
+// vueltas y me la cortaba"). El número vive en build_f1.py como COT_MAX; aquí se lee de ahí para
+// que la prueba NO se quede con un 5 escrito a mano — que es justo lo que la rompió hoy.
+const COT_MAX_ESPERADO = (function(){
+  const m = require('fs').readFileSync(__dirname + '/../build_f1.py', 'utf8').match(/const COT_MAX\s*=\s*(\d+)/);
+  if (!m) { console.log('  ❌ no se encontró COT_MAX en build_f1.py'); process.exit(1); }
+  return Number(m[1]);
+})();
 const DEMO = '573205662947';      // Deicy en modo demo (CLIENTES_PRUEBA)
 const REAL = '573001112233';      // un cliente cualquiera
 const CFG  = { cons_si:1, pend_id:0, cfg_cotiza:'si', cfg_mcp_url:'https://sap.ardisa.com/mcp', cfg_mcp_token:'tok-bot-123' };
@@ -220,7 +228,7 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
 // 2026-08-25: el tope subió de 3 a 5 vueltas (Deicy iba en la cuarta consulta legítima y el bot la cortó),
 // y el cierre ahora NOMBRA lo último que pidió, para que no se lea como que la ignoró.
 {
-  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:5, cotHist:[{role:'user',content:'cemento gris'}] });
+  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:COT_MAX_ESPERADO, cotHist:[{role:'user',content:'cemento gris'}] });
   const r = correr({ datos: ev(DEMO,{ texto:'y el blanco? y el gris? y otro?' }), sd, pend:CFG });
   chequear('Al tope de vueltas cierra al asesor', r.etapa==='cierre' && !r.hay_cot, 'etapa='+r.etapa);
   chequear('Y el cierre le nombra al cliente lo último que pidió',
@@ -270,7 +278,7 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
 // le contestó: volvía a preguntarle qué necesitaba a alguien que ya tenía un precio en pantalla, o le
 // daba otro número. El enriquecedor guarda lo cotizado en store.cotizado[wa]; el cierre lo anexa.
 {
-  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:5, cotHist:[{role:'user',content:'cemento gris'}] });
+  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:COT_MAX_ESPERADO, cotHist:[{role:'user',content:'cemento gris'}] });
   sd.cotizado = { [DEMO]: [
     { sku:'10021733', nom:'CEMENTO GRIS ALION BULTO X 50KG', pre:27500, uni:'UND', t:Date.now() },
     { sku:'10009911', nom:'LAMINA MDF CRUDO 183X244X5',      pre:48900, uni:'UND', t:Date.now() } ] };
@@ -291,11 +299,39 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
 }
 // Sin cotización previa, la tarjeta queda EXACTAMENTE como antes (no se inventa un bloque vacío).
 {
-  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:5, cotHist:[{role:'user',content:'cemento gris'}] });
+  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:COT_MAX_ESPERADO, cotHist:[{role:'user',content:'cemento gris'}] });
   const r = correr({ datos: ev(DEMO,{ texto:'listo gracias' }), sd, pend:CFG });
   const t2 = JSON.stringify(r.aviso_body || (sd.pendCierre[DEMO]||{}).aviso || '');
   chequear('Sin precios dados, la tarjeta no cambia', !/Ya cotizado/.test(t2), t2.slice(0,120));
 }
+
+
+// ══ EL TOPE DE VUELTAS NO PUEDE CORTAR UNA COTIZACIÓN REAL (26-ago-2026) ═══════════════════════
+// Deicy: "yo puedo preguntar solo por una cosa pero en la misma pregunto... y ya se van 5 preguntas, y
+// cuando va a hacer el sexto mensaje ya no puede responder porque de una vez lo bota al asesor".
+// Una cotización de verdad son varias vueltas: la masilla, después la pintura, después el color y el
+// tamaño. Con 5 se quedaba sin turnos justo cuando el cliente ya estaba decidiendo.
+(function topeDeVueltas(){
+  const enCot = (n) => { const sd = base();
+    sd.ses[DEMO] = { paso:'cotizacion', t:Date.now(), consent:true, nombre:'Deicy', ciudad:'Bucaramanga',
+                     ciudadId:'BUCARAMANGA', marca:'Ardisa', ocupacion:'🏠 Cliente final', cotN:n,
+                     cotHist:[{role:'user',content:'masilla supermastick'}] };
+    return sd; };
+  const pregunta = (sd) => correr({ datos: { wa_id:DEMO, profileName:'Deicy', texto:'y también pintura blanca',
+      mtype:'', media_id:'', btn_id:'', btn_title:'', es_media:false, ia:null }, sd, pend: CFG });
+
+  [1, 5, 9, 14, 19].forEach(function(n){
+    const r = pregunta(enCot(n));
+    const sigue = r.etapa === 'cotizacion';
+    console.log('  ' + (sigue ? '✅' : '❌') + ' en la vuelta ' + n + ' el bot SIGUE cotizando (etapa=' + r.etapa + ')');
+    if (!sigue) fallos++;
+  });
+  // y en la 20 sí entrega, que para eso es el freno de emergencia
+  const r20 = pregunta(enCot(20));
+  const corta = r20.etapa !== 'cotizacion';
+  console.log('  ' + (corta ? '✅' : '❌') + ' en la vuelta 20 entrega al asesor (freno de emergencia, etapa=' + r20.etapa + ')');
+  if (!corta) fallos++;
+})();
 
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

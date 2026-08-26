@@ -26,3 +26,7 @@ HV_*.pdf
 tests/cerebro.js
 tests/n_inactivos.js
 tests/n_*.js
+
+# Pantallazos de trabajo: no van al repo (es PÚBLICO y suelen mostrar chats de clientes)
+Snipaste_*.png
+*.screenshot.png

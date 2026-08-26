@@ -62,7 +62,7 @@ ok(b.includes('$84.041'), '(3) y aun así se pone el precio de los que SÍ lo tr
 // ── 4) el precio que el modelo ya escribió no se duplica ─────────────────────────────────────
 sd = datos();
 r = entregar(sd, 'Tenemos esta opción:\n\n*Hara 60X60 Beige*\n💲 $84.041,99 (precio de referencia con IVA)\n'
-  + '🔗 Verlo en línea: ' + U1 + '\n\n¿Te sirve?');
+  + '🔗 Verlo en línea: ' + U1 + '\n\n¿Te sirve?');   // ← redacción VIEJA a propósito: el arreglo se ancla a la URL
 b = r.wpp_body.text.body;
 ok((b.match(/84\.04\d/g) || []).length === 1, '(4) no se duplica el precio que el modelo SÍ escribió', b);
 
@@ -90,6 +90,38 @@ ok(b.includes('$3.599'), '(7) el precio NO se pierde al borrar la frase que lo c
 ok(b.indexOf('💲 $3.599') < b.indexOf('🔗 Verlo en línea: ' + UT), '(7) y queda en su renglón, encima del enlace');
 ok((b.match(/3\.599/g) || []).length === 1, '(7) una sola vez');
 ok(b.includes('Paquete por 100 unidades'), '(7) la respuesta a lo que PREGUNTÓ el cliente sigue ahí');
+
+// ── 8) LA DISPONIBILIDAD TAMPOCO SE PIDE POR FAVOR (26-ago, teja de zinc de Deicy) ─────────
+// La página devolvió las 5 tejas con existencias (806, 368, 521, 1 y 647 unidades) y el modelo no
+// escribió ni una palabra. La regla del prompt dice "si TODO tiene, dilo UNA vez al final": no lo hizo.
+const UZ = 'https://www.ardisa.com/teja-zinc-a.html';
+const TEJA = '¡Claro! Sí manejamos teja de zinc:\n\n*Teja Zinc Acesco 3X12 Cal.33*\n'
+  + '💲 $55.016,31 (precio de referencia con IVA)\n🔗 Verlo en línea: ' + UZ
+  + '\n\n¿Cuál medida necesitas y cuántas unidades?';
+const conStock = (disp) => ({ ses:{}, cotDatos:{ [WA]: { '10026698':
+  { nom:'Teja Zinc Acesco 3X12', pre:55016.31, url:UZ, disp, t:Date.now() } } } });
+
+sd = conStock('con disponibilidad');
+r = entregar(sd, TEJA); b = r.wpp_body.text.body;
+ok(/Todas con disponibilidad en tu ciudad/.test(b), '(8) se agrega la disponibilidad que faltaba', b.slice(-160));
+ok(b.trim().endsWith('¿Cuál medida necesitas y cuántas unidades?'),
+   '(8) y la PREGUNTA se queda de última (los mensajes cierran preguntando)', b.slice(-120));
+
+// se trae sobre pedido -> se dice distinto, no se promete lo que no hay en la bodega
+sd = conStock('se trae sobre pedido');
+b = entregar(sd, TEJA).wpp_body.text.body;
+ok(/sobre pedido/.test(b) && !/Todas con disponibilidad/.test(b),
+   '(8) lo que se trae sobre pedido NO se anuncia como disponible', b.slice(-170));
+
+// si el modelo YA habló de disponibilidad, no se le repite
+sd = conStock('con disponibilidad');
+b = entregar(sd, TEJA.replace('¿Cuál medida', 'Todas con disponibilidad hoy.\n\n¿Cuál medida')).wpp_body.text.body;
+ok((b.match(/disponibilidad/gi) || []).length === 1, '(8) no se repite si el modelo ya lo dijo', b.slice(-180));
+
+// sin dato de existencias, NO se inventa
+sd = conStock('');
+b = entregar(sd, TEJA).wpp_body.text.body;
+ok(!/disponibilidad en tu ciudad/i.test(b), '(8) sin dato de existencias no se afirma nada', b.slice(-140));
 
 if (fallos) { console.log('test_precio_no_se_esconde: ' + fallos + ' FALLAS'); process.exit(1); }
 console.log('test_precio_no_se_esconde: TODAS PASAN');

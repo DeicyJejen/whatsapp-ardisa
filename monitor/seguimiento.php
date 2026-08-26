@@ -320,8 +320,25 @@ function lnk($ov=[]){
     <div class="card v"><div class="k">Valor ganado</div><div class="v"><?php echo money($val)?:'$0'; ?></div><div class="x">ventas efectivas</div></div>
   </div>
   <?php if($ENT): ?>
+  <!-- 2026-08-26 (Deicy: "ponle paginación... o hazlo más reducido, para ver los reportes me toca bajar
+       y bajar"): esta tabla empujaba los REPORTES —que es a lo que se entra— media pantalla hacia abajo.
+       Ahora nace PLEGADA, con el veredicto resumido en el propio título: se ve de un vistazo si hay
+       alguien con problema y solo se abre si se quiere el detalle. <details> es HTML puro: sin
+       JavaScript, sin librerías, y en el celular funciona igual. Si se tocó un asesor para ver sus
+       mensajes, nace ABIERTO — si no, el clic recargaría la página y no se vería lo que se pidió. -->
   <div class="barbox">
-    <div class="t">¿Les está llegando? &nbsp;<span style="font-weight:400;opacity:.7">avisos de WhatsApp, últimos 7 días</span></div>
+    <details<?php echo $asf ? ' open' : ''; ?>>
+    <summary style="cursor:pointer;list-style:none;outline:none">
+      <span class="t">¿Les está llegando?</span>
+      &nbsp;<span style="font-weight:400;opacity:.7;font-size:13px">avisos de WhatsApp, últimos 7 días</span>
+      <?php
+        $_mal = 0; foreach($ENT as $_e){ if((int)$_e['fall']>0 || ((int)$_e['ok']>0 && (int)$_e['leid']===0)) $_mal++; }
+        echo $_mal
+          ? '<span style="margin-left:8px;background:#fdecea;color:#c0392b;border-radius:999px;padding:2px 9px;font-size:12.5px;font-weight:700">'.$_mal.' con problema</span>'
+          : '<span style="margin-left:8px;background:#eaf7ef;color:#237a4b;border-radius:999px;padding:2px 9px;font-size:12.5px;font-weight:700">todo bien</span>';
+      ?>
+      <span style="opacity:.55;font-size:12.5px;margin-left:6px">▾ ver detalle (<?php echo count($ENT); ?>)</span>
+    </summary>
     <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:6px">
       <tr style="text-align:left;opacity:.75">
         <th style="padding:4px 6px">Asesor</th><th>Enviados</th><th>Entregados</th><th>Leídos</th><th>Rebotes</th><th></th></tr>
@@ -404,6 +421,7 @@ function lnk($ov=[]){
         </div>
       <?php }
     } ?>
+    </details>
   </div>
   <?php endif; ?>
   <?php if($tot>0): ?>
