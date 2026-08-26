@@ -421,6 +421,145 @@ caché nunca acierta**. Ahí es donde `cache_read = 0` te delata.
 
 ---
 
+# Caso 6 — "Mira esos errores de ortografía"
+
+## El síntoma
+
+En la guía de entrevistas, una frase que debía decir *"Trabajé en un chatbot… orquestación en n8n…
+vía un servidor MCP"* aparecía así:
+
+> TrabajÃ© en un chatbot de WhatsApp en producciÃ³n: webhook de Meta, orquestaciÃ³n en n8n,
+> persistencia en MariaDB y una integraciÃ³n de solo-lectura con SAP vÃ­a un servidor MCP.
+
+## 🔍 Tu turno: averígualo
+
+**Paso 1 — mira el patrón antes de tocar nada.** ¿Qué tienen en común `Ã©`, `Ã³`, `Ã­`?
+Un error de ortografía no tiene patrón. Este sí. **Anota qué ves.**
+
+**Paso 2 — ¿los bytes están mal, o solo mal leídos?**
+
+```bash
+file -bi /var/www/monitor/guia-entrevistas.html
+```
+`file` mira el contenido y deduce qué es; `-i` pide el tipo MIME y `-b` quita el nombre.
+*¿Qué codificación dice que tiene?*
+
+**Paso 3 — ¿el archivo declara esa codificación?** Compáralo contra sus hermanos:
+
+```bash
+for f in /var/www/monitor/*.html; do
+  printf "  %-32s " "$(basename $f)"
+  head -c 2000 "$f" | grep -qi 'charset' && echo "declara" || echo "NO DECLARA"
+done
+```
+
+**Antes de correrlo, predice:** ¿van a salir todos mal, o solo uno?
+
+## ✅ Lo que era
+
+Solo uno: `guia-entrevistas.html`, y era justo el de la frase. **Los bytes estaban bien** (`file`
+decía `charset=utf-8`); lo que faltaba era **decirlo**.
+
+La `é` no existe para el computador: existen bytes. En UTF-8 la `é` son **dos** bytes, `C3 A9`.
+
+| Si el navegador cree que es… | Lee `C3 A9` como | Muestra |
+|---|---|---|
+| UTF-8 | un carácter | `é` |
+| Latin-1 | dos caracteres | `Ã` + `©` → **`Ã©`** |
+
+En Latin-1 el byte `C3` **es** `Ã` y el `A9` **es** `©`. El navegador no se equivoca: hace lo que le
+pediste. Nadie le dijo en qué codificación estaba escrito.
+
+El arreglo son dos líneas al principio del `<head>`:
+
+```html
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+```
+
+El `charset` tiene que ir en los **primeros 1024 bytes**: el navegador empieza a pintar antes de
+terminar de leer, y si se entera tarde ya pintó mal.
+
+**Ejercicio.** Hay una forma tentadora y equivocada de arreglarlo: buscar `Ã©` y reemplazar por `é`.
+Funciona en pantalla. **¿Por qué es peor que no arreglarlo?** Pista: piensa qué pasa con los bytes
+del archivo, y qué verá el día que alguien lo lea con la codificación correcta.
+
+## 🎤 Para la entrevista
+
+> "Mojibake es texto UTF-8 interpretado como Latin-1. Los bytes están bien; lo que falta es la
+> declaración de codificación. Se arregla en el origen —`<meta charset>` o la cabecera
+> `Content-Type`—, nunca reescribiendo el texto: reescribirlo destruye el original y el problema
+> reaparece en el siguiente archivo."
+
+**Te van a repreguntar:** *"¿y si haces buscar-y-reemplazar?"* Es la trampa. Arreglas la pantalla y
+**corrompes el archivo**: ahora tienes bytes malos donde antes había bytes buenos.
+
+---
+
+# Caso 7 — Los 81 clientes que estaban en internet
+
+## El síntoma
+
+No lo reportó nadie. Salió de **detenerse a mirar antes de publicar**.
+
+Al preparar el commit del 26 de agosto, revisando qué iba dentro, apareció que el repositorio de
+GitHub del proyecto es **público** — y que ya contenía datos personales de clientes reales.
+
+## 🔍 Tu turno: averígualo
+
+```bash
+git ls-files | xargs grep -ohE '\b573[0-9]{9}\b' 2>/dev/null | sort -u | wc -l
+```
+
+Trozo por trozo:
+- **`git ls-files`** — lista solo los archivos **versionados** (los que están publicados). No los
+  del disco: los que subiste.
+- **`xargs`** — toma esa lista y se la pasa como argumentos a `grep`. Sin él, `grep` leería la lista
+  como texto en vez de abrir los archivos.
+- **`grep -ohE`** — `-o` imprime **solo lo que coincidió** (no la línea entera); `-h` no pone el
+  nombre del archivo delante; `-E` activa las expresiones regulares extendidas.
+- **`\b573[0-9]{9}\b`** — `\b` es *frontera de palabra*: evita que un número más largo cuele. `573`
+  es el prefijo de Colombia y `[0-9]{9}` son los nueve dígitos que siguen.
+- **`sort -u`** — ordena y quita repetidos (`-u` = *unique*).
+- **`wc -l`** — cuenta líneas, o sea: **cuántos números distintos**.
+
+**Predice el número antes de correrlo.** Luego averigua cuántos de esos son clientes de verdad:
+
+```bash
+git ls-files | xargs grep -ohE '\b573[0-9]{9}\b' 2>/dev/null | sort -u > /tmp/nums.txt
+LISTA=$(paste -sd, /tmp/nums.txt | sed "s/[0-9]\+/'&'/g")
+sudo -n mysql bot_ardisa -N -B -e "SELECT COUNT(DISTINCT telefono) FROM leads WHERE telefono IN ($LISTA);"
+```
+- **`paste -sd,`** — pega todas las líneas en una sola (`-s`) separadas por coma (`-d,`).
+- **`sed "s/[0-9]\+/'&'/g"`** — le pone comillas a cada número; el `&` significa "lo que acabo de
+  encontrar". SQL necesita los teléfonos como TEXTO, no como números (esa lección ya costó un lead).
+
+## ✅ Lo que era
+
+**137 números distintos. 81 son clientes**, con nombre y apellido, verificados contra la tabla
+`leads`. Y en el propio `build_f1.py` había filas con el teléfono del cliente y el de su asesora.
+
+Es exactamente lo que protege la **Ley 1581 de 2012**, la misma que el bot le cita a cada cliente en
+el saludo. Esas personas autorizaron que Ardisa tratara sus datos **para atenderlos**. No para que
+estuvieran en internet.
+
+Lo que se hizo ese día: quitar los tres sitios donde el commit nuevo iba a meter el nombre y el
+número de un cliente —un comentario del código, una prueba y este mismo cuaderno— y **escalar el
+resto**, porque decidir sobre lo ya publicado no es una decisión técnica.
+
+## 🎤 Para la entrevista
+
+> "Antes de publicar reviso qué contiene el commit, no solo si compila. Publicar es irreversible:
+> aunque borres, ya se indexó y ya se clonó. Los casos reales se documentan sin identificar a nadie
+> —'un cliente de Bucaramanga', un número de prueba— porque la historia se entiende igual y el dato
+> personal no aporta nada."
+
+**Esta pregunta te la van a hacer de verdad** cuando lleves este proyecto de portafolio a una
+entrevista. Un repositorio público con 81 clientes dentro lo ve cualquier entrevistador técnico, y
+pesa más que todo lo bueno que hiciste.
+
+---
+
 # Los cinco conceptos, en una página
 
 Si solo te llevas una hoja de este cuaderno, que sea esta.
@@ -432,6 +571,8 @@ Si solo te llevas una hoja de este cuaderno, que sea esta.
 | 3 | Clasificador con categoría faltante | Nunca se abstiene: empuja al cajón vecino | Envíos → PQRS |
 | 4 | Pérdida en la frontera entre componentes | Cada pieza pasa su prueba; el traspaso no | La ciudad que se botaba |
 | 5 | Caché por prefijo | Lo estable primero, lo volátil al final | `cache_read = 0` |
+| 6 | Codificación ≠ contenido | Los bytes están bien; falta declararlos | El mojibake |
+| 7 | Publicar es irreversible | Mira qué hay dentro antes, no solo si compila | Los 81 clientes |
 
 **Y el hilo que los une todos**, que es lo que de verdad aprendimos en estos tres días:
 
@@ -455,5 +596,10 @@ Contesta con tus palabras. Si una no te sale, vuelve a su caso.
 5. `cache_read_input_tokens` sale en 0 en todas las llamadas. **Da tres causas posibles.**
 6. Vas a borrar 85 archivos de respaldo para liberar disco. **¿Qué haces antes, y por qué?**
 
-> La 4 y la 6 son las que separan a alguien que programa de alguien en quien se confía para operar
-> un sistema en producción.
+7. Una página muestra `TrabajÃ©` en vez de `Trabajé`. **¿Es un problema del texto o de quien lo
+   lee?** ¿Y por qué buscar-y-reemplazar es la peor solución?
+8. Vas a subir tu proyecto a un repositorio **público** para mostrarlo en entrevistas.
+   **¿Qué revisas antes, y con qué comando exacto?**
+
+> La 4, la 6 y la 8 son las que separan a alguien que programa de alguien en quien se confía para
+> operar un sistema en producción. Las tres salieron de errores que cometimos de verdad.

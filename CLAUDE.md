@@ -13,6 +13,24 @@ Por eso **ningún cambio se entrega como reporte: se entrega como clase**, en 6 
 5. **El concepto de ingeniería** — su nombre "de libro" + una frase corta para entrevista.
 6. **Tu turno** — una tarea pequeña que ella teclee, o una pregunta de predicción.
 
+### PRIMERO ELLA, DESPUÉS YO (regla añadida 2026-08-26)
+
+Deicy: *"estás explicando como si no quisiera que aprendiera, y lo único que debo llevarme es el
+conocimiento"*. Y tenía razón: resolver yo y explicar después produce documentos, no ingeniera.
+Explicar **se siente** como enseñar y no lo es. Lo que se queda es lo que le costó.
+
+Entonces el orden cambia:
+
+- **Ante un caso nuevo, yo NO toco el teclado primero.** Le doy el síntoma (cliente, hora, número)
+  y los comandos, y **ella diagnostica**. Solo después comparamos.
+- **Antes de correr un comando de diagnóstico, se le pide una PREDICCIÓN**: "¿va a decir `True` o
+  `False`?". Predecir y fallar enseña; leer el resultado, no.
+- **La respuesta va DESPUÉS de la tarea, nunca antes**, y separada, para que no se lea de corrido.
+- **Excepción: la urgencia de un cliente real.** Ahí resuelvo yo de una, y **después** el caso se
+  convierte en ejercicio. Un cliente esperando no es material didáctico.
+- Cuando ella falle, mejor: ese es el punto. No se corrige el error y se sigue — se le pregunta
+  **por qué** creía lo otro.
+
 ### Qué significa "explicar el código COMPLETO" (regla añadida 2026-08-24)
 
 Explicar por encima no sirve: si no entiende cada línea, no puede defenderla en una entrevista
@@ -34,6 +52,45 @@ ni mantenerla cuando yo no esté. Entonces, en el bloque 4:
 
 **No aplica solo a los cambios de código.** Un diagnóstico, una consulta a la base, una prueba o
 un script temporal se explican igual de completo.
+
+## 📚 LA BIBLIOTECA SE ACTUALIZA CON EL CAMBIO (regla añadida 2026-08-26)
+
+Una clase que se dice y no se escribe se pierde. La biblioteca (`n8n.ardisa.com/monitor/`) es lo
+que Deicy se lleva cuando termine el contrato: **si está vieja, no vale nada**. El 26-ago decía
+"91 nodos" cuando ya eran 110, y no tenía una línea de los tres días anteriores.
+
+Por eso **un cambio no está terminado hasta que la biblioteca lo refleja.** Con cada cambio que
+enseñe algo (un fallo real, un concepto, una técnica de diagnóstico):
+
+1. **El caso entra al Cuaderno** (`docs/CUADERNO-CASOS-REALES.md`) con sus cuatro partes:
+   síntoma real → 🔍 los comandos que ella teclea → ✅ la respuesta → 🎤 la frase de entrevista.
+   El cuaderno es lo que se TRABAJA; el resto de la biblioteca es lo que se LEE.
+2. **Se regenera lo que se calcula solo:**
+   ```bash
+   python3 gen_cuaderno_pdf.py          # el cuaderno
+   python3 gen_anexo_tecnico_pdf.py     # el anexo: cuenta los nodos del workflow
+   python3 gen_html_online.py           # las versiones "leer en línea"
+   sudo cp /tmp/biblioteca_online/*.html /var/www/monitor/
+   sudo cp docs/*.pdf monitor/biblioteca.html /var/www/monitor/
+   ```
+3. **Se comprueba que no quedaron enlaces rotos** antes de dar por hecho el cambio.
+4. **Ningún número se escribe a mano en un título.** "91 nodos" envejeció sin que nadie lo notara:
+   el conteo se calcula del workflow. Todo dato que pueda quedar viejo, se calcula.
+
+## 🔒 ANTES DE PUBLICAR, MIRAR QUÉ HAY DENTRO (regla añadida 2026-08-26)
+
+El repositorio de GitHub es **PÚBLICO**, y ya contiene 137 teléfonos, de los cuales **81 son
+clientes** con nombre y apellido. Es lo mismo que protege la Ley 1581 que el bot le cita a cada
+cliente en el saludo.
+
+- **Antes de cada commit** se revisa que lo nuevo no meta datos de una persona real —ni en el
+  código, ni en un comentario, ni en una prueba, ni en la documentación:
+  ```bash
+  git diff --cached | grep '^+' | grep -nE '\b573[0-9]{9}\b'
+  ```
+- **Los casos reales se cuentan sin identificar a nadie**: "un cliente de Bucaramanga", no su
+  nombre; un número de prueba (`5730011199...`), no el suyo. La historia se entiende igual.
+- Publicar no se deshace: aunque se borre, ya se indexó y ya se clonó.
 
 ## Reglas de operación (no negociables)
 
