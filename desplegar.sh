@@ -39,6 +39,17 @@ fi
 echo "== 4/6  Snapshot para rollback -> $SNAP =="
 curl -s -H "X-N8N-API-KEY: $KEY" "$API/workflows/$WF" -o "$SNAP"
 python3 -c "import json;json.load(open('$SNAP'))" && echo "   snapshot OK"
+# === ROTACIÓN (2026-08-26) ===================================================================
+# Cada despliegue dejaba un snapshot de ~1,2 MB y NADIE los borraba: 105 archivos, 132 MB, creciendo.
+# En este servidor el disco ya se llenó una vez (las copias del sqlite de n8n, 5-ago) y con el disco
+# lleno el bot deja de responder. Un backup que no se poda deja de ser un backup: es una fuga lenta.
+# Se conservan los 20 últimos, que cubren más de una semana de despliegues. Para volver atrás nunca
+# se usa uno de hace quince días —eso sería revivir un bot que ya no existe—: se usa el de ayer.
+#   ls -t   ordena por fecha, el más nuevo primero
+#   tail -n +21   empieza a imprimir DESDE la línea 21 (o sea, se salta los 20 primeros)
+#   xargs -r   no ejecuta rm si no le llega nada (sin -r, `rm` sin argumentos da error)
+ls -t backups/deploy-*.json 2>/dev/null | tail -n +21 | xargs -r rm -f
+echo "   snapshots guardados: $(ls backups/deploy-*.json 2>/dev/null | wc -l) (se conservan los 20 últimos)"
 
 echo "== 5/6  Deploy (PUT en caliente, sin desactivar) =="
 # 2026-08-20 (mensaje de Deicy perdido a las 9:25:55, 25 s después de un deploy): el ciclo

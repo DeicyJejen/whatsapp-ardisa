@@ -20,7 +20,7 @@
 #                                          (con --seco lo imprime en pantalla en vez de enviarlo)
 import subprocess, os, sys, ssl, smtplib, datetime, base64, json
 from email.message import EmailMessage
-from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud, sin_solicitud_sev   # reglas puras (probadas en tests/test_vigilante_clasifica.py)
+from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud, sin_solicitud_sev, AGUJA_SIN_SALDO   # reglas puras (probadas en tests/test_vigilante_clasifica.py y test_vigilante_saldo.py)
 
 BASE      = "/home/ubuntu/whatsapp-ardisa"
 KEY_N8N   = "/home/ubuntu/.config/ardisa/n8n_api_key"
@@ -476,6 +476,38 @@ try:
 except Exception:
     pass
 
+# ═══ 7b. ¿LA IA TIENE SALDO? (2026-08-25, chat del "enchape para pisos") ═══════════════════════
+# Deicy escribió "venden emchape para pisos?" y el bot le mostró el menú de marcas DOS veces sin
+# clasificar nada, y al final cerró el lead sin cotizar. No era el código: la cuenta de Anthropic se
+# quedó SIN SALDO a las 15:49, y el nodo de IA devolvía
+#     "Your credit balance is too low to access the Anthropic API"
+# El bot degrada bien (menú por palabras clave, lead creado y asignado: no se pierde ningún cliente),
+# y por eso mismo NADIE se entera: por fuera se ve casi normal. Lo descubrimos probando, que es la peor
+# forma. Esto se paga con tarjeta y se arregla en cinco minutos — pero solo si alguien lo sabe.
+# Se mira lo MISMO que ve el cliente: lo que el nodo de IA devolvió en las ejecuciones recientes.
+# 2026-08-26: la alerta se detectaba A SÍ MISMA. Su texto CITABA la frase en inglés, y ese texto viaja
+# por n8n al entregarse por WhatsApp → la ejecución que ENTREGA la alerta contenía la aguja que la alerta
+# busca → otra alerta cada hora con la cuenta ya recargada (15 de 23 detecciones eran eco). Hoy la aguja
+# es la frase COMPLETA (AGUJA_SIN_SALDO, en vigilante_reglas.py) y el texto ya no cita nada en inglés.
+try:
+    import sqlite3 as _sq4, json as _js4
+    _con = _sq4.connect("file:/opt/n8n/data/database.sqlite?immutable=1", uri=True)
+    _rs = _con.execute("SELECT COUNT(*) FROM execution_entity e JOIN execution_data d ON d.executionId=e.id "
+                       "WHERE e.workflowId='botArdisaFase1x' "
+                       "AND e.startedAt > datetime('now','-90 minutes') "
+                       "AND d.data LIKE '%' || ? || '%'", (AGUJA_SIN_SALDO,)).fetchone()
+    _con.close()
+    _sinSaldo = int((_rs or [0])[0] or 0)
+    if _sinSaldo:
+        # sev1: sin IA no hay clasificación de línea ni cotización. El bot responde, pero a medias.
+        anota("ia_sin_saldo", 1, "saldo|" + AHORA.strftime("%Y-%m-%d %H"),
+              "La cuenta de Anthropic se quedó SIN SALDO: %d conversaciones en los últimos 90 min "
+              "fueron RECHAZADAS por saldo insuficiente. El bot NO puede clasificar la línea (muestra el "
+              "menú de marcas aunque el cliente ya haya dicho qué necesita) ni COTIZAR: cada consulta "
+              "cae al asesor. Se recarga en console.anthropic.com -> Plans & Billing." % _sinSaldo)
+except Exception:
+    pass
+
 # ═══ 8. ¿EL BOT ESTÁ VIVO? workflow activo + webhook responde (2026-08-12, auditoría) ═══
 # El 17-jul el workflow quedó INACTIVO tras un cambio de IP y nadie lo supo hasta que un cliente se quejó;
 # importar/actualizar n8n también lo desactiva. Aquí se comprueba directo contra la API de n8n (la key ya se
@@ -536,6 +568,44 @@ try:
                   "La cotización SAP está ENCENDIDA (usar_cotiza=si) pero el token del MCP está VACÍO en la "
                   "BD: toda consulta va a caer al asesor. Corre `python3 mcp_token_login.py` o revisa "
                   "reportes/cron_mcp_token.log (refrescador).")
+        # 24-ago: "hay token" ≠ "el token sirve". El 20-ago reiniciaron el servidor MCP, eso borró el
+        # cliente OAuth y el refrescador quedó esperando un login humano; la BD conservaba un token de 763
+        # caracteres (NO vacío) y la regla de arriba calló 4 días. Ahora se mira la VALIDEZ: (a) la fecha de
+        # vencimiento que el propio token lleva escrita, y (b) lo último que dijo el refrescador.
+        _tok = str(_cfg.get("mcp_sap_token", "")).strip()
+        _muerto = ""
+        if _tok:
+            _vence = _nacio = None
+            try:                            # un JWT son 3 partes; la del medio trae 'exp' (vence) e 'iat' (nació)
+                _p = _tok.split(".")[1]
+                _claims = json.loads(base64.urlsafe_b64decode(_p + "=" * (-len(_p) % 4)).decode())
+                _vence, _nacio = _claims.get("exp"), _claims.get("iat")
+            except Exception:
+                pass                                         # token con otra forma: decide el log
+            if _vence and _vence < AHORA.timestamp():
+                _muerto = "el token venció el %s y nadie lo renovó" % \
+                          datetime.datetime.fromtimestamp(_vence).strftime("%d/%m %H:%M")
+            # El log del refrescador es la SEGUNDA opinión (cubre el token que aún no vence pero que el
+            # servidor ya no reconoce: caso 20-ago). Solo cuenta si la queja es POSTERIOR al nacimiento
+            # del token que hay hoy en la BD ('iat'); si es anterior, se está quejando del token viejo —
+            # el cron escribe cada 10 min y su última línea puede ser previa al login que acaba de curarlo.
+            _rl = BASE + "/reportes/cron_mcp_token.log"
+            if not _muerto and os.path.exists(_rl):
+                _ls = [l for l in open(_rl, errors="replace").read()[-2000:].splitlines() if l.strip()]
+                if _ls and ("sin tokens" in _ls[-1] or "ERROR" in _ls[-1]):
+                    try:
+                        _queja = datetime.datetime.strptime(_ls[-1][:16], "%Y-%m-%d %H:%M")
+                        _corte = (datetime.datetime.fromtimestamp(_nacio) if _nacio
+                                  else AHORA - datetime.timedelta(minutes=25))
+                        if _queja >= _corte:
+                            _muerto = "el refrescador quedó esperando un login humano"
+                    except Exception:
+                        pass
+            if _muerto:
+                anota("cotiza_token_muerto", 1, "muerto|" + AHORA.strftime("%Y-%m-%d"),
+                      "La cotización SAP está ENCENDIDA pero el bot NO tiene acceso a SAP: %s. Toda consulta "
+                      "cae al asesor sin que el cliente vea el error. Revive con `python3 mcp_token_login.py` "
+                      "(pide iniciar sesión con una cuenta @ardisa.com en el navegador)." % _muerto)
         # 14-ago: las pruebas de Deicy no cuentan como degradación. 15-ago: NINGUNA prueba cuenta —
         # el demo de Oscar (BSUID) seguía colándose y era el que inflaba la alerta.
         _f = q("SELECT COUNT(*), COALESCE(MAX(DATE_FORMAT(creado_en,'%d/%m %H:%i')),'') FROM mensajes "
@@ -551,6 +621,37 @@ try:
                   "revisa el servidor MCP y reportes/cron_mcp_token.log." % (_nf, _f[0][1]))
 except Exception as e:
     print("check cotiza falló: %s" % e)
+
+# ═══ 11. LA TIENDA EN LÍNEA RESPONDE (2026-08-24) ═══════════════════════════
+# El bot se apoya en el /graphql de Magento para tres cosas que el cliente SÍ nota: el link del producto,
+# el rescate cuando SAP no contesta y el corrector de lo mal escrito ("elongado" -> ALONGADO). Si la tienda
+# deja de responder, nada de eso falla a gritos: el bot simplemente deja de mandar links y nadie se entera.
+# Se le pregunta por un producto de control y se comprueba que devuelva fichas CON su url_key.
+try:
+    import urllib.request
+    _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    for _tienda, _url in (("Ardisa", "https://www.ardisa.com"), ("Carpincentro", "https://www.carpincentro.com")):
+        _falla = ""
+        try:
+            _rq = urllib.request.Request(
+                _url + "/graphql",
+                data=json.dumps({"query": '{products(search:"cemento",pageSize:2){total_count items{sku url_key}}}'}).encode(),
+                headers={"Content-Type": "application/json", "User-Agent": _UA})
+            _d = json.loads(urllib.request.urlopen(_rq, timeout=20).read()).get("data", {}) or {}
+            _it = ((_d.get("products") or {}).get("items")) or []
+            if not _it:
+                _falla = "responde pero no devuelve productos"
+            elif not _it[0].get("url_key"):
+                _falla = "devuelve productos SIN ficha (url_key vacío): los links saldrían rotos"
+        except Exception as _e2:
+            _falla = "no responde (%s)" % str(_e2)[:60]
+        if _falla:
+            anota("tienda_web", 1, "tienda|%s|%s" % (_tienda, AHORA.strftime("%Y-%m-%d %H")),
+                  "La tienda en línea de %s %s. El bot deja de mandarle links al cliente, de rescatar las "
+                  "búsquedas que SAP no contesta y de corregir lo que el cliente escribe mal — y todo eso "
+                  "falla en silencio. Revisar %s/graphql." % (_tienda, _falla, _url))
+except Exception as e:
+    print("check tienda falló: %s" % e)
 
 # ── Guardar (idempotente) y avisar solo lo NUEVO y GRAVE ─────────────────────
 if SECO:

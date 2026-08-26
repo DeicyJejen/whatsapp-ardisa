@@ -72,6 +72,24 @@ DEST_PRUEBA = ["deicy.jejen@ardisa.com"]          # solo con --test
 BCC_COPIA   = ["deicy.jejen@ardisa.com"]          # copia OCULTA de supervisión para Deicy (ellas no la ven)
 MARCAS = [("Ardisa", DEST_ARDISA), ("Carpincentro", DEST_CARP)]   # un reporte POR línea, MISMA plantilla
 DIAS = 7
+# === VENTANA DE LA SEMANA (corrección 2026-08-24, reportado por Deicy) ===
+# Antes la consulta decía `creado_en >= CURDATE() - INTERVAL 6 DAY`. Corriendo el LUNES a las 7:05,
+# eso arranca el MARTES anterior: el lunes pasado (de 7:05 am en adelante) no entraba en ESE reporte
+# —porque todavía no había pasado— ni en el siguiente —porque ya quedaba fuera de los 6 días—.
+# Cada semana se perdía un lunes entero del Excel (3-ago, 10-ago y 17-ago: 20 solicitudes).
+# Ahora la ventana es la SEMANA CALENDARIO COMPLETA: lunes 00:00 -> domingo 23:59:59, sin huecos
+# ni repeticiones (el lunes que corre el reporte pertenece a la semana SIGUIENTE). Mismo criterio
+# que ya usaba el vigilante semanal (vigilante.py:101).
+def ventana(argv):
+    """Devuelve (desde, hasta_exclusivo) como fechas. --desde/--hasta permiten regenerar cualquier rango."""
+    def _arg(nom):
+        try: return datetime.date.fromisoformat(argv[argv.index(nom)+1])
+        except Exception: return None
+    d, h = _arg("--desde"), _arg("--hasta")
+    if d and h: return d, h + datetime.timedelta(days=1)      # --hasta es INCLUSIVO para quien lo escribe
+    hoy = datetime.date.today()
+    lunes = hoy - datetime.timedelta(days=hoy.weekday())      # lunes de ESTA semana (hoy, si es lunes)
+    return lunes - datetime.timedelta(days=7), lunes          # semana pasada completa, lunes a domingo
 OUT = "/home/ubuntu/whatsapp-ardisa/reportes/"
 os.makedirs(OUT, exist_ok=True)
 NAVY, TEAL, LIGHT, GREY = "1E2A4A", "0F9D8E", "F4F6F8", "5A6472"   # mismo diseño que el primer reporte (reporte.py)
@@ -106,16 +124,21 @@ def estado_color(e):
     if "cotización" in l or "gestión" in l: return C_WAIT
     return C_GRAY
 
-def build_xlsx(path, marca):
+def build_xlsx(path, marca, desde=None, hasta=None, dias=None):
     raw = q("SELECT DATE_FORMAT(creado_en,'%%d/%%m/%%Y'), MONTH(creado_en), COALESCE(ciudad,''), COALESCE(nombre,''), "
             "telefono, COALESCE(solicitud,''), COALESCE(tipo_cliente,''), "
             "REPLACE(REPLACE(REPLACE(COALESCE(detalle,''),'\\n',' '),'\\r',' '),'\\t',' '), COALESCE(marca,''), "
             # Observación = "Motivo: X · <obs del asesor>" (el motivo de pérdida va aquí, NO pegado al Estado — Deicy 2026-07-21)
             "COALESCE(asesor,''), TRIM(BOTH ' · ' FROM CONCAT(IF(COALESCE(estado_motivo,'')='','',CONCAT('Motivo: ',estado_motivo,' · ')), REPLACE(REPLACE(REPLACE(COALESCE(obs_asesor,''),'\\n',' '),'\\r',' '),'\\t',' '))), "
             "COALESCE(CAST(valor_venta AS CHAR),''), COALESCE(estado,'') "
-            # Últimos 7 días INCLUYENDO hoy, SOLO de esta marca (un reporte por línea).
-            "FROM leads WHERE creado_en >= (CURDATE() - INTERVAL 6 DAY) AND COALESCE(modo_prueba,0)=0 "
-            "AND marca='%s' ORDER BY creado_en ASC" % marca)
+            # Semana COMPLETA lunes->domingo (ver ventana() arriba), SOLO de esta marca (un reporte por línea).
+            # Con --dias se piden fechas SUELTAS (para recuperar los lunes que el error de la ventana dejó
+            # fuera, sin volver a mandar los días que ellas ya recibieron).
+            "FROM leads WHERE %s AND COALESCE(modo_prueba,0)=0 "
+            "AND marca='%s' ORDER BY creado_en ASC"
+            % (("DATE(creado_en) IN (%s)" % ",".join("'%s'" % d for d in dias)) if dias
+               else ("creado_en >= '%s 00:00:00' AND creado_en < '%s 00:00:00'" % (desde.isoformat(), hasta.isoformat())),
+               marca))
     raw = [ (r+[""]*13)[:13] for r in raw ]
     # fila de 21 columnas: (idx crudos) 0 fecha,1 mes,2 ciudad,3 nombre,4 tel,5 solicitud,6 tipo,7 detalle,8 marca,9 asesor,10 obs,11 valor,12 estado
     rows=[]
@@ -199,7 +222,7 @@ def _resumen(tot, rep, pend, gan):
             + " &middot; " + _pl(pend,"pendiente por reportar","pendientes por reportar")
             + " &middot; " + _pl(gan,"venta ganada","ventas ganadas") + ".")
 
-def _html_correo(marca, tot, rep, pend, gan):
+def _html_correo(marca, tot, rep, pend, gan, rango=""):
     return ('<div style="margin:0;padding:24px 12px;background:#EEF1F4;font-family:\'Segoe UI\',Arial,sans-serif">'
       '<table role="presentation" cellpadding="0" cellspacing="0" align="center" width="620" style="width:620px;max-width:100%;margin:0 auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(20,40,80,.08)">'
       # --- encabezado: título + logo grupoardisa ---
@@ -207,7 +230,7 @@ def _html_correo(marca, tot, rep, pend, gan):
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
           '<td style="vertical-align:middle">'
             '<div style="font-size:19px;font-weight:600;color:#1E2A4A;line-height:1.25">Reporte de Solicitudes de Clientes</div>'
-            '<div style="font-size:12px;font-weight:400;color:#9AA6B2;margin-top:5px">Seguimiento semanal &middot; ' + marca + '</div>'
+            '<div style="font-size:12px;font-weight:400;color:#9AA6B2;margin-top:5px">Seguimiento semanal &middot; ' + marca + (' &middot; ' + rango if rango else '') + '</div>'
           '</td>'
           '<td align="right" style="vertical-align:middle"><img src="cid:logohdr" width="146" style="display:block;width:146px;height:auto;border:0"></td>'
         '</tr></table>'
@@ -239,24 +262,31 @@ def _html_correo(marca, tot, rep, pend, gan):
       '</td></tr>'
       '</table></div>')
 
-def enviar_marca(s, marca, dest, test, hoy):
-    fn = OUT + "Seguimiento_%s_%s.xlsx" % (marca, hoy)
-    tot,rep,pend,gan,val = build_xlsx(fn, marca)
+def enviar_marca(s, marca, dest, test, hoy, desde, hasta, dias=None):
+    # El nombre del archivo y el asunto llevan el RANGO, no la fecha de envío: así ellas ven de un vistazo
+    # qué semana están abriendo y dos Excel seguidos nunca se confunden (Deicy, 2026-08-24).
+    if dias:
+        rot   = "dias_" + "_".join(dias)
+        rango = "días " + ", ".join(datetime.date.fromisoformat(d).strftime("%d/%m/%Y") for d in dias)
+    else:
+        rot = "%s_a_%s" % (desde.isoformat(), (hasta - datetime.timedelta(days=1)).isoformat())
+        rango = "%s al %s" % (desde.strftime("%d/%m/%Y"), (hasta - datetime.timedelta(days=1)).strftime("%d/%m/%Y"))
+    fn = OUT + "Seguimiento_%s_%s.xlsx" % (marca, rot)
+    tot,rep,pend,gan,val = build_xlsx(fn, marca, desde, hasta, dias)
     msg=EmailMessage()
     msg["From"]="Grupo Ardisa (Bot WhatsApp) <%s>"%SMTP_USER
     msg["To"]=", ".join(dest)
-    msg["Subject"]=("[PRUEBA] " if test else "")+"Seguimiento semanal de solicitudes — %s (WhatsApp) — %s"%(marca,hoy)
+    msg["Subject"]=("[PRUEBA] " if test else "")+"Seguimiento semanal de solicitudes — %s (WhatsApp) — %s"%(marca,rango)
     msg.set_content(
         "Cordial saludo,\n\n"
-        "Ponemos a su disposición el informe de seguimiento de las solicitudes de clientes de %s "
-        "recibidas a través de nuestro canal de WhatsApp durante los últimos 7 días.\n\n"
+        "Ponemos a su disposición el informe de seguimiento de las solicitudes de clientes de " + marca + " "
+        "recibidas a través de nuestro canal de WhatsApp entre el %s.\n\n" % rango +
         "El informe relaciona, para cada solicitud, la fecha, el cliente, la ciudad, la clasificación, "
         "el asesor asignado y el estado de gestión, junto con el valor de la venta y las observaciones "
         "registradas por el equipo comercial. El detalle completo se encuentra en el archivo de Excel adjunto.\n\n"
         "Cordialmente,\nGrupo Ardisa\n\n"
-        "Este es un correo automático, por favor no responder."
-        % marca)
-    msg.add_alternative(_html_correo(marca, tot, rep, pend, gan), subtype='html')
+        "Este es un correo automático, por favor no responder.")
+    msg.add_alternative(_html_correo(marca, tot, rep, pend, gan, rango), subtype='html')
     _hpart = msg.get_payload()[-1]   # imágenes en línea (CID): logo encabezado + ícono pie
     try:
         _ph, _pi = _logos(OUT)
@@ -302,10 +332,15 @@ def conectar():
 def main():
     test="--test" in sys.argv
     hoy=datetime.date.today().isoformat()
+    desde, hasta = ventana(sys.argv)
+    dias = None
+    if "--dias" in sys.argv:          # fechas sueltas: python3 reporte_seguimiento.py --dias 2026-08-03,2026-08-10
+        dias = [datetime.date.fromisoformat(x).isoformat() for x in sys.argv[sys.argv.index("--dias")+1].split(",")]
+    print("Ventana: %s" % (", ".join(dias) if dias else "%s 00:00 -> %s 00:00 (excl.)" % (desde, hasta)))
     s=conectar()
     for marca, dest_real in MARCAS:            # un reporte POR línea, MISMA plantilla
         dest = DEST_PRUEBA if test else dest_real
-        enviar_marca(s, marca, dest, test, hoy)
+        enviar_marca(s, marca, dest, test, hoy, desde, hasta, dias)
     s.quit()
 
 if __name__=="__main__":

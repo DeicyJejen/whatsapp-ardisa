@@ -91,6 +91,13 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            (sd.ses[WA]||{}).marca === 'Ardisa' && !(sd.ses[WA]||{}).marcaCorregida,
            'marca=' + (sd.ses[WA]||{}).marca + ' etapa=' + r.etapa);
   chequear('Confianza BAJA: pregunta en vez de adivinar', r.etapa === 'confirmGrupo', 'etapa=' + r.etapa);
+  // 2026-08-24 (Deicy, caso Carlos Conde): si toca preguntar, se pregunta MOSTRÁNDOLE lo que ya escribió.
+  // El menú pelado ("¿qué necesitas?") un segundo después de que el cliente describió su producto se lee
+  // como que el bot no escuchó, y el cliente termina repitiendo lo que ya dijo.
+  chequear('Al preguntar la línea se le muestra lo que ya dijo (no repite su solicitud)',
+           /ya quedó anotada/.test(JSON.stringify(r.wpp_body || '')) &&
+           /tablero de madera de 15mm/.test(JSON.stringify(r.wpp_body || '')),
+           JSON.stringify(r.wpp_body || '').slice(0, 200));
 }
 {
   const sd = apuntoDeCerrar({ marca:'Ardisa', grupo:'ACABADOS', interes:'Acabados' });
@@ -117,6 +124,35 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const r = cerrar(sd, 'mejor dicho necesito 20 bultos de cemento gris', IA_CEMENTO);
   chequear('Si cambia de idea, manda lo último que pidió', leadDe(sd, r).marca === 'Ardisa',
            'marca=' + leadDe(sd, r).marca);
+}
+
+
+// ══ AFINADO 24-ago (Deicy, caso Carlos Conde) ═══════════════════════════════════
+// "Quintuplex tablero 25mm de espesor" tocando Ardisa: la IA dijo Carpincentro pero con confianza BAJA,
+// y la baja no podía corregir NADA — el lead salía a Ardisa y encima le preguntaban la línea que su propio
+// texto ya delataba. Ahora la baja SÍ corrige, pero con DOBLE respaldo: la IA propone y el vocabulario del
+// cliente confirma. Sin vocabulario que la respalde, o con palabras de la otra línea, no mueve nada.
+{
+  const IA_BAJA_CARP = { en_alcance:true, marca:'Carpincentro', grupo_pista:'', productos:['tablero quintuplex 25mm'],
+                         confianza:'baja', es_info:false, es_reclamo:false };
+  const sd = apuntoDeCerrar({ marca:'Ardisa', grupo:'ACABADOS', interes:'Acabados' });
+  const r = cerrar(sd, 'Quintuplex tablero 25mm de espesor', IA_BAJA_CARP);
+  const lead = leadDe(sd, r);
+  chequear('Confianza BAJA + vocabulario de carpintería: AHORA sí corrige (tablero -> Carpincentro)',
+           (lead.marca === 'Carpincentro') || ((sd.ses[WA]||{}).marca === 'Carpincentro'),
+           'lead=' + lead.marca + ' ses=' + ((sd.ses[WA]||{}).marca));
+
+  // Guardarraíl 1: la IA propone Carpincentro pero el texto habla de la OTRA línea -> no se toca.
+  const sd2 = apuntoDeCerrar({ marca:'Ardisa', grupo:'ACABADOS', interes:'Acabados' });
+  cerrar(sd2, 'necesito cemento gris de 50 kilos', Object.assign({}, IA_BAJA_CARP, { productos:['cemento gris'] }));
+  chequear('BAJA que contradice el texto: NO corrige (manda el vocabulario)',
+           (sd2.ses[WA]||{}).marca === 'Ardisa', 'marca=' + ((sd2.ses[WA]||{}).marca));
+
+  // Guardarraíl 2: sin vocabulario que la respalde, la confianza baja sigue sin poder mover la línea.
+  const sd3 = apuntoDeCerrar({ marca:'Ardisa', grupo:'ACABADOS', interes:'Acabados' });
+  cerrar(sd3, 'necesito algo para arreglar mi casa', Object.assign({}, IA_BAJA_CARP, { productos:['algo'] }));
+  chequear('BAJA sin vocabulario que la respalde: NO corrige',
+           (sd3.ses[WA]||{}).marca === 'Ardisa', 'marca=' + ((sd3.ses[WA]||{}).marca));
 }
 
 console.log('\n' + ok + '/' + total + ' pruebas pasan');

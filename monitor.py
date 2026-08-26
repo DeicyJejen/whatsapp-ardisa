@@ -185,6 +185,52 @@ def sin_reportar():
           "   ya no le esté llegando nada nuevo." + C["n"])
 
 
+def entregas():
+    """¿Los avisos LLEGAN al asesor, y los abre? (2026-08-25, decisión de Deicy: "lo que nos importa es
+    que le llegue"). WhatsApp avisa cada envío/entrega/lectura/rebote; hasta el 25-ago el bot los botaba.
+    Distinguir "no le llegó" de "le llegó y no lo abrió" importa: son dos problemas y se arreglan distinto.
+    """
+    titulo("7. ¿LES ESTÁ LLEGANDO?  " + C["d"] + "(avisos de WhatsApp, últimos 7 días)" + C["n"])
+    # Solo ASESORES: el bot manda ~100 mensajes diarios a CLIENTES y, sin este filtro, la tabla se llena
+    # de números sueltos y tapa justo lo que se quiere mirar. Los clientes se resumen aparte, abajo.
+    r = q("SELECT l.asesor AS quien, "
+          "       SUM(e.estado='sent') AS env, SUM(e.estado='delivered') AS ent, "
+          "       SUM(e.estado='read') AS leidos, SUM(e.estado='failed') AS fallos "
+          "FROM entregas e "
+          "JOIN (SELECT DISTINCT asesor_tel, asesor FROM leads WHERE asesor_tel IS NOT NULL AND asesor_tel<>'') l "
+          "     ON l.asesor_tel = e.wa_id "
+          "WHERE e.creado_en >= CURDATE() - INTERVAL 7 DAY "
+          "GROUP BY l.asesor ORDER BY env DESC LIMIT 12")
+    if not r:
+        print("   " + C["d"] + "Todavía sin datos: el registro empezó el 25-ago a las 11:12." + C["n"])
+        return
+    print("   %-30s %8s %10s %8s %8s" % ("QUIÉN", "ENVIADOS", "ENTREGADOS", "LEÍDOS", "REBOTES"))
+    for quien, env, ent, leidos, fallos in r:
+        env, ent, leidos, fallos = int(env or 0), int(ent or 0), int(leidos or 0), int(fallos or 0)
+        # Lo que se quiere leer de un vistazo, en este orden de gravedad:
+        nota = ""
+        if fallos:
+            nota = C["r"] + "  ← REBOTA: no le está llegando" + C["n"]
+        elif ent and not leidos:
+            nota = C["y"] + "  ← le llega, pero no lo abre" + C["n"]
+        elif ent and leidos:
+            nota = C["g"] + "  ✔" + C["n"]
+        print("   %-30s %8d %10d %8d %8d%s" % (str(quien)[:30], env, ent, leidos, fallos, nota))
+    # Los clientes, en una sola línea: ahí lo único que importa es si algo REBOTÓ.
+    cl = q("SELECT SUM(estado='sent'), SUM(estado='delivered'), SUM(estado='read'), SUM(estado='failed') "
+           "FROM entregas WHERE creado_en >= CURDATE() - INTERVAL 7 DAY "
+           "AND wa_id NOT IN (SELECT DISTINCT asesor_tel FROM leads WHERE asesor_tel IS NOT NULL AND asesor_tel<>'')")
+    # OJO: el cliente de MySQL en modo -N -B devuelve la CADENA 'NULL', no un vacío: int('NULL') revienta.
+    _n = lambda x: int(x) if str(x).strip() not in ('', 'NULL', 'None') else 0
+    if cl and _n(cl[0][0]):
+        env, ent, leidos, fallos = [_n(x) for x in cl[0]]
+        col = C["r"] if fallos else C["d"]
+        print("\n   %sA clientes:%s %d enviados · %d entregados · %d leídos · %s%d rebotes%s"
+              % (C["d"], C["n"], env, ent, leidos, col, fallos, C["n"]))
+    print("\n   " + C["d"] + "\"Entregado\" = llegó al teléfono. \"Leído\" = lo abrió. Un rebote es del lado\n"
+          "   de WhatsApp (número malo, bloqueado); que no lo abra es del lado de la persona." + C["n"])
+
+
 def main():
     dias = 7
     if "--dias" in sys.argv:
@@ -202,6 +248,7 @@ def main():
             reparto(dias)
             duplicados()
             sin_reportar()
+            entregas()
         except subprocess.CalledProcessError as e:
             print("\n%sNo pude leer la BD de leads:%s %s" % (C["r"], C["n"], e))
         print()

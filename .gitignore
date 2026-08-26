@@ -21,3 +21,8 @@ oficina/
 entrevista/
 HV_*.pdf
 *.pdf
+
+# Artefactos que genera tests/correr.sh desde build_f1.py
+tests/cerebro.js
+tests/n_inactivos.js
+tests/n_*.js

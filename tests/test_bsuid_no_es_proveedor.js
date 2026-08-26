@@ -101,5 +101,31 @@ const IN    = 'IN.9198765432100';      // el spam de "Laconic ceramic" (India), 
            casos.filter(([t, e]) => detecta(t) !== e).map(([t]) => t).join(' | '));
 }
 
+// ══ EL PEDIDO COMPLETO NO ESPERA POR UN NÚMERO (25-ago-2026, Sergio Torres 9:56 am) ══════════════
+// Al cliente con número oculto se le pide UN número para que el asesor pueda llamarlo (14-ago). Pero Sergio
+// ya había escrito "22 und de lámina super T para formaleta de 18 mm formato 1.84 x 2.44" —todo lo que el
+// asesor necesita— y el bot lo retuvo un turno más. Decisión de Deicy: si la solicitud está completa, el
+// lead pasa YA y el contacto es su @usuario. Si NO hay producto, se le pregunta igual (no habría qué cerrar).
+{
+  const WAO = 'CO.1057314080365771';
+  const pedir = (texto) => {
+    const sd = base();
+    sd.ses[WAO] = { paso:'detalle', t:Date.now(), consent:true, nombre:'Sergio Torres', ciudad:'Bogotá',
+                    ciudadId:'OTRA', marca:'Carpincentro', ocupacion:'🪑 Industrial del mueble' };
+    const r = correr({ datos: msg(WAO, texto, { profileName:'Sergio' }), sd, pend:{ cons_si:1 } });
+    return { hayLead: !!(sd.pendCierre[WAO] || (r.lead && r.lead.nombre)),
+             pideNumero: /qu[eé] \*?n[uú]mero/i.test(cuerpo(r)) };
+  };
+  const completo = pedir('necesito 22 und de lámina super T para formaleta de 18 mm formato 1.84 x 2.44');
+  chequear('Pedido completo -> el lead pasa YA, sin pedirle el número primero',
+           completo.hayLead && !completo.pideNumero,
+           'lead=' + completo.hayLead + ' pideNumero=' + completo.pideNumero);
+  const simple = pedir('necesito cemento gris');
+  chequear('Con producto simple también pasa de una', simple.hayLead, 'lead=' + simple.hayLead);
+  const vago = pedir('quiero cotizar');
+  chequear('Sin producto SÍ se le sigue preguntando (no habría qué cerrar)', !vago.hayLead,
+           'lead=' + vago.hayLead);
+}
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

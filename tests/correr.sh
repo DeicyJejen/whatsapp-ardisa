@@ -8,7 +8,7 @@ VERIFY_TOKEN=ardisa2026 python3 -c "import build_f1; open('tests/cerebro.js','w'
 python3 -c "
 import json
 w=json.load(open('workflow-bot-f1.json'))
-m={'Armar aviso a Deicy':'tests/n_armar.js','\u00bfLleg\u00f3 el aviso?':'tests/n_confirmar.js','Preparar IA':'tests/n_prepara.js','Finalizar cierre':'tests/n_finalizar.js','Redirigir al asesor original':'tests/n_redirigir.js','Entregar cotizaci\u00f3n':'tests/n_entregar.js','Repartir herramientas R1':'tests/n_repartir1.js','Armar consulta R2':'tests/n_armar_r2.js','Armar consulta R4':'tests/n_armar_r4.js','Cerrar cotizaci\u00f3n R4':'tests/n_cerrar_r3.js','Buscar en tienda (web)':'tests/n_tienda.js'}
+m={'Armar aviso a Deicy':'tests/n_armar.js','\u00bfLleg\u00f3 el aviso?':'tests/n_confirmar.js','Preparar IA':'tests/n_prepara.js','Finalizar cierre':'tests/n_finalizar.js','Redirigir al asesor original':'tests/n_redirigir.js','Entregar cotizaci\u00f3n':'tests/n_entregar.js','Repartir herramientas R1':'tests/n_repartir1.js','Armar consulta R2':'tests/n_armar_r2.js','Armar consulta R4':'tests/n_armar_r4.js','Cerrar cotizaci\u00f3n R4':'tests/n_cerrar_r3.js','Buscar en tienda (web)':'tests/n_tienda.js','SAP consulta R2':'tests/n_sap_r2.js'}
 hay={n['name'] for n in w['nodes']}
 # 2026-08-15: si un nodo se RENOMBRA, el extractor dejaba de escribir su archivo y la prueba seguia leyendo
 # el .js VIEJO que habia quedado suelto -> pasaba en verde probando codigo que ya no existe. Paso de verdad
@@ -31,6 +31,6 @@ for t in tests/test_*.py; do
 done
 rm -f tests/cerebro.js tests/n_inactivos.js tests/n_armar.js tests/n_confirmar.js tests/n_prepara.js tests/n_finalizar.js tests/n_redirigir.js tests/n_entregar.js
 # estos tres se quedaban en el disco entre corridas: justo lo que permitio probar codigo viejo (ver arriba)
-rm -f tests/n_repartir1.js tests/n_armar_r2.js tests/n_armar_r4.js tests/n_cerrar_r3.js tests/n_tienda.js
+rm -f tests/n_repartir1.js tests/n_armar_r2.js tests/n_armar_r4.js tests/n_cerrar_r3.js tests/n_tienda.js tests/n_sap_r2.js
 [ $fallo -eq 0 ] && echo "TODAS LAS PRUEBAS PASAN" || echo "HAY PRUEBAS FALLANDO"
 exit $fallo

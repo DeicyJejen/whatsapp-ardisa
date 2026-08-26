@@ -24,6 +24,16 @@ function entregar({ cerebroJson, sd, resp }) {
   return new Function('$','$input','$getWorkflowStaticData', ENTREGAR)($, $input, () => sd)[0].json;
 }
 
+// 2026-08-25: el `system` dejó de ser un texto y ahora viaja como LISTA DE BLOQUES, porque el último
+// lleva `cache_control` para que la API guarde las instrucciones en caché (antes se re-enviaban ~8.500
+// tokens en CADA llamada, con `cache_read_input_tokens` en cero). Este ayudante lo vuelve texto para
+// poder seguir buscando reglas dentro; y de paso comprueba que la caché siga puesta.
+const sysTxt = (r) => Array.isArray(r && r.system)
+  ? r.system.map(b => b.text || '').join(' ')
+  : String((r && r.system) || '');
+const sysCacheado = (r) => Array.isArray(r && r.system) &&
+  r.system.some(b => b.cache_control && b.cache_control.type === 'ephemeral');
+
 const DEMO = '573205662947';      // Deicy en modo demo (CLIENTES_PRUEBA)
 const REAL = '573001112233';      // un cliente cualquiera
 const CFG  = { cons_si:1, pend_id:0, cfg_cotiza:'si', cfg_mcp_url:'https://sap.ardisa.com/mcp', cfg_mcp_token:'tok-bot-123' };
@@ -67,13 +77,15 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   // ARRANQUE SIN PRECIO (decisión Deicy 11-ago): el servidor MCP todavía no tiene tool de precio, asi que
   // `mcp_precio_tool` va vacio en la BD. El bot NO debe hablar de precios ni escalar por eso — resuelve
   // producto y disponibilidad, y remite el valor al asesor.
+  chequear('Las instrucciones viajan CACHEADAS (antes se re-enviaban ~8.500 tokens en cada llamada)',
+           sysCacheado(req), JSON.stringify(req.system).slice(0, 160));
   chequear('El sistema lleva la ciudad del cliente y el guardrail de escalar',
-           /Bucaramanga/.test(req.system||'') && /\[ASESOR\]/.test(req.system||''),
-           String(req.system||'').slice(0,120));
+           /Bucaramanga/.test(sysTxt(req)) && /\[ASESOR\]/.test(sysTxt(req)),
+           sysTxt(req).slice(0,120));
   chequear('SIN tool de precio: no promete precios y no escala por no tenerlos',
-           /NO tienes precios/.test(req.system||'') && !/precio de referencia/.test(req.system||'')
-             && !/el precio no está disponible/.test(req.system||''),
-           String(req.system||'').slice(0,240));
+           /NO tienes precios/.test(sysTxt(req)) && !/precio de referencia/.test(sysTxt(req))
+             && !/el precio no está disponible/.test(sysTxt(req)),
+           sysTxt(req).slice(0,240));
   chequear('SIN tool de precio: la lista blanca no la incluye',
            !/precio/.test(nombres), nombres);
   chequear('La pregunta del cliente viaja en messages', JSON.stringify(req.messages||[]).includes('duratex'),
@@ -94,8 +106,8 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   chequear('CON tool de precio: entra a la lista blanca con SU nombre exacto',
            /(^|,)consultar_precio(,|$)/.test(nombres), nombres);
   chequear('CON tool de precio: vuelven las reglas de "precio de referencia"',
-           /precio de referencia/.test(req.system||'') && !/NO tienes precios/.test(req.system||''),
-           String(req.system||'').slice(0,200));
+           /precio de referencia/.test(sysTxt(req)) && !/NO tienes precios/.test(sysTxt(req)),
+           sysTxt(req).slice(0,200));
   chequear('CON tool de precio: sigue sin ver cartera/ventas',
            !/cartera|ventas|compras|contabilidad|recaudos/.test(nombres), nombres);
   // 2026-08-18, pedido de Deicy: "debe buscar por unidad, hacerle la cotización, y verificar si no hay
@@ -103,7 +115,7 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   // (1d) El precio que devuelve SAP es el de UNA unidad de venta completa (la caja entera, no el m2), y
   // la escala por volumen SOLO se aplica si se manda la cantidad: sin ella el bot cotizaba el precio de 1
   // y el cliente que pedía 20 cajas se quedaba sin su total.
-  const sys = String(req.system||'');
+  const sys = sysTxt(req);
   chequear('Cotiza por la CANTIDAD que pidió el cliente (total, no precio de 1)',
            /COTIZA POR LA CANTIDAD QUE PIDIÓ/.test(sys) && /TOTAL/.test(sys) &&
            /REDONDEANDO HACIA ARRIBA/.test(sys), sys.slice(0,80));
@@ -204,11 +216,19 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            'detalle='+String(lead.detalle).slice(0,140));
 }
 
-// ══ 6. TOPE de vueltas: a la 4ª pregunta pasa al asesor (no marear al cliente) ══
+// ══ 6. TOPE de vueltas: a la 6ª pregunta pasa al asesor (no marear al cliente) ══
+// 2026-08-25: el tope subió de 3 a 5 vueltas (Deicy iba en la cuarta consulta legítima y el bot la cortó),
+// y el cierre ahora NOMBRA lo último que pidió, para que no se lea como que la ignoró.
 {
-  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:3, cotHist:[{role:'user',content:'cemento gris'}] });
+  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:5, cotHist:[{role:'user',content:'cemento gris'}] });
   const r = correr({ datos: ev(DEMO,{ texto:'y el blanco? y el gris? y otro?' }), sd, pend:CFG });
   chequear('Al tope de vueltas cierra al asesor', r.etapa==='cierre' && !r.hay_cot, 'etapa='+r.etapa);
+  chequear('Y el cierre le nombra al cliente lo último que pidió',
+           /Sobre \*y el blanco/.test(JSON.stringify(r.wpp_body||'')), JSON.stringify(r.wpp_body||'').slice(0,120));
+  // Y en la 4ª y 5ª vuelta TODAVÍA cotiza (antes cortaba en la 4ª)
+  const sd2 = base(); sd2.ses[DEMO] = sesion({ paso:'cotizacion', cotN:3, cotHist:[{role:'user',content:'cemento'}] });
+  const r2 = correr({ datos: ev(DEMO,{ texto:'y el de 50 kilos?' }), sd: sd2, pend:CFG });
+  chequear('En la 4ª vuelta todavía cotiza (el tope ya no la corta)', r2.hay_cot===true, 'etapa='+r2.etapa);
 }
 
 // ══ 7. FALLO PREVIO: el siguiente mensaje cierra al asesor ══════════════════════
@@ -242,6 +262,39 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   const sd = base(); sd.ses[DEMO] = { paso:'cotizacion', cotN:1 };
   const out = entregar({ cerebroJson:{wa_id:DEMO}, sd, resp:{ type:'error', error:{message:'overloaded'} } });
   chequear('Error del API -> mismo fallback neutro', /asesor/i.test(out.wpp_body.text.body), out.wpp_body.text.body.slice(0,100));
+}
+
+// ══ 11. LO COTIZADO VIAJA CON EL LEAD (2026-08-25, pedido de Deicy) ═════════════
+// "el lead debe ir más completo ahora para el asesor: que le dio precio, cotización, qué producto
+// junto con el SKU". Hasta hoy el asesor recibía lo que el CLIENTE escribió y NADA de lo que el bot
+// le contestó: volvía a preguntarle qué necesitaba a alguien que ya tenía un precio en pantalla, o le
+// daba otro número. El enriquecedor guarda lo cotizado en store.cotizado[wa]; el cierre lo anexa.
+{
+  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:5, cotHist:[{role:'user',content:'cemento gris'}] });
+  sd.cotizado = { [DEMO]: [
+    { sku:'10021733', nom:'CEMENTO GRIS ALION BULTO X 50KG', pre:27500, uni:'UND', t:Date.now() },
+    { sku:'10009911', nom:'LAMINA MDF CRUDO 183X244X5',      pre:48900, uni:'UND', t:Date.now() } ] };
+  const r = correr({ datos: ev(DEMO,{ texto:'listo gracias' }), sd, pend:CFG });
+  // la tarjeta viaja retenida en pendCierre (el envío real lo hace el nodo de guardado)
+  const tarjeta = JSON.stringify(r.aviso_body || (sd.pendCierre[DEMO]||{}).aviso || '');
+  chequear('La tarjeta del asesor dice qué se cotizó y a qué precio',
+           /Ya cotizado por el bot/.test(tarjeta) && /CEMENTO GRIS ALION/.test(tarjeta), tarjeta.slice(0,160));
+  chequear('…con el SKU (= ItemCode de SAP) para que cotice la MISMA referencia',
+           /10021733/.test(tarjeta) && /10009911/.test(tarjeta), tarjeta.slice(0,200));
+  chequear('…y el precio con separador de miles, no un número pelado',
+           /\$27\.500/.test(tarjeta), tarjeta.slice(0,200));
+  const det = String((sd.pendCierre[DEMO] && sd.pendCierre[DEMO].lead && sd.pendCierre[DEMO].lead.detalle) || '');
+  chequear('Y el DETALLE del lead (Excel/BD) también lo lleva',
+           /Ya cotizado/.test(det) && /10021733/.test(det), det.slice(0,180));
+  chequear('Lo cotizado NO se hereda al próximo registro (se borra al cerrar)',
+           !(sd.cotizado && sd.cotizado[DEMO]), JSON.stringify(sd.cotizado));
+}
+// Sin cotización previa, la tarjeta queda EXACTAMENTE como antes (no se inventa un bloque vacío).
+{
+  const sd = base(); sd.ses[DEMO] = sesion({ paso:'cotizacion', cotN:5, cotHist:[{role:'user',content:'cemento gris'}] });
+  const r = correr({ datos: ev(DEMO,{ texto:'listo gracias' }), sd, pend:CFG });
+  const t2 = JSON.stringify(r.aviso_body || (sd.pendCierre[DEMO]||{}).aviso || '');
+  chequear('Sin precios dados, la tarjeta no cambia', !/Ya cotizado/.test(t2), t2.slice(0,120));
 }
 
 console.log('\n' + ok + '/' + total + ' pruebas pasan');

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash tests/correr.sh)",
+      "Bash(crontab -l)",
+      "Bash(python3 vigilante.py --seco)",
+      "Bash(python3 monitor.py)",
+      "mcp__claude_ai_sap-b1__buscar_producto",
+      "mcp__claude_ai_sap-b1__disponibilidad_ciudad"
+    ]
+  }
+}

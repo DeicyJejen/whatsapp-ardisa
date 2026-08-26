@@ -291,6 +291,26 @@ function lnk($ov=[]){
   <div class="testbar">🧪 <b>Vista de pruebas del equipo.</b> Aquí no hay clientes reales, y nada de esto cuenta para los informes ni para los asesores.
     <a href="<?php echo lnk(['test'=>'']); ?>">Volver a clientes</a></div>
 <?php endif; ?>
+  <?php
+  // === ¿LES ESTÁ LLEGANDO? (2026-08-25) ===================================================
+  // WhatsApp avisa cada envío / entrega / lectura / rebote de los mensajes que manda el bot; desde el
+  // 25-ago se guardan en `entregas`. Antes solo sabíamos que Meta había ACEPTADO el aviso, que no es lo
+  // mismo que decir que le llegó al asesor. Distinguir "no le llegó" de "le llegó y no lo abrió" importa:
+  // el rebote se arregla con el número, y lo otro es una conversación con la persona.
+  $ENT=[]; $ent_tot=['env'=>0,'ok'=>0,'leid'=>0,'fall'=>0];
+  $qe=$c->query("SELECT l.asesor quien, l.asesor_tel tel,
+                        SUM(e.estado='sent') env, SUM(e.estado='delivered') ok,
+                        SUM(e.estado='read') leid, SUM(e.estado='failed') fall
+                 FROM entregas e
+                 JOIN (SELECT DISTINCT asesor_tel, asesor FROM leads
+                        WHERE asesor_tel IS NOT NULL AND asesor_tel<>'') l
+                      ON l.asesor_tel = e.wa_id
+                 WHERE e.creado_en >= CURDATE() - INTERVAL 7 DAY
+                 GROUP BY l.asesor, l.asesor_tel ORDER BY env DESC LIMIT 12");
+  if($qe){ while($z=$qe->fetch_assoc()){ $ENT[]=$z;
+    $ent_tot['env']+=(int)$z['env']; $ent_tot['ok']+=(int)$z['ok'];
+    $ent_tot['leid']+=(int)$z['leid']; $ent_tot['fall']+=(int)$z['fall']; } }
+  ?>
   <div class="cards">
     <div class="card"><div class="k">Solicitudes</div><div class="v"><?php echo $tot; ?></div><div class="x"><?php echo ['hoy'=>'hoy','ayer'=>'ayer','semana'=>'últimos 7 días','mes'=>'últimos 30 días','todos'=>'histórico'][$per]; ?></div></div>
     <div class="card r"><div class="k">Reportadas</div><div class="v"><?php echo $rep; ?></div><div class="x"><?php echo pct($rep,$tot); ?>% del total</div></div>
@@ -298,6 +318,77 @@ function lnk($ov=[]){
     <div class="card g"><div class="k">Ganadas</div><div class="v"><?php echo $gan; ?></div><div class="x"><?php echo pct($gan,$tot); ?>% conversión</div></div>
     <div class="card v"><div class="k">Valor ganado</div><div class="v"><?php echo money($val)?:'$0'; ?></div><div class="x">ventas efectivas</div></div>
   </div>
+  <?php if($ENT): ?>
+  <div class="barbox">
+    <div class="t">¿Les está llegando? &nbsp;<span style="font-weight:400;opacity:.7">avisos de WhatsApp, últimos 7 días</span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:6px">
+      <tr style="text-align:left;opacity:.75">
+        <th style="padding:4px 6px">Asesor</th><th>Enviados</th><th>Entregados</th><th>Leídos</th><th>Rebotes</th><th></th></tr>
+      <?php foreach($ENT as $e):
+        $env=(int)$e['env']; $ok=(int)$e['ok']; $leid=(int)$e['leid']; $fall=(int)$e['fall'];
+        // El semáforo dice QUÉ hacer, no solo cómo va: el rebote se arregla con el número; que no lo abra,
+        // hablando con la persona.
+        if($fall>0){ $nota='⚠️ no le está llegando'; $col='#c0392b'; }
+        elseif($ok>0 && $leid===0){ $nota='le llega, pero no lo abre'; $col='#b7791f'; }
+        elseif($ok>0 && $leid>0){ $nota='✔'; $col='#237a4b'; }
+        else { $nota=''; $col='inherit'; }
+      ?>
+      <tr style="border-top:1px solid #eee">
+        <td style="padding:4px 6px"><a href="<?php echo lnk(['a'=>$e['quien']]); ?>" title="Ver sus mensajes uno por uno"><?php echo htmlspecialchars($e['quien']); ?></a></td>
+        <td><?php echo $env; ?></td><td><?php echo $ok; ?></td><td><?php echo $leid; ?></td>
+        <td<?php echo $fall?' style="font-weight:700;color:#c0392b"':''; ?>><?php echo $fall; ?></td>
+        <td style="color:<?php echo $col; ?>"><?php echo $nota; ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </table>
+    <div style="font-size:12.5px;opacity:.7;margin-top:6px">
+      &quot;Entregado&quot; = llegó al teléfono. &quot;Leído&quot; = lo abrió. Toca un asesor para ver sus mensajes uno por uno. El registro empezó el 25-ago.
+    </div>
+    <?php
+    // === DETALLE DEL ASESOR SELECCIONADO ===
+    // Una fila por MENSAJE con su línea de tiempo (enviado → entregado → leído), armada con MAX(CASE...):
+    // en la tabla cada estado es una fila aparte, y así se ven los tres tiempos del mismo mensaje juntos.
+    if($asf!==''){
+      $td=$c->prepare("SELECT e.msg_id,
+                              MAX(CASE WHEN e.estado='sent'      THEN e.creado_en END) t_env,
+                              MAX(CASE WHEN e.estado='delivered' THEN e.creado_en END) t_ok,
+                              MAX(CASE WHEN e.estado='read'      THEN e.creado_en END) t_leid,
+                              MAX(CASE WHEN e.estado='failed'    THEN e.creado_en END) t_fall,
+                              MAX(e.motivo) motivo
+                       FROM entregas e
+                       WHERE e.wa_id IN (SELECT DISTINCT asesor_tel FROM leads WHERE asesor=?)
+                         AND e.creado_en >= CURDATE() - INTERVAL 7 DAY
+                       GROUP BY e.msg_id ORDER BY MIN(e.creado_en) DESC LIMIT 20");
+      if($td){ $td->bind_param('s',$asf); $td->execute(); $rd=$td->get_result();
+        $hay=$rd && $rd->num_rows>0; ?>
+        <div style="margin-top:14px;border-top:1px solid #eee;padding-top:10px">
+          <div class="t">Mensajes a <?php echo h($asf); ?> <span style="font-weight:400;opacity:.7">(últimos 7 días)</span></div>
+          <?php if(!$hay): ?>
+            <div style="opacity:.7;font-size:13.5px;margin-top:4px">Sin mensajes registrados en el período.</div>
+          <?php else: ?>
+          <table style="width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px">
+            <tr style="text-align:left;opacity:.75"><th style="padding:4px 6px">Enviado</th><th>Entregado</th><th>Leído</th><th>Estado</th></tr>
+            <?php while($m=$rd->fetch_assoc()):
+              if($m['t_fall']){ $est='⚠️ REBOTÓ'.($m['motivo']?(' — '.$m['motivo']):''); $col='#c0392b'; }
+              elseif($m['t_leid']){ $est='leído'; $col='#237a4b'; }
+              elseif($m['t_ok']){ $est='entregado, sin abrir'; $col='#b7791f'; }
+              else { $est='enviado, sin confirmar'; $col='#777'; }
+              $hh=function($v){ return $v ? substr($v,5,14) : '—'; };
+            ?>
+            <tr style="border-top:1px solid #f2f2f2">
+              <td style="padding:4px 6px"><?php echo $hh($m['t_env']); ?></td>
+              <td><?php echo $hh($m['t_ok']); ?></td>
+              <td><?php echo $hh($m['t_leid']); ?></td>
+              <td style="color:<?php echo $col; ?>"><?php echo h($est); ?></td>
+            </tr>
+            <?php endwhile; ?>
+          </table>
+          <?php endif; ?>
+        </div>
+      <?php }
+    } ?>
+  </div>
+  <?php endif; ?>
   <?php if($tot>0): ?>
   <div class="barbox">
     <div class="t">Distribución por estado</div>

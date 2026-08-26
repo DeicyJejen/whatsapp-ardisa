@@ -5,12 +5,18 @@
 # le pone título de pestaña, letra 18px y ancho de lectura, y lo deja listo para copiar al web root.
 # Uso: correr DESPUÉS de los gen_*_pdf.py →  python3 gen_html_online.py  → luego:
 #      sudo cp /tmp/biblioteca_online/*.html /var/www/monitor/
-import os, re
+import os, re, json
+
+# El conteo de nodos NO se escribe a mano: el 26-ago la biblioteca todavía decía "91 nodos"
+# cuando ya eran 110. Un número escrito a mano en un título envejece sin que nadie lo note.
+_NNODOS = len(json.load(open('workflow-bot-f1.json'))['nodes'])
 
 DOCS = [
+    ("/tmp/cuaderno_casos.html", "cuaderno-casos-reales.html","📓 Cuaderno de Casos Reales"),
     ("/tmp/manual_bot.html",     "manual.html",              "📘 Manual del Proyecto"),
-    ("/tmp/anexo_tecnico.html",  "anexo-78-nodos.html",      "📗 Anexo: los 91 Nodos"),
+    ("/tmp/anexo_tecnico.html",  "anexo-78-nodos.html",      "📗 Anexo: los %d Nodos" % _NNODOS),
     ("/tmp/doc_mcp_pdf.html",    "doc-conexion-mcp.html",    "🔌 Conexión MCP-SAP"),
+    ("/tmp/doc_tienda_pdf.html","doc-conexion-tienda.html", "🛒 Conexión con la Tienda (Magento)"),
     ("/tmp/curso_pdf.html",      "curso-bot-desde-cero.html","🎓 Curso: el Bot desde Cero"),
     ("/tmp/guia_python.html",    "python-terminal.html",     "🐍 Guía Python y Terminal"),
     ("/tmp/ingles_codigo.html",  "ingles.html",              "🇬🇧 Inglés del Código"),

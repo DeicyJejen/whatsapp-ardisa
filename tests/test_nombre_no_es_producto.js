@@ -83,5 +83,59 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
            bien === casos.length, fallan.join(' | '));
 }
 
+// ══ 4. EL NOMBRE QUE LLEGA ANTES DE TIEMPO (24-ago-2026, Adriana Gutiérrez de Graico SAS) ══
+// Se presentó mientras el bot le mostraba el menú de marca —"Soy Adriana Gutiérrez de Graico SAS nit
+// 860065847-0"— y el dato se descartó: seis segundos después el bot le pidió el nombre que acababa de dar,
+// y ella tuvo que escribirlo otra vez. La red del "nombre que llega tarde" existía, pero solo miraba las
+// etapas POSTERIORES a la pregunta. Ahora también mira las de antes (marca, consentimiento, primer mensaje).
+{
+  const antes = [['Soy Adriana Gutiérrez de Graico SAS nit 860065847-0', 'marca', true],
+                 ['Buenas, mi nombre es Adriana Gutiérrez', 'consent', true],
+                 ['Necesitamos 4 láminas de este material, 10mm', 'marca', false],
+                 ['placas de fibrocemento tipo drywall 10mm', 'marca', false],
+                 ['quiero cotizar cemento gris', 'marca', false],
+                 ['Buenas tardes', 'marca', false]];
+  let bien = 0, fallan = [];
+  for (const [t, paso, esperado] of antes) {
+    const sd = base(); sd.ses[WA] = { paso: paso, t: Date.now(), consent: true, marca: 'Ardisa' };
+    correr({ datos: ev(t, null), sd, pend: CFG });
+    const cap = !!(sd.ses[WA] || {}).nombre;
+    if (cap === esperado) bien++; else fallan.push(paso + ': ' + t + ' -> ' + ((sd.ses[WA] || {}).nombre || 'no capturado'));
+  }
+  chequear('Quien se presenta ANTES de que se lo pidan no tiene que repetirlo',
+           bien === antes.length, fallan.join(' | '));
+}
+
+// ══ 5. LA CIUDAD QUE LLEGA ANTES DE TIEMPO (24-ago-2026, Duvan Valenzuela, lead #370) ══
+// Escribió "para la ciudad de bucaramanga" mientras se le pedía el NOMBRE. El dato se descartó y el bot le
+// preguntó la ciudad igual; él terminó respondiéndola dos veces más. Deicy: "debe captar el paso de los
+// clientes, ellos no saben cómo funciona el bot". OJO al desempate: hay APELLIDOS que son ciudades
+// (Pereira, Bello, Girardot) y un lead ruteado a la ciudad equivocada cuesta el cliente.
+{
+  const casos = [['para la ciudad de bucaramanga', 'nombre', 'Bucaramanga'],
+                 ['estoy en Bogotá',               'marca',  'Bogotá'],
+                 ['vivo en Girardot',              'nombre', 'Girardot'],
+                 ['Juan Pereira',                  'nombre', ''],
+                 ['Carolina Bello',                'nombre', ''],
+                 ['Juan de Dios Pereira',          'nombre', ''],
+                 ['tienen mdf de 5.5 corriente',   'nombre', ''],
+                 ['necesito una lámina para Medellín', 'nombre', '']];
+  let bien = 0, fallan = [];
+  for (const [t, paso, esperada] of casos) {
+    const sd = base(); sd.ses[WA] = { paso: paso, t: Date.now(), consent: true, marca: 'Carpincentro' };
+    correr({ datos: ev(t, null), sd, pend: CFG });
+    const c = (sd.ses[WA] || {}).ciudad || '';
+    if (c === esperada) bien++; else fallan.push(paso + ': ' + t + ' -> ' + (c || 'sin ciudad'));
+  }
+  chequear('La ciudad dicha fuera de turno se capta, y un apellido-ciudad no rutea el lead',
+           bien === casos.length, fallan.join(' | '));
+
+  // Y la frase de ubicación no puede quedar como NOMBRE del cliente en el Excel del asesor.
+  const sd2 = base(); sd2.ses[WA] = { paso: 'nombre', t: Date.now(), consent: true, marca: 'Carpincentro' };
+  correr({ datos: ev('vivo en Girardot', null), sd: sd2, pend: CFG });
+  chequear('"vivo en Girardot" no queda como nombre del cliente',
+           !((sd2.ses[WA] || {}).nombre), String((sd2.ses[WA] || {}).nombre));
+}
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

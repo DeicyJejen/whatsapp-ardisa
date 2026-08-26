@@ -50,12 +50,44 @@ caso("colombiano que solo saludó y se fue", "573011755929", "consent>recordator
 # caso del comprador B2B echado como proveedor en la auditoría del 05-ago)
 caso("colombiano orientado a Servicio al Cliente", "573001112233", "info", 2, "atendió", False)
 caso("colombiano clasificado proveedor (¿B2B?)", "573124027713", "proveedor", 2, "atendió", False)
+# 2026-08-24 (Stefany Reyna, técnico en SST que mandó su hoja de vida): el recorrido REAL trae las etapas
+# mecánicas (saludo con aviso de datos, menú de marca, recordatorio, cierre). Con ellas adentro la prueba
+# de "todo el recorrido es atendido-sin-lead" no daba verdadera nunca y salía correo urgente por una
+# conversación que el bot resolvió bien.
+caso("busca empleo, recorrido completo real", "573125672287",
+     "aviso_datos>marca>empleo>recordatorio>cierre_inactividad", 2, "atendió", False)
+caso("reclamo con recorrido completo real", "573001114455",
+     "aviso_datos>marca>reclamo>recordatorio>cierre_inactividad", 2, "atendió", False)
+# GUARDARRAÍL: descontar las mecánicas NO puede volver invisible al que se perdió de verdad. Si lo único
+# que hubo fueron etapas mecánicas, no hay ninguna decisión del bot que justifique bajarle la severidad.
+caso("solo vio el menú y se fue (sigue urgente)", "573007778899",
+     "aviso_datos>marca>recordatorio>cierre_inactividad", 1, None, False)
+# Y si preguntó por empleo pero DESPUÉS siguió el formulario comercial, hay que mirarlo: sigue sev1.
+caso("preguntó empleo pero avanzó a nombre", "573002223344", "aviso_datos>marca>empleo>nombre", 1, None, False)
 # Usuario con "username" de WhatsApp (BSUID): CO = Colombia -> cliente colombiano, NO spam extranjero
 caso("BSUID colombiano varado en el flujo", "CO.1352055013679988", "consent>marca>cierre_inactividad", 1, None, False)
 caso("BSUID extranjero (India)", "IN.9990001112223334", "", 2, "internacional", True)
 # Bordes: nada de esto debe romper ni silenciar de más
 caso("recorrido vacío, número colombiano", "573000000000", "", 1, None, False)
 caso("recorrido vacío, número extranjero", "919000000000", "", 2, "internacional", True)
+
+# ── lead_sin_solicitud: el cliente pide por la SUPERFICIE, no por el material (24-ago, lead #374) ──
+# Marcela escribió "tienen disponible para el piso de una panadería" y la alerta dijo "SIN solicitud":
+# el vocabulario del vigilante no tenía "piso", aunque el del bot sí. Dos listas para la misma pregunta.
+for _t, _esp in [("Buen día, hágame un favor que tienen disponible para el piso de una panadería?", False),
+                 ("necesito enchapar un muro", False),
+                 ("para la fachada", False),
+                 ("quiero cotizar la escalera", False),
+                 ("Buen día", True),
+                 ("necesito cotización", True),
+                 ("estoy buscando asesoría", True),
+                 ("Bucaramanga", True)]:
+    _r = lead_sin_solicitud(_t)
+    _ok = (_r == _esp)
+    print("  %s %-58s -> %s" % ("✅" if _ok else "❌", '"%s"' % _t[:54],
+                                "SIN SOLICITUD" if _r else "tiene solicitud"))
+    if not _ok:
+        fallos += 1
 
 # ── etapa_cola ──────────────────────────────────────────────────────────────
 print()

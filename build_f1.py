@@ -78,6 +78,21 @@ const root = $input.first().json;
 const body = root.body || root;
 const value = body?.entry?.[0]?.changes?.[0]?.value;
 const msg = value?.messages?.[0];
+// === LOS AVISOS DE ENTREGA DE META (2026-08-25, decisión de Deicy: "lo que nos importa es que le llegue") ===
+// Cada vez que un mensaje nuestro se entrega, se lee o rebota, WhatsApp manda un aviso con `statuses` en vez
+// de `messages`. Hasta hoy caían aquí y se botaban: de una tarjeta enviada a un asesor solo podíamos decir
+// "Meta la aceptó", que NO es lo mismo que "le llegó al teléfono". Ahora se reconocen y se guardan, para
+// poder demostrar la entrega y para enterarnos cuando una tarjeta REBOTA (hoy eso no lo ve nadie).
+const _est = value?.statuses?.[0];
+if (!msg && _est) {
+  const _err = (_est.errors && _est.errors[0]) || null;
+  return [{ json: { es_mensaje: false, es_estado: true,
+    est_msg_id: String(_est.id || ''),
+    est_wa_id:  String(_est.recipient_id || ''),
+    est_estado: String(_est.status || ''),                       // sent | delivered | read | failed
+    est_ts:     _est.timestamp ? new Date(Number(_est.timestamp) * 1000).toISOString().slice(0, 19).replace('T', ' ') : null,
+    est_motivo: _err ? String(_err.title || _err.message || _err.code || '').slice(0, 180) : null } }];
+}
 if (!msg) { return [{ json: { es_mensaje: false } }]; }
 // 14-ago-2026: WhatsApp "usernames" (BSUID) — si el usuario oculta su número, Meta NO manda msg.from:
 // manda from_user_id / contacts[].user_id con un código por-empresa tipo "CO.1352055013679988"
@@ -298,6 +313,8 @@ for (const k in store.cliMsgs) { const _a=store.cliMsgs[k]; const _ult=(_a&&_a.l
 if(store.reclamo) for (const k in store.reclamo) { if ((NOW - store.reclamo[k]) > 48*3600*1000) delete store.reclamo[k]; }   // freno de repetición de reclamo (48h)
 if(store.info) for (const k in store.info) { if ((NOW - store.info[k]) > 48*3600*1000) delete store.info[k]; }   // freno de repetición de info (48h)
 if(store.mediaNudge) for (const k in store.mediaNudge) { if ((NOW - store.mediaNudge[k]) > 72*3600*1000) delete store.mediaNudge[k]; }   // anti-spam del destrabe de cola (se re-arma solo)
+if(store.cotizado) for (const k in store.cotizado) { const _c=store.cotizado[k]; const _u=(_c&&_c.length)?_c[_c.length-1]:null; if(!_u || (NOW-(_u.t||0)) > 6*3600*1000) delete store.cotizado[k]; }   // lo cotizado: sirve para la tarjeta de ESTA conversación (6h)
+if(store.cotDatos) for (const k in store.cotDatos) { const _m=store.cotDatos[k]; const _t=Object.keys(_m||{}).reduce(function(x,q){ return Math.max(x,(_m[q]||{}).t||0); },0); if(!_t || (NOW-_t) > 6*3600*1000) delete store.cotDatos[k]; }   // el dato crudo de la página: solo vive lo que dura la consulta (6h)
 // 2026-07-29: Jhon Jairo salió de la rotación de Construcción -> la "deuda de turno" acumulada (24-jul) ya no
 // aplica. Se limpia una vez para que, si algún día vuelve a entrar a un pool, no arranque saltándose turnos.
 if(store.rotDeuda && store.rotDeuda['573164679556']) delete store.rotDeuda['573164679556'];
@@ -465,6 +482,11 @@ function elige(opts){
 // COMPENSACIÓN (2026-07-24, pedido de Deicy): si un asesor recibió leads DIRECTOS fuera de rotación
 // (p.ej. aluminios -> Jhon Jairo), acumula "deuda" en store.rotDeuda[num] y la rotación lo salta
 // esa cantidad de turnos, para que el total quede parejo (Miguel/Yormy no se atrasan).
+// ROT_ULT (2026-08-24): apunte del ÚLTIMO turno gastado —llave, valor del contador y número del asesor—.
+// Lo necesita el RESCATE: ese cierre se arma en un simulacro que después da REVERSA al contador, así que el
+// turno queda sin gastar aunque el lead sí se entregue. Con este apunte, el cron que asciende el rescate sabe
+// exactamente qué turno cobrar. Vive en la variable del nodo (no en store): la reversa no lo toca.
+let ROT_ULT = null;
 function rota(key,arr){
   store.rotDeuda = store.rotDeuda || {};
   // En DEMO se calcula a quién le tocaría, pero sin tocar el contador ni la deuda: la prueba mira, no gasta.
@@ -473,6 +495,7 @@ function rota(key,arr){
     const c=store.rot[key]||0; store.rot[key]=c+1;
     const a=arr[c%arr.length];
     if(arr.length>1 && a && a.num && (store.rotDeuda[a.num]||0)>0){ store.rotDeuda[a.num]--; continue; }
+    ROT_ULT = {key:key, idx:c, num:(a && a.num) || ''};
     return a;
   }
   return arr[(store.rot[key]-1)%arr.length];   // todos con deuda -> igual se asigna el último
@@ -671,7 +694,13 @@ function cerrarLead(st,opts){
     // el paso final— no puede cubrir una respuesta que no dice NADA. Si lo único que escribió es una palabra
     // genérica o una cortesía, se le pregunta igual (una sola vez, como siempre).
     const _dvPal = _dv.replace(/[^a-z0-9áéíóúñü ]/gi,' ').replace(/\s+/g,' ').trim();
-    const _genericoPuro = /^(un |una |unos |unas |el |la |los |las )?(producto|productos|material|materiales|art[ií]culo|art[ií]culos|mercanc[ií]a|cosa|cosas|varios|varias|surtido|de todo|algo|cotizaci[oó]n|cotizar|precio|precios|informaci[oó]n|info|asesor[ií]a|ayuda)$/i.test(_dvPal);
+    // 2026-08-25 (lead #378, Club del Comercio de Bucaramanga): a la pregunta "¿qué necesitas?" respondió
+    // "Comunicame con un asesor" y el lead salió a Miguel Ángel con ESO como detalle. La lista de abajo solo
+    // reconoce palabras HUECAS sueltas ("cotización", "asesoría"), y esto es una frase: se coló por el medio.
+    // Pedir un asesor es legítimo, pero no dice QUÉ necesita — y la regla de la casa es no pasar leads a
+    // medias: se le pregunta el producto UNA vez y después se cierra igual, pida o no pida asesor.
+    const _pideAsesor = /(comun[ií]ca(me|rme)|comun[ií]que(n?me)|p[aá]sa(me|rme)|p[aá]seme|quiero (hablar|un asesor|una asesora)|necesito (un |una )?asesor|hablar con (un |una |alguien|alg[uú]n)|me (pueden|puede|podr[ií]an) (comunicar|contactar|llamar|atender)|que me (llamen|contacten|atiendan)|atenci[oó]n personalizada|un asesor me)/i.test(_dvPal);
+    const _genericoPuro = _pideAsesor || /^(un |una |unos |unas |el |la |los |las )?(producto|productos|material|materiales|art[ií]culo|art[ií]culos|mercanc[ií]a|cosa|cosas|varios|varias|surtido|de todo|algo|cotizaci[oó]n|cotizar|precio|precios|informaci[oó]n|info|asesor[ií]a|ayuda)$/i.test(_dvPal);
     // Sin producto Y sin nada que lo supla (adjunto, proyecto a medida, "quiero un asesor"): el asesor tendrá
     // que preguntarlo él. Se marca para la tarjeta, aunque la pregunta de abajo no llegue a salir — que es
     // justo lo que pasa en el RESCATE (el cliente ya se fue) y cuando lo único escrito es una palabra hueca.
@@ -688,6 +717,14 @@ function cerrarLead(st,opts){
   // se le pregunta UNA sola vez un número; si lo da, la tarjeta y el enlace usan ESE número;
   // si prefiere seguir por el chat, se cierra igual (@usuario o línea del bot). Mismo patrón
   // que la solicitud vaga: pregunta única marcada en la sesión, jamás en bucle. ===
+  // 2026-08-25 (Sergio Torres, 9:56 am): ya había escrito "22 und de lámina super T para formaleta de 18 mm
+  // formato 1.84 x 2.44" —todo lo que el asesor necesita— y el bot lo retuvo un turno más para pedirle un
+  // número. Deicy: "ya tiene todo, debe pasar el lead ya, que sea al usuario". Si la solicitud está COMPLETA
+  // el lead se cierra de una y el contacto es su @usuario de WhatsApp; el número deja de ser un peaje. Si NO
+  // hay producto, se le pregunta igual que siempre: ahí esperar no cuesta nada, porque no se podría cerrar.
+  const _pedidoCompleto = tieneProdConc(String(st.detalle||'')+' '+String(texto||''))
+        || (ia && Array.isArray(ia.productos) && ia.productos.some(function(x){ return String(x||'').trim().length>=4; }));
+  if(TEL_PRIV && !st.telContacto && !st.telAsk && _pedidoCompleto){ st.telAsk=true; }   // no se le pregunta: se cierra
   if(TEL_PRIV && !st.telContacto && !st.telAsk){
     st.telAsk=true; st.paso='telContacto';
     // Si lo que acaba de escribir es contenido real (no un botón), se le CONFIRMA que quedó sumado
@@ -1126,6 +1163,7 @@ function armarRescate(stReal){
     const _leadRowPrev = leadRow;
     let paquete = null;
     try{
+      ROT_ULT = null;                                          // se anota qué turno gastó ESTE simulacro (ver ROT_ULT)
       cerrarLead(stC, {rescate:true});                         // cierre REAL, sobre la copia (rescate: no pregunta, el cliente ya se fue)
       if(store.pendCierre && store.pendCierre[wa]) paquete = JSON.parse(JSON.stringify(store.pendCierre[wa]));
       // el "pendiente de seguimiento" que armó se guarda junto al paquete y se aplica solo si el rescate se usa
@@ -1143,7 +1181,9 @@ function armarRescate(stReal){
     const _sesPrev=JSON.parse(_snap.ses); if(_sesPrev) S[wa]=_sesPrev; else delete S[wa];
     // --- se guarda el paquete listo para usar ---
     store.rescate = store.rescate || {};
-    if(paquete && paquete.lead) store.rescate[wa] = Object.assign(paquete, {t:NOW});
+    // El turno que gastó el simulacro viaja CON el paquete: si el rescate llega a entregarse, el cron lo cobra
+    // (si no, el cliente cerró normal y no se le cobra nada a nadie).
+    if(paquete && paquete.lead) store.rescate[wa] = Object.assign(paquete, {t:NOW, rot:ROT_ULT});
     else delete store.rescate[wa];
   }catch(_e){ /* el rescate NUNCA puede tumbar la atención del cliente */ }
 }
@@ -1234,6 +1274,35 @@ function _cotReq(stC){
         +'contarle el motivo interno: nunca digas "no está en nuestra lista de precios" ni "no tiene precio '
         +'asignado" ni nada que hable de listas ni de sistemas. Se dice simplemente que el valor se lo '
         +'confirma su asesor. '
+        +'(3c) PRESENTACIONES DEL MISMO PRODUCTO: si el catálogo trae el mismo producto en varias '
+        +'presentaciones (bulto de 25 y de 50 kg, calibres, medidas, colores), consulta el precio de TODAS '
+        +'en la MISMA vuelta —una llamada por cada una, en paralelo— y ofrécelas TODAS, cada una con su '
+        +'precio y su link. PROHIBIDO nombrar una presentación sin haberle pedido el precio: decir "también '
+        +'lo manejamos en 50 kg pero no pudimos validar su precio" cuando nunca se consultó es mentirle al '
+        +'cliente y esconderle la opción que quizá le convenía. '
+        +'(3i) SIN PRECIO DE SAP, VALE EL PRECIO PUBLICADO. Si un producto NO trae precio de SAP pero sí `precio_publicado_web`, dáselo al cliente diciendo que es el *precio publicado en nuestra tienda en línea* y que su asesor le confirma el valor final. Es el mismo número que verá al abrir el enlace, así que callarlo no lo protege de nada. PROHIBIDO presentarlo como precio de lista, mezclarlo con el de SAP en el mismo renglón o inventarle descuentos. '
+        +'(3g) SI EL PRODUCTO NO TIENE FICHA PERO HAY PARECIDOS. Cuando un resultado traiga `similares_tienda`, ciérralo ofreciéndolos: "también manejamos estos, aquí los puedes ver" y su enlace en renglón propio. Son ALTERNATIVAS, no reemplazos: primero va lo que el cliente pidió con su precio. PROHIBIDO inventarles precio (si le interesa uno, se consulta con su item_code) y PROHIBIDO decirle que lo que pidió "no está publicado" o hablar de la página como si fuera otra empresa. '
+        +'(3h) LOS ATRIBUTOS PUBLICADOS MANDAN SOBRE EL NOMBRE. Si un resultado trae `atributos_publicados` (color, medida, espesor, textura, tipo, uso…), esos son DATOS del catálogo: úsalos para describir el producto y para responder preguntas de característica ("¿lo tienen en blanco?", "¿de qué espesor?"). Si el nombre y un atributo se contradicen, MANDA EL ATRIBUTO. Nómbralos con naturalidad ("Blanco, 15 mm, 2.15x2.44"), sin listarlos como una ficha técnica y sin inventar los que no vengan. '
+        +'(3f) EL NOMBRE Y LA MEDIDA SON LOS DE LA HERRAMIENTA, LETRA POR LETRA. Cada renglón se titula con '
+        +'el `item_name` que devolvió la consulta para ESE `item_code`, tal cual: PROHIBIDO reordenar, '
+        +'abreviar, traducir, completar medidas que no aparecen o quitarle palabras como "SOFTWOOD". Y '
+        +'PROHIBIDO poner el precio de un item_code debajo del nombre de otro: si cotizaste el 10010954, el '
+        +'renglón dice el nombre del 10010954. Un cliente que ve una medida con el precio de otra referencia '
+        +'recibe una cotización falsa. '
+        +'(3l) LO QUE TIENES, SE DA. PROHIBIDO ESCONDERLO (2026-08-25, caso Griflex). Si un producto trae `precio_con_iva`, ESE PRECIO SE ESCRIBE, siempre, en su renglón 💲. Si trae `se_vende` o `disponibilidad`, ESE ESTADO SE ESCRIBE. Está PROHIBIDO decir "no pudimos confirmar el precio" o "no pudimos validar la disponibilidad" de un producto cuyos datos SÍ traen ese campo: el cliente se queda sin una información que tenemos delante y el asesor tiene que empezar de cero. Esa frase solo vale para el campo que REALMENTE falta, nombrándolo por separado — nunca los dos juntos cuando uno de los dos llegó. Y si de un producto falta el precio pero tienes el enlace, das el enlace igual: nunca se omite lo que sí hay por lo que no hay. '
+        +'(3k) SOLO EXISTE LO QUE ESTÁ EN LOS DATOS (2026-08-25). Las marcas, referencias y presentaciones que le nombras al cliente salen ÚNICAMENTE de los resultados de las herramientas: nunca de lo que sepas de la construcción por fuera de aquí. Si en los datos solo aparece una marca, di esa una — no completes la frase con las marcas que "suelen manejarse". Si un resultado trae `disponible_total` en 0 o una `nota_stock`, esa referencia NO se ofrece ni se menciona: está en el sistema pero hoy no se vende, y nombrarla obliga al asesor a desdecirnos. Cuando no tengas el dato, la salida es preguntar o decir que su asesor lo confirma, NUNCA rellenar con lo probable. '
+        +'(3j) BUSCA COMO SE LLAMA EN EL CATÁLOGO, NO COMO LO DICE EL CLIENTE (2026-08-25). Nuestro buscador compara TEXTO LITERAL: pierde con cualquier muletilla en medio y con los espacios dobles del catálogo. Si una búsqueda vuelve vacía o trae cosas que no son, VUELVE A BUSCAR por tu cuenta —tienes vueltas para eso— cambiando la frase por el nombre del catálogo: (a) quita muletillas y deja marca + tipo ("MDF Duratex", "Vinilo Tipo 1"); (b) si hay MEDIDAS, escríbelas PEGADAS como el catálogo ("183X244X15", "122X244X18"): una lámina de 5 mm se busca "183X244X5", no "lamina de 5mm"; (c) usa la palabra del catálogo, no la regional (COCINA por estufa, TEJA por lámina de policarbonato, CANTO por tapacanto, ALONGADO por elongado); (d) prueba la marca sola ("Duralam", "Eterboard", "Colormagic"). NUNCA le digas al cliente que no lo manejamos por una búsqueda vacía: primero intenta con OTRO nombre. '
+        +'(3e) UNA CONSULTA QUE FALLA NO ES UN "NO LO MANEJAMOS". Si un resultado dice ERROR o no trae datos, '
+        +'eso significa que NO SE PUDO PREGUNTAR, no que el producto no exista: PROHIBIDO responder que no lo '
+        +'manejamos y PROHIBIDO ofrecerle en su lugar otro producto distinto como si fuera equivalente. En ese '
+        +'caso se responde por lo que el cliente pidió: que un asesor le confirma ESA referencia. '
+        +'(3d) Si un resultado trae `nota_plaza`, la consulta se resolvió en el punto más cercano al cliente: '
+        +'dile en cuál lo tenemos y que su asesor le confirma el despacho hasta su municipio. '
+        +'(4b) EL PRECIO VA TAL CUAL, SIN REDONDEAR (2026-08-25, pedido de Deicy). Escribe el número que '
+        +'trae el dato, con sus centavos si los tiene: si el dato dice 20999.93, escribe *$20.999,93* — NO '
+        +'$20.999 ni $21.000. Miles con punto y decimales con coma. Recortar un precio parece un detalle y no '
+        +'lo es: el cliente compara con la factura y cualquier diferencia le hace dudar de todo lo demás. Lo '
+        +'mismo con el total de una cantidad: se multiplica exacto y se escribe exacto. '
         +'(4) Todo precio es "precio de referencia" y se dice a qué unidad de venta aplica (la caja de X m2, el galón, la unidad...). Con UN solo producto, di junto al precio "precio de referencia — un asesor te lo confirma". En LISTAS está PROHIBIDO repetir esa coletilla renglón por renglón: los renglones llevan solo producto, marca, unidad y precio, y al final UNA sola línea dice "Precios de referencia con IVA — un asesor te los confirma". '
       : '(3) Si el producto no aparece o una herramienta falla, responde únicamente: [ASESOR] '
         +'(4) NO tienes precios y NO debes darlos, estimarlos ni sugerir rangos. Si el cliente pregunta cuánto '
@@ -1271,10 +1340,10 @@ function _cotReq(stC){
     +'LÍNEA EN BLANCO, exactamente así:\n\n'
     +'*Nombre del producto*\n'
     +'Marca · unidad de venta\n'
-    +(_hayPrecio ? '💲 $X.XXX (precio de referencia con IVA)\n' : '')
+    +(_hayPrecio ? '💲 $X.XXX,XX (precio de referencia con IVA) ← el valor EXACTO del dato, con centavos si los trae\n' : '')
     +(_hayPrecio ? '🧮 N cajas ≈ $XXX.XXX en total   <- SOLO si el cliente dijo cuánta cantidad necesita\n' : '')
     +'🔗 Verlo en línea: <url>   <- SOLO si el resultado trae `url_tienda`\n'
-    +'✅ Con disponibilidad en '+(stC.ciudad||'tu ciudad')+'   <- SOLO si `disponible_total` alcanza para su cantidad (o si no dijo cantidad); si NO alcanza: "⚠️ Para esa cantidad, un asesor te confirma la entrega completa"\n\n'
+    +'✅ Disponible   <- si el producto trae `se_vende:true` o `disponibilidad:"con disponibilidad"`. Si trae `disponibilidad:"se trae sobre pedido"`, ese renglón dice "📦 Se trae sobre pedido". Si trae `disponible_total` y el cliente dijo una cantidad que NO alcanza: "⚠️ Para esa cantidad, un asesor te confirma la entrega completa". Si NO viene ninguno de esos campos, se OMITE el renglón — no se escribe nada sobre disponibilidad.\n\n'
     +'Reglas del bloque: SIN guiones ni viñetas al comienzo; máximo DOS renglones de texto libre por '
     +'producto; si algo no lo hallamos, ese bloque lleva solo el nombre y una línea diciéndolo; si NO hay '
     +'disponibilidad en su ciudad pero SÍ en otras, el renglón va así: "⚠️ En '+(stC.ciudad||'tu ciudad')
@@ -1283,10 +1352,11 @@ function _cotReq(stC){
     +'Nada de párrafos dentro de la lista'
     +(_hayPrecio ? ' y su precio de referencia (o "el valor te lo confirma un asesor" si no aparece en lista)' : '')
     +'. Responde TODOS los productos pedidos en UN solo mensaje: PROHIBIDO responder solo algunos y preguntar si "seguimos con los demás". Da primero TODA la información; las preguntas de detalle (color, referencia) van al final y no reemplazan la información. Cierra con una sola pregunta. '
-    +'(6b) EL ENLACE DE LA TIENDA. Cuando un resultado traiga `url_tienda`, cierra ese bloque con el enlace '
-    +'en un renglón propio: "🔗 Verlo en línea: <url>". Va TAL CUAL, sin acortarlo ni cambiarlo, y solo si '
-    +'viene en los datos — nunca inventes una dirección web ni la deduzcas del nombre. Si un producto no '
-    +'lo trae, simplemente no lleva enlace y no se comenta nada al respecto. '
+    +'(6b) EL ENLACE DE LA TIENDA. Cuando traiga `url_tienda` —el resultado completo o CADA PRODUCTO dentro '
+    +'de una lista— cierra ESE producto con el enlace en un renglón propio: "🔗 Verlo en línea: <url>". Va '
+    +'TAL CUAL, sin acortarlo ni cambiarlo, y solo si viene en los datos — nunca inventes una dirección web '
+    +'ni la deduzcas del nombre. En una LISTA cada renglón lleva el suyo: si cinco productos traen enlace, '
+    +'van los cinco. Si un producto no lo trae, simplemente no lleva y no se comenta nada al respecto. '
     +'(7) NUNCA menciones sistemas, herramientas, SAP, códigos internos, ni digas que eres una IA o un bot. '
     +'Tampoco narres tu propio trabajo: PROHIBIDO abrir con "ya tengo toda la información consultada", '
     +'"ya revisé", "aquí va el detalle" o cualquier frase que hable de lo que acabas de consultar. Empieza '
@@ -1319,7 +1389,16 @@ function _cotReq(stC){
   // sea que el cliente vio el mensaje neutro del asesor sin que fallara nada. El presupuesto lo consume
   // también el razonamiento del modelo, así que una lista larga se lo come entero. 4000 da aire de sobra
   // para un renglón por producto (el tope real de WhatsApp son 4096 caracteres, no tokens).
-  return { model:'claude-sonnet-5', max_tokens:4000, system:_sys, tools:_tools,
+  // === LAS INSTRUCCIONES SE MANDAN UNA VEZ, NO EN CADA VUELTA (2026-08-25) =========================
+  // Medido en las ejecuciones reales del 25-ago: CADA llamada gastaba entre 8.582 y 12.268 tokens de
+  // entrada, y `cache_read_input_tokens` venía en CERO — o sea, se re-enviaban las instrucciones
+  // completas (~8.500 tokens) una y otra vez. Una cotización son 4-5 vueltas: cinco veces el mismo texto.
+  // `cache_control` le dice a la API que guarde ese bloque: la primera vez cuesta un 25% más, y las
+  // siguientes DIEZ VECES MENOS. Como el bloque es idéntico para todos los clientes, también se
+  // aprovecha entre conversaciones distintas mientras siga caliente.
+  // El mínimo para cachear son 1.024 tokens: el nuestro pasa de 8.000, así que aplica de sobra.
+  return { model:'claude-sonnet-5', max_tokens:4000,
+    system:[{type:'text', text:_sys, cache_control:{type:'ephemeral'} }], tools:_tools,
     messages:(stC.cotHist||[]).slice(-6) };
 }
 const COTIZA_ON = () => String(PEND.cfg_cotiza||'').trim().toLowerCase()==='si' && String(PEND.cfg_mcp_url||'').trim()!=='';
@@ -1384,6 +1463,17 @@ const MSG_RECLAMO='¡Hola! 🙏 Lamentamos mucho el inconveniente.\n\nEn *Grupo 
 const MSG_RECLAMO_CORTO='Con gusto te ayudamos. Recuerda que tu caso lo atiende nuestro equipo de *Servicio al Cliente*:\n💬 *WhatsApp:* 3176643045   ·   📧 ayuda@ardisa.com 🤝';
 // INFORMACIÓN / SERVICIO AL CLIENTE / ADMINISTRATIVO (NO es una cotización): referencia comercial, RRHH, facturación, contacto con otras áreas.
 // Esta línea es COMERCIAL; estas solicitudes NO son un lead de ventas -> se orientan al canal de Servicio al Cliente.
+// === UNA PREGUNTA DE PREVENTA NO ES SERVICIO AL CLIENTE (2026-08-26, caso del cliente que preguntó por envíos) ===
+// 09:09. Un cliente escribió "tiene envios a bogota??" y el bot le respondió con el WhatsApp y el correo
+// de Servicio al Cliente: lo despachó. Nadie le contestó, y a los 12 minutos le llegó el recordatorio de
+// inactividad. No fue una regex: la IA lo clasificó `es_info=true` (verificado en la ejecución 139046),
+// porque la definición de es_info del prompt habla de trámites y no dice nada de LOGÍSTICA.
+// Preguntar si le llega el producto a su ciudad, si hay domicilio, dónde queda el punto, a qué hora
+// abren o cómo se paga es lo que pregunta CUALQUIER comprador antes de comprar. Es preventa: es VENTA.
+// Este freno es un VETO, no un enrutador: no elige marca ni asesor (la IA sigue mandando en eso, regla
+// de la casa), solo impide que la rama de "info" se trague una consulta comercial. Mismo patrón que el
+// `!_pideCompras` del proveedor y que el "la asesora nunca me escribió no es PQRS" del 11-ago.
+const KW_PREVENTA=/(env[ií]o|env[ií]an|envian|despach|domicilio|a domicilio|transport|flete|entrega a|llega a|llegan a|hasta mi ciudad|cobertura|tienen sede|hay sede|tienen punto|hay punto|sucursal|almac[eé]n en|tienda en|d[oó]nde (quedan|est[aá]n|los ubico)|direcci[oó]n de(l| la| su)? (punto|sede|tienda|almac[eé]n)|qu[eé] horario|a qu[eé] hora|horario de atenci[oó]n|abren|cierran|formas? de pago|medios? de pago|aceptan (tarjeta|d[eé]bito|cr[eé]dito|nequi|daviplata)|dan cr[eé]dito|pago contra ?entrega)/i;
 const KW_INFO=/(referencia(s)? comercial|validaci[oó]n de (una |la )?referencia|validar (una |la )?referencia|servicio al cliente|recursos humanos|talento humano|hoja(s)? de vida|(trabajar (con|en|para)|busco empleo|oferta de empleo|vacante|convocatoria)|[aá]rea de (cartera|contabilidad|tesorer[ií]a|facturaci[oó]n|administraci[oó]n|compras)|certificado (tributario|de c[aá]mara|de retenci[oó]n|de existencia|de ingresos)|c[aá]mara de comercio|paz y salvo|retenci[oó]n en la fuente|retefuente|rete\s?fuente|reteica|reteiva|autorretenci[oó]n|autorretenedor|gran contribuyente|r[eé]gimen (com[uú]n|simple|simplificad[oa]|tributari[oa]|de iva)|declaraci[oó]n de renta|facturaci[oó]n electr[oó]nica|resoluci[oó]n de facturaci[oó]n|se les? practica retenci[oó]n|practican retenci[oó]n)/i;
 const MSG_INFO='¡Hola! 🙏 Con gusto te orientamos.\n\nEste canal es nuestra *línea comercial* (cotizaciones y ventas). Para *información general, servicio al cliente o temas administrativos* —como validación de referencias comerciales, facturación o contacto con otras áreas— te atiende directamente nuestro equipo de *Servicio al Cliente*:\n\n💬 *WhatsApp:* 3176643045\n📧 *Correo:* ayuda@ardisa.com\n\nAllí te ayudarán con tu solicitud. Gracias por escribir a *Grupo Ardisa*. 🤝';
 // === SALUDO DE UNA SOLA PIEZA (2026-08-04, caso Claudia Ardila — lead #218) ===
@@ -1427,7 +1517,8 @@ function traeSolicitud(txt, low2, ia2){
 // CONSERVADOR a propósito: "necesito un trabajo de carpintería" es un CLIENTE, no un aspirante. Por eso
 // "busco trabajo" se descarta si le sigue "de/en/para" (un oficio), y "quiero trabajar" exige "con/en/para ustedes".
 const KW_EMPLEO=/(hoja(s)? de vida|curr[ií]culum|curriculum|\bcv\b|vacante|convocatoria|proceso de selecci[oó]n|est[aá]n contratando|contratan (personal|gente)|requieren personal|solicitan personal|oferta(s)? de (empleo|trabajo)|busc(o|ando) (empleo|trabajo)(?!\s+(de|en|para)\s)|necesito (un )?empleo|(quiero|quisiera|me gustar[ií]a|deseo) trabajar (con|en|para) (ustedes|usted|la empresa|su empresa|grupo ardisa|ardisa|carpincentro)|aplicar a (una |la )?vacante)/i;
-const MSG_EMPLEO='¡Hola! 🙏 Gracias por tu interés en *Grupo Ardisa*.\n\nEste canal es nuestra *línea comercial* (cotizaciones y ventas), por eso aquí no gestionamos hojas de vida ni procesos de selección.\n\nEnvía tu hoja de vida a nuestro equipo de *Servicio al Cliente* y ellos la hacen llegar al área encargada:\n📧 *Correo:* ayuda@ardisa.com\n\n¡Mucha suerte! 🤝';
+// 2026-08-24 (Edinson Uribe, 4:59 pm): el bot lo mandaba a Servicio al Cliente y ÉL nos corrigió — "ya la envié a este correo: trabajaenardisa@ardisa.com". Ese es el buzón real de selección; mandarlo a ayuda@ le sumaba un rebote interno y al aspirante una espera. Ahora va derecho a quien contrata.
+const MSG_EMPLEO='¡Hola! 🙏 Gracias por tu interés en *Grupo Ardisa*.\n\nEste canal es nuestra *línea comercial* (cotizaciones y ventas), por eso aquí no gestionamos hojas de vida ni procesos de selección.\n\nEnvía tu hoja de vida al equipo encargado de selección:\n📧 *Correo:* trabajaenardisa@ardisa.com\n\n¡Mucha suerte! 🤝';
 // PROVEEDORES / SPAM: esta es la línea COMERCIAL de atención a CLIENTES; no se pasan a los asesores (les haría perder tiempo).
 const MSG_PROVEEDOR='¡Hola! 🙏 Gracias por escribirnos.\n\nEste canal es la *línea comercial de atención a clientes* de *Grupo Ardisa* (cotizaciones y compras). Si deseas *ofrecernos productos o servicios como proveedor*, agradecemos tu interés, pero por este medio solo atendemos a nuestros clientes. 🤝';
 // Frases típicas de proveedor OFRECIENDO (para números de Colombia que igual son proveedores).
@@ -1673,6 +1764,14 @@ function limpiaAcuse(s){
 }
 // Avanza al SIGUIENTE dato que falta y SALTA lo que la IA ya sacó (nombre/ciudad/ocupación).
 function siguientePaso(st){
+  // === LA CIUDAD TIENE QUE EXISTIR EN LA MARCA (2026-08-26) ====================================
+  // La ciudad que saca la IA se resuelve ANTES de saber la marca, así que se busca en la lista de
+  // Carpincentro (8 ciudades con tienda). Si al final resulta ser Ardisa —que solo atiende Bucaramanga
+  // y Floridablanca— un 'BOGOTA' heredado mandaría el lead a una ciudad donde Ardisa no tiene asesor.
+  // Va AQUÍ y no en la rama del primer contacto: la marca se elige DESPUÉS, y este es el único sitio
+  // por el que pasan todos los caminos antes de preguntar lo siguiente.
+  if(st.ciudadId && st.marca){ const _okC=(st.marca==='Ardisa')?CIU_ARD:CIU;
+    if(!_okC.some(c=>c[0]===st.ciudadId)){ delete st.ciudadId; delete st.ciudad; } }
   const _op = st.acuse ? (st.acuse+'\n\n') : '';   // acuse humano de la IA: se muestra UNA sola vez, al primer mensaje (aquí NO se borra; lo consume la rama que lo use, o el cierre)
   const prodTxt = st.iaProd ? (' sobre *'+st.iaProd+'*') : '';
   const nom = st.nombre ? st.nombre.split(' ')[0] : '';
@@ -1719,11 +1818,34 @@ function arrancarIA(st, ia, detalle){
     // sin más preguntas. El menú de marcas queda de ÚLTIMO recurso, si tampoco así se entiende.
     if(!(ia && ia.productos && ia.productos.length) && !st.pidioProd){
       st.pidioProd=1; st.paso='marca'; etapa='pide_producto'; st.acuse=''; delete st.iaPend;
-      wpp_body=txt(wa,'¡Con gusto te ayudamos! 🤝\n\nPara pasarte con el asesor experto, cuéntanos *¿qué necesitas?*\n\nPor ejemplo: cemento, cerámica, grifería, pintura, tableros, fórmica, herrajes, perfilería de aluminio…');
+      // === CONTESTAR LO QUE PREGUNTÓ, NO SOLO SEGUIR EL FORMULARIO (2026-08-26, caso del cliente que preguntó por envíos) ===
+      // Deicy: "le pregunta ciudad cuando ya dijo bogota... cansa tanta repetidera de preguntas cuando ya
+      // dio la información". Y es literal: la IA SÍ había extraído ciudad='Bogotá' de "tiene envios a
+      // bogota??" (ejecución 139046), y la ciudad se guarda dos líneas más arriba — pero el cliente no
+      // veía NADA de eso y el mensaje siguiente le volvía a preguntar. Aquí se le acusa recibo de las dos
+      // cosas: de la pregunta y de la ciudad. NO se le promete cobertura ni tiempos (regla de Deicy: no
+      // prometer lo que no controlamos): la marca todavía no se sabe y cada una atiende ciudades distintas.
+      const _lowP=String(texto||'').toLowerCase();
+      const _cabP = !KW_PREVENTA.test(_lowP) ? ''
+        : ('🤝 Con gusto te resolvemos eso.' + (st.ciudad ? (' Anotamos que estás en *'+st.ciudad+'*.') : '') + '\n\n');
+      wpp_body=txt(wa,_cabP+'¡Con gusto te ayudamos! 🤝\n\nPara pasarte con el asesor experto, cuéntanos *¿qué necesitas?*\n\nPor ejemplo: cemento, cerámica, grifería, pintura, tableros, fórmica, herrajes, perfilería de aluminio…');
       return;
     }
-    st.paso='marca'; etapa='marca'; st.acuse='';   // el acuse no se muestra aquí -> se descarta (antes quedaba huérfano y reaparecía pegado después)
-    wpp_body=boton(wa,'¡Con gusto te ayudamos! Para conectarte con el asesor ideal, ¿tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
+    st.paso='marca'; etapa='marca';
+    // === EL MENÚ SORDO (2026-08-26, caso del cliente que preguntó por envíos) ============================================
+    // 09:24. Escribió que estaba interesado en una basurera y recibió el menú de marcas a
+    // secas. Deicy: "no logro saber qué fue lo que preguntó". Lo que pidió SÍ quedó guardado —comprobado
+    // en la sesión: detalle="Estoy interesado en una basurera...", iaProd="basurera"—, pero él no veía
+    // NINGUNA señal de que lo hubiéramos entendido, y un menú que no acusa lo que acabas de escribir se
+    // lee como que no te leyeron. Se le devuelve su propia frase, igual que en el primer contacto (18-ago).
+    // El acuse sigue borrándose de la sesión: guardarlo sin mostrarlo lo dejaba huérfano y reaparecía
+    // pegado en el mensaje siguiente. Aquí se usa AHORA o no se usa.
+    const _ecoM = String(st.acuse||'').trim() || String(texto||'').trim();
+    st.acuse='';
+    const _cabM = (!_ecoM || RE_SALUDO.test(_ecoM) || [..._ecoM].length>110)
+      ? ''                                   // un saludo pelado no se repite, y una lista larga se ve peor cortada
+      : ('📝 Anotamos: *'+_ecoM+'*\n\n');
+    wpp_body=boton(wa,_cabM+'¡Con gusto te ayudamos! Para conectarte con el asesor ideal, ¿tu consulta es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
     return;
   }
   // perfil heredado de una consulta anterior: solo vale si corresponde a la marca de ESTA consulta (una nevera no hereda "Carpintero")
@@ -1975,6 +2097,15 @@ if(wa===MONITOR_ADMIN && !(store.segSes && store.segSes[wa])){
       '📥 *Leads de hoy: '+(PEND.rep_hoy||0)+'*\n'+_lst(PEND.rep_hoy_det)+'\n'+
       '🔖 Último lead: '+_hhmm+(_ultimo?(' — '+(_ultimo.nombre||'—')+' → '+(_ultimo.asesor||'—')):'')+'\n\n'+
       '⏳ *Sin reportar por los asesores: '+(PEND.rep_pend||0)+'*\n'+_lst(PEND.rep_pend_det)+'\n\n'+
+      // 2026-08-25 (Deicy: "lo que nos importa es que le llegue"): antes solo sabíamos que Meta aceptó el
+      // aviso. Ahora se ve si LLEGÓ al teléfono del asesor y si lo ABRIÓ — y los rebotes, que hasta hoy no
+      // los veía nadie. Solo se muestra si ya hay datos (la tabla empezó el 25-ago).
+      ((Number(PEND.ent_env||0)+Number(PEND.ent_ok||0))
+        ? ('📬 *Avisos a asesores (7 días):* '+(PEND.ent_env||0)+' enviados · '+(PEND.ent_ok||0)+' entregados · '
+           +(PEND.ent_leid||0)+' leídos'
+           +(Number(PEND.ent_fall||0) ? ('\n   ⚠️ *'+PEND.ent_fall+' NO llegaron* (rebotaron): revisar esos números') : '')
+           +'\n\n')
+        : '')+
       '⚙️ *Cola interna* (0 = todo entregado)\n'+
       '   • Cierres por entregar: '+_porEntregar+'\n'+
       '   • Avisos retenidos (fuera de horario): '+_colaHold+'\n'+
@@ -2110,11 +2241,38 @@ if(!es_media && !id && texto && st && !reinicia && ['nombre','ciudad','ciudadOtr
 // correcto había llegado; solo que fuera de turno. Si escribe algo que sí parece nombre de persona, no es una
 // ciudad ni una opción del menú, y el nombre que tenemos NO es válido o es el del perfil de WhatsApp (que
 // pusimos nosotros, no él), se corrige. Si ya tenemos un nombre bueno, no se toca.
-if(!es_media && !id && texto && st && !reinicia && ['ciudad','ciudadOtra','ocupacion','ocuArd','punto'].includes(st.paso)){
+// 2026-08-24 (Adriana Gutiérrez, de Graico SAS): esta red solo miraba las etapas de DESPUÉS de preguntar
+// el nombre. Ella se presentó ANTES —"Soy Adriana Gutiérrez de Graico SAS nit 860065847-0", mientras se le
+// mostraba el menú de marca—, el dato se descartó y seis segundos después el bot le pidió el nombre que
+// acababa de dar. Ahora también se mira ANTES: marca, consentimiento y el primer mensaje (sin paso aún).
+if(!es_media && !id && texto && st && !reinicia &&
+   (['ciudad','ciudadOtra','ocupacion','ocuArd','punto','marca','consent'].includes(st.paso) || !st.paso)){
   const _cand = nombreDeFrase([...String(texto)].slice(0,80).join(''));
   if(esNombreValido(_cand) && !matchCiudad(st.marca, texto) && !ciudadEscrita(st.marca, texto)
      && (!st.nombre || !esNombreValido(st.nombre) || st.nombrePerfil)){
     st.nombre=capNombre(_cand); delete st.nombrePerfil; st.nombreTarde=1;
+  }
+}
+// === LA CIUDAD QUE LLEGA ANTES DE TIEMPO (2026-08-24, Duvan Valenzuela, lead #370) ===
+// Deicy: "debe captar el paso de los clientes, porque ellos no saben cómo funciona el bot". Duvan escribió
+// "para la ciudad de bucaramanga" mientras se le pedía el NOMBRE; el dato se descartó y el bot le preguntó
+// la ciudad igual — y él tuvo que responderla dos veces más. `ciudadEscrita` ya sabe leer esa frase (ignora
+// el relleno "para/la/de" y reconoce la ciudad, con barrio o departamento pegados); solo que nadie la
+// llamaba antes del paso de ciudad. La red del nombre, justo arriba, descarta los textos que son ciudad,
+// así que un mismo mensaje nunca se guarda como las dos cosas.
+let _ciuDeEsteMsg=false;   // ¿ESTE mensaje resultó ser la ciudad? (lo usa el paso del nombre, más abajo)
+if(!es_media && !id && texto && st && !reinicia && !st.ciudadId &&
+   (['marca','consent','nombre'].includes(st.paso) || !st.paso)){
+  const _cCap = ciudadEscrita(st.marca, texto);
+  // DESEMPATE: hay apellidos que son ciudades —"Juan Pereira", "Carolina Bello", "Andrés Girardot"—. Si el
+  // texto también pasa como nombre de persona, GANA el nombre y la ciudad no se toca: preguntar la ciudad
+  // de más cuesta un mensaje; mandar a Pereira el lead de alguien que vive en Bucaramanga cuesta el cliente.
+  // Pero "estoy en Bogotá" también pasa como nombre y SÍ es una ciudad: lo que las separa es que la frase
+  // de ubicación trae una palabra que la anuncia. "de" queda FUERA de la lista a propósito — "Juan de Dios
+  // Pereira" es un nombre, no un municipio.
+  const _dice=/(^|\s)(en|desde|para|ciudad|municipio|vivo|estoy|ubicad[oa]|barrio|zona)(\s|$)/i.test(String(texto||''));
+  if(_cCap && (_dice || !esNombreValido(nombreDeFrase([...String(texto)].slice(0,80).join(''))))){
+    st.ciudad=_cCap[1]; st.ciudadId=_cCap[0]; st.ciudadTemprana=1; _ciuDeEsteMsg=true;
   }
 }
 // Guarda TODOS los adjuntos de la conversación (a nivel store, sobrevive reinicios de sesión) para REENVIARLOS COMPLETOS al asesor.
@@ -2375,7 +2533,8 @@ const _esperaAsesor = !reinicia && !id && !es_media && !!texto && _tieneAsesor
 const esReclamo = !reinicia && !id && !_esperaAsesor && (ia ? (ia.es_reclamo===true) : (!es_media && !!texto && KW_RECLAMO.test(low))) && (st ? (st.paso!=='consent' || _iaReclamo) : true);
 // SOLICITUD DE INFORMACIÓN NO COMERCIAL (referencia comercial, servicio al cliente, RRHH, facturación...): respaldo por palabras clave (la IA aún no la clasifica). No aplica en el paso de consentimiento.
 store.info = store.info || {};
-const esInfo = !reinicia && !id && !es_media && !esReclamo && (ia ? (ia.es_info===true) : (!!texto && KW_INFO.test(low))) && (texto ? true : false) && (st ? (st.paso!=='consent' || _iaInfo) : true) && !(ia && ia.en_alcance===true);
+const _esPreventa = !!texto && KW_PREVENTA.test(low) && !KW_INFO.test(low);   // preguntar por envíos/puntos/horarios/pago es COMPRAR, no un trámite
+const esInfo = !reinicia && !id && !es_media && !esReclamo && !_esPreventa && (ia ? (ia.es_info===true) : (!!texto && KW_INFO.test(low))) && (texto ? true : false) && (st ? (st.paso!=='consent' || _iaInfo) : true) && !(ia && ia.en_alcance===true);
 // ¿YA autorizó? consintió hoy, O st.consent, O YA ESTÁ EN UN PASO POSTERIOR al consentimiento (no se puede llegar a marca/nombre/etc. sin haber autorizado).
 // Esto blinda contra la carrera de n8n: si mandó una foto justo tras autorizar, NO le volvemos a pedir la autorización.
 const yaConsintio = consintioHoy() || (st && st.consent) || (st && st.paso && st.paso!=='consent' && st.paso!=='');
@@ -2440,9 +2599,12 @@ if(preguntaHorario){
   const _eLast=store.empleo[wa]||0;
   store.empleo[wa]=NOW;
   etapa='empleo';
+  // 2026-08-24 (caso Stefany Reyna): a quien mandamos al correo de selección NO se le persigue después con
+  // "¿Continuamos con TU SOLICITUD?" ni con el cierre — no tiene ninguna solicitud comercial abierta.
+  if(st) st.despachado=NOW;
   wpp_body = (_eLast===0 || (NOW-_eLast)>30*60*1000)
     ? txt(wa, MSG_EMPLEO)
-    : txt(wa, 'Recuerda que las hojas de vida se reciben en 📧 *ayuda@ardisa.com*. Este canal es solo comercial. 🤝');
+    : txt(wa, 'Recuerda que las hojas de vida se reciben en 📧 *trabajaenardisa@ardisa.com*. Este canal es solo comercial. 🤝');
   if(store.cliMsgs) delete store.cliMsgs[wa];   // no deja rastro en el log de solicitudes comerciales
 } else if(esReclamo){
   const _last=store.reclamo[wa]||0;
@@ -2453,7 +2615,7 @@ if(preguntaHorario){
   const _rtk=NOW; store.pendCierre[wa]={token:_rtk, t:NOW, destino:wa, aviso:txt(wa,_msg), avisoExtra:'', lead:null, tipo:'reclamo'};
   store.reclamo[wa]=NOW;
   if(store.cliMsgs) delete store.cliMsgs[wa];   // el reclamo NO deja rastro en el log de solicitudes comerciales
-  etapa='reclamo'; if(st) st.reclamoAvisado=NOW;   // NO se crea lead comercial ni se pasa a un asesor de ventas
+  etapa='reclamo'; if(st){ st.reclamoAvisado=NOW; st.despachado=NOW; }   // NO se crea lead comercial ni se pasa a un asesor de ventas (ni recordatorio: ya se le dio la salida)
   wpp_body=null; pend_cierre=true; pend_token=_rtk;
 } else if(esInfo && !_pideCompras){
   // INFORMACIÓN / SERVICIO AL CLIENTE (no es una cotización): se orienta al canal de Servicio al Cliente, NO se fuerza el flujo de ventas ni se crea lead.
@@ -2493,6 +2655,19 @@ if(preguntaHorario){
     wpp_body=boton(wa,'¡Claro! Te comunico con un asesor. Solo dime, ¿es para *Ardisa* o *Carpincentro*?\n\n🟢 *ARDISA*\n_Remodelación, materiales de construcción y muebles arquitectónicos a tu medida._\n\n🟡 *CARPINCENTRO*\n_Industriales del mueble, carpintería y herrajes._',MARCA);
   } else if(!st.ciudadId){ st.paso='ciudad'; etapa='ciudad';
     wpp_body=ciudadMenu('📍 ¡Claro! Te comunico con un asesor. ¿En qué *ciudad* estás?', (st.marca==='Ardisa'?CIU_ARD:CIU));
+  } else if(!st.asesoriaAsk && !es_media && !st.mediaId && !RE_GROSERIA.test(low)
+            && !tieneProdConc(String(st.detalle||'')+' '+String(texto||''))
+            && !(ia && Array.isArray(ia.productos) && ia.productos.some(function(x){ return String(x||'').trim().length>=4; }))){
+    // === PEDIR UN ASESOR NO DICE QUÉ NECESITA (2026-08-25, lead #378, Club del Comercio de Bucaramanga) ===
+    // A la pregunta "¿qué necesitas?" respondió "Comunicame con un asesor" y el lead salió a Miguel Ángel
+    // con ESO como detalle: el asesor tiene que empezar de cero y el cliente repetirlo todo. Pedir un asesor
+    // es legítimo y NO se le niega —el mensaje se lo confirma—, pero se le pregunta UNA vez qué producto
+    // necesita, que es lo que permite pasarlo al experto correcto. Con lo que responda se cierra igual.
+    // Exentos: ya se le preguntó (`asesoriaAsk`), mandó un adjunto, su texto/la IA ya traen un producto, o
+    // viene MOLESTO (caso Edilberto: "Usted es una puta máquina. Necesito una persona"). A quien se enojó no
+    // se le interroga: se le pasa el asesor de una. Preguntarle ahí sería echarle gasolina.
+    st.asesoriaAsk=true; st.paso='detalle'; etapa='pide_producto';
+    wpp_body=txt(wa,'¡Claro'+(st.nombre?(', '+String(st.nombre).split(' ')[0]):'')+'! 🤝 Te comunicamos con un asesor. Para pasarte con el *experto correcto*, cuéntanos: *¿qué producto necesitas?*\nPor ejemplo: cemento, cerámica, grifería, tableros, láminas, pintura...');
   } else {
     if(!st.detalle) st.detalle='(el cliente pidió hablar con un asesor)';
     if(st.marca==='Ardisa' && !st.grupo){ const _rg=ruteoIA(ia, ((ia&&ia.productos)?ia.productos.join(' '):'')+' '+(st.detalle||'')); if(_rg && _rg.grupo){ st.grupo=_rg.grupo; st.interes=_gInt(_rg.grupo); } }
@@ -2773,6 +2948,9 @@ if(preguntaHorario){
   if(es_media){ const _pn=[...String(d.profileName||'')].slice(0,50).join('').trim(); if(esNombreValido(_pn)){ st.nombre=capNombre(_pn); siguientePaso(st); } else { etapa='nombre'; wpp_body=txt(wa,'Recibimos tu archivo. Para asignarte un asesor, ¿nos confirmas tu *nombre y apellido*? ✍️'); } }
   else if(!texto){ etapa='nombre'; wpp_body=txt(wa,'Por favor escríbenos tu *nombre y apellido*. ✍️'); }
   else { let _n=nombreDeFrase([...texto].slice(0,160).join(''));   // quita cortesías/intro/empresa y, si hace falta, busca el nombre DENTRO de la frase
+    // 2026-08-24: si ESTE mismo mensaje ya se leyó como su CIUDAD ("vivo en Girardot"), no es su nombre:
+    // se vacía el candidato para que caiga en la rama de abajo y se le vuelva a preguntar UNA vez.
+    if(_ciuDeEsteMsg) _n='';
     // Si la IA ya leyó el nombre en este mismo mensaje, manda ella antes que volver a preguntar (2026-08-11).
     if(!esNombreValido(_n) && ia && ia.nombre){ const _ian=limpiaNombre(String(ia.nombre)); if(esNombreValido(_ian)) _n=_ian; }
     // valida que parezca un nombre REAL de persona (no un producto, cantidad ni una solicitud). Sin nombre válido NO avanza.
@@ -3000,7 +3178,18 @@ if(preguntaHorario){
     const _contradiceIA = (ia && ia.marca==='Carpincentro')
       ? (KW_CONS.test(_txtMarca) || KW_ACAB.test(_txtMarca) || RE_MUEBLE_MEDIDA.test(_txtMarca) || ES_PROYECTO.test(_txtMarca))
       : KW_CARP.test(_txtMarca);
-    if(ia && ia.en_alcance===true && (ia.confianza==='alta' || (ia.confianza==='media' && !_contradiceIA)) &&
+    // 2026-08-24 (Deicy, caso Carlos Conde: "Quintuplex tablero 25mm de espesor" tocando Ardisa). Con
+    // confianza BAJA la IA no corregía NADA, ni con vocabulario inequívoco de la otra línea: el lead salía
+    // a Ardisa y al cliente le preguntaban una línea que su propio texto ya delataba. Ahora la baja también
+    // corrige, pero exige DOBLE respaldo: la IA propone y el vocabulario del cliente confirma. Si el texto
+    // no trae palabras de esa línea, la confianza baja sigue sin poder mover nada.
+    const _apoyaIA = (ia && ia.marca==='Carpincentro') ? KW_CARP.test(_txtMarca)
+                                                       : (KW_CONS.test(_txtMarca) || KW_ACAB.test(_txtMarca));
+    const _confiaOK = !ia ? false
+      : (ia.confianza==='alta' ? true
+      : (ia.confianza==='media' ? !_contradiceIA
+      : (!_contradiceIA && _apoyaIA)));          // baja: solo si el texto la respalda
+    if(ia && ia.en_alcance===true && _confiaOK &&
        ia.productos && ia.productos.length &&
        (ia.marca==='Ardisa'||ia.marca==='Carpincentro') && ia.marca!==st.marca && !es_media){
       st.marca = ia.marca; st.marcaCorregida = 1;
@@ -3019,7 +3208,25 @@ if(preguntaHorario){
       // con la opción que acababa de elegir. Si el cliente YA eligió el grupo, esa pregunta sobra: preguntar dos
       // veces lo mismo hace ver al bot como si no escuchara.
       else if(ia && !es_media && !st.mediaId && !st.grupoElegido){ st.paso='confirmGrupo'; etapa='confirmGrupo'; cerrarDet=false;
-        wpp_body=grupoMenu(); }
+        // 2026-08-24 (Deicy: "el error que veo es que les toca repetir lo que ya dijeron"). Cuando la IA no
+        // logra clasificar hay que preguntar, pero NO con el menú pelado: aquí salía "¿qué necesitas?" un
+        // segundo después de que el cliente escribiera su producto (caso Carlos Conde, "Quintuplex tablero
+        // 25mm de espesor"). Se le muestra lo que ya dijo —queda claro que quedó anotado— y la pregunta
+        // cambia a "¿en cuál de estas líneas va?": elegir una opción, no repetir la solicitud.
+        const _pdG=[...String(rutTxt||'')].slice(0,90).join('').trim();
+        wpp_body=grupoMenu(_pdG?('📝 Tu solicitud ya quedó anotada: «'+_pdG+'» ✅\n\n'):'', !!_pdG); }
+    }
+    // === QUIEN YA FUE DESPACHADO NO VUELVE AL CARRIL COMERCIAL POR DECIR "GRACIAS" ===
+    // 2026-08-24 (Edinson Uribe, 4:58 pm): la IA acertó —era una hoja de vida— y se le dio la salida a
+    // ayuda@ardisa.com. Pero sus dos mensajes siguientes ("ya la envié a trabajaenardisa@ardisa.com" y
+    // "muchas gracias, hasta pronto") se tomaron como su SOLICITUD: se le creó lead y se le asignó una
+    // asesora de VENTAS a alguien que buscaba empleo. El freno de la mañana solo tapaba el cron; faltaba
+    // este. Vuelve al carril comercial únicamente si nombra un producto (o manda una foto): ahí sí quiere
+    // comprar y `tieneProdConc`/la IA lo detectan, y el cierre sigue como siempre.
+    if(cerrarDet && st && st.despachado && !es_media && !tieneProdConc(String(texto||'')) &&
+       !(ia && Array.isArray(ia.productos) && ia.productos.some(function(x){ return String(x||'').trim().length>=4; }))){
+      cerrarDet=false; etapa='despachado_cortesia';
+      wpp_body=txt(wa,'¡Con gusto! 🤝 Quedamos atentos por este medio cuando necesites cotizar materiales o productos.');
     }
     // desdeDetalle: el cliente completó TODO el flujo y escribió esto como su producto en el paso final ->
     // el cierre NO lo vuelve a ver "vago" (caso Daniela "Tapa luz": la 2ª barrera lo habría rebotado igual).
@@ -3033,19 +3240,48 @@ if(preguntaHorario){
     // porque _cliAll pisa cualquier st.detalle que armemos aquí.
     const _dial=(st.cotHist||[]).filter(m=>m&&m.role==='user').map(m=>String(m.content)).join(' · ');
     if(!st.detalle || st.detalle.length<3) st.detalle=[...String(_dial||'')].slice(0,300).join('');
+    // === LO QUE YA SE LE COTIZÓ VA EN LA TARJETA (2026-08-25, pedido de Deicy) ===
+    // Antes el asesor recibía lo que el CLIENTE escribió y nada de lo que el BOT le contestó: llamaba a
+    // preguntar "¿qué necesita?" a alguien que ya tenía un precio en pantalla, o le daba otro número.
+    // Aquí se lee lo que guardó el enriquecedor (nombre exacto del catálogo, SKU y precio con IVA) y se
+    // arma un renglón por producto. El SKU es la pieza clave: es el ItemCode de SAP, así el asesor lo
+    // pega en SAP y cotiza EXACTAMENTE lo mismo, sin buscar por nombre y arriesgarse a otra referencia.
+    let _cotResumen='';
+    try{
+      const _cz=(store.cotizado && store.cotizado[wa]) || [];
+      if(_cz.length){
+        _cotResumen = '🧾 *Ya cotizado por el bot* (confirmar y respetar):\n' + _cz.map(function(x){
+          const _p=Math.round(Number(x.pre)||0).toString().replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+          return '• ' + (x.nom||'') + ' — SKU *' + x.sku + '* — $' + _p + (x.uni?(' / '+x.uni):'');
+        }).join('\n');
+      }
+    }catch(e){}
     st.tiposol=st.tiposol||('Cotización '+(st.marca||''));
     // 14-ago: el candado anti-bucle (cotN/cotFallo) MUERE con la conversación — si se queda en la
     // sesión persistida, una falla vieja bloquea la cotización del siguiente registro (caso demo
     // Deicy 10:05: la falla de las 8:14 la mandó al asesor y con el detalle viejo)
     delete st.cotFallo; delete st.cotN; delete st.cotHist;
-    const R=cerrarLead(st,{mediaNota:(nota?('\n🛒 *'+nota+'*'):'')}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias;
+    const R=cerrarLead(st,{mediaNota:(nota?('\n🛒 *'+nota+'*'):'')+(_cotResumen?('\n\n'+_cotResumen):'')}); wpp_body=R.wpp_body; aviso_body=R.aviso_body; aviso_medias=R.aviso_medias;
     pend_cierre=R.pend_cierre||false; pend_token=R.pend_token||0; etapa='cierre';
-    if(nota){
-      // leadRow y store.pendCierre[wa].lead suelen ser EL MISMO objeto: anexar una sola vez
-      const _fx=l=>{ if(l && l.detalle!=null && String(l.detalle).indexOf(nota)<0) l.detalle=[...String(l.detalle+' · '+nota)].slice(0,380).join(''); };
+    // Y que el CLIENTE también vea que lo escuchamos: el cierre nombra lo último que pidió, antes del
+    // "quedó registrada". Sin esto, escribir un producto y recibir un acuse genérico se lee como que
+    // el bot lo ignoró (25-ago, prueba de Deicy con el CEMENTO GRIS ALION 50kg).
+    try{
+      const _pedido=[...String(texto||'')].slice(0,70).join('').trim();
+      if(_pedido && !es_media && !id && wpp_body && wpp_body.text && wpp_body.text.body){
+        wpp_body.text.body = 'Sobre *'+_pedido+'*: tu asesor te confirma precio y disponibilidad. 🤝\n\n'
+                             + wpp_body.text.body;
+      }
+    }catch(e){}
+    // La nota del cierre y lo cotizado se anexan al MISMO detalle (Excel/BD). Se arma primero el texto
+    // completo y se anexa una sola vez: leadRow y store.pendCierre[wa].lead suelen ser EL MISMO objeto.
+    const _anexo = [nota||'', _cotResumen ? _cotResumen.replace(/\*/g,'').replace(/\n/g,' ') : ''].filter(Boolean).join(' · ');
+    if(_anexo){
+      const _fx=l=>{ if(l && l.detalle!=null && String(l.detalle).indexOf(_anexo)<0) l.detalle=[...String(l.detalle+' · '+_anexo)].slice(0,900).join(''); };
       _fx(leadRow);
       if(store.pendCierre && store.pendCierre[wa]) _fx(store.pendCierre[wa].lead);
     }
+    try{ if(store.cotizado) delete store.cotizado[wa]; }catch(e){}   // ya viajó en la tarjeta: no se hereda al próximo registro
   };
   if(es_media){
     // foto/audio a mitad de cotización -> al asesor con todo (el reenvío de adjuntos ya lo hace cerrarLead)
@@ -3055,9 +3291,15 @@ if(preguntaHorario){
   else if(KW_QUIERE.test(low)){
     // Intención de COMPRA: aquí entra el humano (decisión de Deicy: el bot cotiza, el asesor vende)
     _cerrarCot('EL CLIENTE CONFIRMÓ QUE QUIERE COMPRAR (dijo: "'+[...texto].slice(0,80).join('')+'")');
-  } else if(st.cotFallo || (st.cotN||0)>=3){
-    // La consulta anterior falló, o ya van 3 vueltas: no lo mareamos más — al asesor
-    _cerrarCot(st.cotFallo?'':'Tras varias consultas, pasa al asesor para concretar.');
+  } else if(st.cotFallo || (st.cotN||0)>=5){
+    // 2026-08-25 (Deicy, su prueba de las 11:58): el tope estaba en 3 y ella iba en la cuarta consulta —
+    // escribió "CEMENTO GRIS ALION BULTO X 50kg" y el bot cerró con un "tu solicitud quedó registrada"
+    // SIN decir una palabra de ese cemento, teniendo su precio en SAP. Cerrar tras varias vueltas es
+    // correcto (el bot cotiza, el asesor vende), pero cerrar SIN acusar lo último que pidió se lee como
+    // que no lo escucharon. Ahora son 5 vueltas y el cierre nombra el producto que acaba de mencionar.
+    const _ult=[...String(texto||'')].slice(0,90).join('').trim();
+    _cerrarCot(st.cotFallo?'' : ('Tras varias consultas, pasa al asesor para concretar.'
+               +(_ult?(' Lo último que pidió: "'+_ult+'"'):'')));
   } else {
     st.cotN=(st.cotN||0)+1; st.t=NOW;
     st.cotHist=((st.cotHist||[]).concat([{role:'user', content:[...texto].slice(0,400).join('')}])).slice(-6);
@@ -3389,6 +3631,7 @@ try{
 }catch(e){}
 return [{json:{etapa,wa_id:wa,wpp_body,aviso_body,aviso_medias,hay_aviso:!!aviso_body,hay_media:!!(aviso_medias&&aviso_medias.length),lead:leadRow,chat:_chat,chat_pre:chat_pre,consent_log:consent_log,pend_cierre,pend_token,
   web_q:web_q, hay_web:!!web_q, web_cierre:web_cierre, web_marca:((S[wa]&&S[wa].marca)||(st&&st.marca)||'Ardisa'), web_nombre:((S[wa]&&S[wa].nombre)||(st&&st.nombre)||''),
+  web_demo:(CLIENTES_PRUEBA.indexOf(wa)>=0),   // en DEMO la rama avisa aunque no encuentre nada (ver nodo de la tienda)
   cot_req:(cot_req||null), hay_cot:!!cot_req,   // Fase 2: intentaCotizar() la deja armada y sale por aquí
   wpp_pre:(wpp_pre||null), hay_pre:!!wpp_pre,   // aviso de datos como mensaje aparte, ANTES del principal
   sumar_add:(sumar_add||null),   // adición tras cerrar: también se suma al detalle del lead en la BD (no depende de la ventana 24h)
@@ -3409,7 +3652,7 @@ OJO con las que se confunden: una "lámina" de 18mm en medidas 1.83x2.44 o 2.15x
 Razona por SIGNIFICADO aunque el producto no esté en la lista. Deduce la marca por los PRODUCTOS, no porque el cliente la nombre. Ante duda entre CONSTRUCCION y ACABADOS usa 'desconocido' (mejor que adivinar mal). Rellena SIEMPRE los campos; si falta un dato usa el centinela (ciudad "", nombre "", tipo_cliente 'desconocido', productos [], grupo_pista 'desconocido').
 DATOS EXTRA (para que el bot NO re-pregunte lo que el cliente ya dijo): nombre = nombre y apellido SOLO si el cliente lo dice explícitamente ("me llamo Pedro", "soy Ana Gómez"), si no "". ciudad = la ciudad que mencione (Bucaramanga, Floridablanca, Bogotá, Barranquilla...) o "". tipo_cliente = 'especialista' (constructor, maestro de obra, arquitecto, ingeniero, pintor, contratista), 'ferretero' (ferretería/punto de venta), 'empresa' (constructora/empresa), 'cliente_final' (para su casa/hogar/proyecto personal), 'carpintero', 'industrial_mueble'; si no se deduce, 'desconocido'.
 RECLAMO/PQRS: es_reclamo = true SOLO si el mensaje es un RECLAMO, QUEJA, sugerencia o solicitud sobre un pedido, COBRO, entrega, garantía, devolución o servicio YA EXISTENTE (algo que salió mal). Ejemplos true: "pagué y ahora me cobran domicilio", "el producto llegó dañado", "no me han entregado mi pedido", "quiero poner una queja", "me cobraron de más". Ejemplos false (es consulta comercial NUEVA, es_reclamo=false): "necesito cotizar cemento", "tienen porcelanato", "quiero comprar una nevera". Ante duda, false.
-INFORMACIÓN / SERVICIO AL CLIENTE / ADMINISTRATIVO: es_info = true si el cliente NO busca comprar ni cotizar un producto, sino un trámite o contacto NO comercial: validación de REFERENCIA COMERCIAL, servicio al cliente, recursos humanos / empleo / hoja de vida, **COMPRAS / PROVEEDURÍA** (quiere hablar con el área de compras, ofrecernos productos, ser proveedor, presentar un portafolio: eso NO es una venta nuestra), facturación / cartera / contabilidad / tesorería, certificados (tributario, cámara de comercio, retención), o preguntas TRIBUTARIAS/CONTABLES/administrativas sobre la EMPRESA (retención en la fuente, autorretención, régimen tributario, si practican/aplican retención, IVA como trámite, declaración, resolución de facturación), o pide "un correo / con quién me comunico / datos de contacto" para un asunto administrativo. Ejemplos true: "necesito validar una referencia comercial de ustedes", "es de servicio al cliente", "¿con quién hablo del área de cartera?", "si es para hablar con los de compras", "soy ejecutivo comercial de X y quiero ofrecerles nuestros productos", "quiero dejar mi hoja de vida", "necesito un certificado de cámara de comercio", "¿en las compras a ustedes se les practica retención en la fuente?", "¿ustedes son autorretenedores?", "¿a qué régimen pertenecen?". Ejemplos false (SÍ es comercial): "quiero cotizar", "necesito cemento", "¿tienen porcelanato?", "un correo para enviarles el plano y que me coticen". Ante duda entre comercial e info, prefiere comercial (es_info=false). Si es_info=true, en_alcance=false.
+INFORMACIÓN / SERVICIO AL CLIENTE / ADMINISTRATIVO: es_info = true si el cliente NO busca comprar ni cotizar un producto, sino un trámite o contacto NO comercial: validación de REFERENCIA COMERCIAL, servicio al cliente, recursos humanos / empleo / hoja de vida, **COMPRAS / PROVEEDURÍA** (quiere hablar con el área de compras, ofrecernos productos, ser proveedor, presentar un portafolio: eso NO es una venta nuestra), facturación / cartera / contabilidad / tesorería, certificados (tributario, cámara de comercio, retención), o preguntas TRIBUTARIAS/CONTABLES/administrativas sobre la EMPRESA (retención en la fuente, autorretención, régimen tributario, si practican/aplican retención, IVA como trámite, declaración, resolución de facturación), o pide "un correo / con quién me comunico / datos de contacto" para un asunto administrativo. Ejemplos true: "necesito validar una referencia comercial de ustedes", "es de servicio al cliente", "¿con quién hablo del área de cartera?", "si es para hablar con los de compras", "soy ejecutivo comercial de X y quiero ofrecerles nuestros productos", "quiero dejar mi hoja de vida", "necesito un certificado de cámara de comercio", "¿en las compras a ustedes se les practica retención en la fuente?", "¿ustedes son autorretenedores?", "¿a qué régimen pertenecen?". Ejemplos false (SÍ es comercial): "quiero cotizar", "necesito cemento", "¿tienen porcelanato?", "un correo para enviarles el plano y que me coticen". LOGÍSTICA Y CONDICIONES DE COMPRA SON PREVENTA, NO TRÁMITE (2026-08-26, caso "tiene envios a bogota??" — se despachó a Servicio al Cliente y nadie le contestó): preguntar por ENVÍOS, despachos, domicilio, cobertura o si llega a su ciudad; por SEDES, puntos de venta o dónde quedan; por HORARIOS de atención; o por FORMAS DE PAGO y crédito, es lo que pregunta cualquier comprador ANTES de comprar → es_info=FALSE y en_alcance=TRUE, aunque todavía no haya nombrado ningún producto. Ejemplos false: "¿tienen envíos a Bogotá?", "¿hacen domicilios?", "¿me llega a Cúcuta?", "¿dónde quedan?", "¿a qué hora abren?", "¿aceptan tarjeta?", "¿manejan crédito?". Ante duda entre comercial e info, prefiere comercial (es_info=false). Si es_info=true, en_alcance=false.
 EN_ALCANCE: en_alcance = true SOLO cuando es una consulta COMERCIAL de VENTA (producto, cotización, compra, o disponibilidad de un producto de Ardisa/Carpincentro), aunque el producto no esté en la lista: razona por significado y sé GENEROSO reconociendo intención de compra. en_alcance = false si es saludo vacío/charla, off-topic, un reclamo (es_reclamo=true) o una solicitud no comercial (es_info=true).
 IMAGEN: si el mensaje incluye una IMAGEN, obsérvala con atención. En 'resumen' escribe una descripción CLARA y ÚTIL PARA EL ASESOR (máx 22 palabras) enfocada en QUÉ productos o materiales se ven y QUÉ necesitaría COTIZAR el cliente — NO describas la escena en abstracto ni empieces con "Foto de...". Ejemplos del estilo esperado: "Baño para remodelar: se ve porcelanato claro y grifería — cotizar cerámica de piso, sanitario y grifería"; "Placa de concreto en obra gris — cotizar cemento, arena y varilla"; "Cocina con muebles de melamina — cotizar tableros MDF y herrajes"; "Sauna/turco enchapado con mosaico — cotizar enchape/cerámica, mosaico y adhesivo". Además clasifícala igual que un texto (marca + grupo por los productos): baño/cocina para remodelar -> Ardisa ACABADOS; cemento/arena/varilla/ladrillo/obra gris -> Ardisa CONSTRUCCION; tableros/MDF/melamina/muebles/herrajes -> Carpincentro; captura o ficha de un producto -> clasifica por ese producto. Si la imagen no permite identificar nada útil, en_alcance=false y 'resumen' corto de lo que se ve.
 ACUSE (voz del bot): escribe en 'acuse' UNA frase BREVE (máx 14 palabras), natural, SOBRIA y PROFESIONAL, como un asesor real por WhatsApp: confirma con sencillez que entendiste qué necesita o qué muestra su foto. NADA de efusividad, exageración ni frases cliché ('qué chévere', 'buenísimo', 'espectacular', 'con toda', 'manos a la obra', 'da vida a la casa'). NO uses signos de apertura de admiración recargados; máximo 0–1 emoji y de preferencia NINGUNO. Varía la redacción sin sonar artificial. PROHIBIDO: mencionar o dar PRECIOS/valores/cotizaciones, prometer tiempos, nombrar asesores, pedir datos, o afirmar disponibilidad/stock. Ejemplos de TONO (no los copies): 'Perfecto, veo que necesitas cemento para tu placa.', 'Claro, con gusto te ayudamos con la remodelación de tu baño.', 'Entendido, buscas tableros MDF y bisagras.'. Si en_alcance=false, deja 'acuse' vacío."""
@@ -3465,7 +3708,7 @@ if(gastar){
   const userTxt = cap
     ? ('El cliente envió esta imagen con el texto: "'+[...cap].slice(0,300).join('')+'". Analiza la imagen y clasifica.')
     : 'El cliente envió esta imagen (sin texto). Observa qué se ve y qué necesita, y clasifícala.';
-  ia_body = { model:'__IA_MODEL__', max_tokens:512, system: NLU_SYSTEM, tools:[NLU_TOOL],
+  ia_body = { model:'__IA_MODEL__', max_tokens:512, system:[{type:'text', text:NLU_SYSTEM, cache_control:{type:'ephemeral'} }], tools:[NLU_TOOL],
     tool_choice:{type:'tool', name:'clasificar_consulta'},
     messages:[{ role:'user', content:[ {type:'image', source:{type:'base64', media_type:mime, data:b64}}, {type:'text', text:userTxt} ] }] };
 }
@@ -3512,7 +3755,7 @@ if(gastar){
     if(_s){ const _f=[]; if(_s.paso) _f.push('paso='+_s.paso); if(_s.marca) _f.push('marca='+_s.marca); if(_s.nombre) _f.push('nombre='+String(_s.nombre).replace(/[<>]/g,' ')); if(_s.ciudad) _f.push('ciudad='+String(_s.ciudad).replace(/[<>]/g,' ')); if(_s.grupo) _f.push('grupo='+_s.grupo);
       if(_f.length) ctx+='<estado_conversacion>'+_f.join(' | ')+'</estado_conversacion>\n'; }
   }catch(e){}
-  ia_body = { model:'__IA_MODEL__', max_tokens:512, system: NLU_SYSTEM, tools:[NLU_TOOL],
+  ia_body = { model:'__IA_MODEL__', max_tokens:512, system:[{type:'text', text:NLU_SYSTEM, cache_control:{type:'ephemeral'} }], tools:[NLU_TOOL],
     tool_choice:{type:'tool', name:'clasificar_consulta'},
     messages:[{ role:'user', content: ctx + '<mensaje_cliente>\n' + textoSeguro + '\n</mensaje_cliente>' }] };
 }
@@ -3565,6 +3808,20 @@ nodes.append(node("¿Es mensaje?", "n8n-nodes-base.if", 2,
      "conditions":[{"id":"m1","leftValue":"={{ $json.es_mensaje }}","rightValue":True,
                     "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 640, 360))
 nodes.append(node("Fin (no es mensaje)", "n8n-nodes-base.noOp", 1, {}, 860, 520))
+# === REGISTRO DE ENTREGAS (2026-08-25) ===
+# La rama que antes moría en "Fin (no es mensaje)" ahora pasa primero por aquí: si el webhook trae un aviso de
+# entrega de Meta, se guarda. `INSERT IGNORE` + UNIQUE(msg_id,estado) lo hace idempotente: Meta reenvía el mismo
+# aviso cuando no recibe respuesta a tiempo, y repetirlo NO duplica filas.
+nodes.append(node("¿Es estado de entrega?", "n8n-nodes-base.if", 2,
+    {"conditions":{"options":{"caseSensitive":True,"typeValidation":"loose"},"combinator":"and",
+     "conditions":[{"id":"e1","leftValue":"={{ $json.es_estado }}","rightValue":True,
+                    "operator":{"type":"boolean","operation":"true","singleValue":True}}]},"options":{}}, 860, 640))
+nodes.append(node("Guardar entrega (MySQL)", "n8n-nodes-base.mySql", 2.5,
+    {"operation":"executeQuery",
+     "query":"INSERT IGNORE INTO entregas (creado_en,msg_id,wa_id,estado,ts,motivo) VALUES (NOW(),$1,$2,$3,$4,$5)",
+     "options":{"queryReplacement":"={{ [$json.est_msg_id, $json.est_wa_id, $json.est_estado, $json.est_ts, $json.est_motivo] }}"}},
+    1080, 640, {"onError":"continueRegularOutput","retryOnFail":True,"maxTries":2,"waitBetweenTries":1500,
+                "credentials":{"mySql":{"id":MYSQL_CRED_ID,"name":MYSQL_CRED_NAME}}}))
 # === LEAD PENDIENTE + PULSO DEL SISTEMA (2026-07-29, pedido Deicy) ===
 # En CADA mensaje se le pregunta a la BD si ese teléfono tiene un lead SIN REPORTAR y con qué asesor. La BD es la
 # única memoria que no caduca ni la pisa una carrera de n8n: por eso Stephanie Naffah (#82, 21-jul, Karime, nunca
@@ -3681,6 +3938,10 @@ _PEND_SQL = ("SELECT "
     # === FASE 2 · CONFIG EN LA BD (2026-08-06): interruptores SIN desplegar. `usar_cotiza` prende el piloto
     # de cotización SAP (solo números demo), y la URL/token del MCP viven en la BD (rotables con un UPDATE).
     "(SELECT valor FROM config WHERE clave='usar_cotiza' LIMIT 1) AS cfg_cotiza, "
+    # 2026-08-25 (decisión de Deicy): de dónde salen los datos del producto. 'tienda' = todo de la página
+    # (Magento); 'mcp' = todo de SAP; cualquier otro valor o vacío = 'tienda'. Es un INTERRUPTOR en la BD,
+    # no una constante en el código: volver atrás es un UPDATE, no un despliegue.
+    "(SELECT valor FROM config WHERE clave='fuente_datos' LIMIT 1) AS cfg_fuente, "
     "(SELECT valor FROM config WHERE clave='mcp_sap_url' LIMIT 1) AS cfg_mcp_url, "
     "(SELECT valor FROM config WHERE clave='mcp_sap_token' LIMIT 1) AS cfg_mcp_token, "
     # 2026-08-11 (decisión de Deicy: Fase 2 arranca SIN precio): el NOMBRE de la tool de precio vive en la BD.
@@ -3688,6 +3949,17 @@ _PEND_SQL = ("SELECT "
     # Cuando exista, se pone aquí su nombre exacto y el bot empieza a cotizar SIN redesplegar. Guardar el
     # nombre (y no un si/no) evita la trampa de siempre: que la lista blanca diga 'precio' y la tool se
     # llame 'consultar_precio', y el bot la ignore en silencio.
+    # 2026-08-24: token de la integración `bot-ardisa` de Magento (solo lectura de Catálogo). Vive en la BD
+    # igual que el del MCP: se rota con un UPDATE, sin desplegar. Vacío = el bot no consulta el REST y
+    # sigue funcionando solo con el GraphQL público, exactamente como hasta hoy.
+    # === ¿LES ESTÁ LLEGANDO? (2026-08-25) === Meta avisa cada envío/entrega/lectura/rebote y desde hoy se
+    # guardan en `entregas`. Estas 4 son ESCALARES (siempre devuelven un número, nunca 0 filas): si alguna
+    # devolviera filas de más, la consulta entera se rompería y el bot dejaría de responder.
+    "(SELECT COUNT(*) FROM entregas WHERE estado='sent'      AND creado_en >= CURDATE() - INTERVAL 7 DAY) AS ent_env, "
+    "(SELECT COUNT(*) FROM entregas WHERE estado='delivered' AND creado_en >= CURDATE() - INTERVAL 7 DAY) AS ent_ok, "
+    "(SELECT COUNT(*) FROM entregas WHERE estado='read'      AND creado_en >= CURDATE() - INTERVAL 7 DAY) AS ent_leid, "
+    "(SELECT COUNT(*) FROM entregas WHERE estado='failed'    AND creado_en >= CURDATE() - INTERVAL 7 DAY) AS ent_fall, "
+    "(SELECT valor FROM config WHERE clave='magento_token' LIMIT 1) AS cfg_mag_token, "
     "(SELECT valor FROM config WHERE clave='mcp_precio_tool' LIMIT 1) AS cfg_precio_tool, "
     # 2026-08-13 (pedido Deicy: "salir en vivo cuando ya lo tengas perfecto" SIN redesplegar): el ALCANCE
     # del piloto vive en la BD. 'demo' = solo CLIENTES_PRUEBA (como siempre); 'todos' = cualquier cliente
@@ -3742,6 +4014,9 @@ return [{ json: Object.assign({}, d, {
   cfg_cotiza:   p.cfg_cotiza   ? String(p.cfg_cotiza)  : '',
   cfg_mcp_url:  p.cfg_mcp_url  ? String(p.cfg_mcp_url) : '',
   cfg_mcp_token:p.cfg_mcp_token? String(p.cfg_mcp_token): '',
+  ent_env:  Number(p.ent_env||0),  ent_ok:   Number(p.ent_ok||0),
+  ent_leid: Number(p.ent_leid||0), ent_fall: Number(p.ent_fall||0),   // avisos a asesores (2026-08-25)
+  cfg_mag_token:   p.cfg_mag_token   ? String(p.cfg_mag_token).trim() : '',   // Magento REST (2026-08-24)
   cfg_precio_tool: p.cfg_precio_tool ? String(p.cfg_precio_tool).trim() : '',
   cfg_cotiza_alcance: p.cfg_cotiza_alcance ? String(p.cfg_cotiza_alcance) : '',   // 'demo' | 'todos' (en vivo)
   cfg_consent_impl:   p.cfg_consent_impl   ? String(p.cfg_consent_impl)   : '',   // 'si' = aviso implícito en vez del muro
@@ -3852,6 +4127,54 @@ if(fallo){
   body='Tu solicitud quedó *registrada* ✅ y '+(_ases?('será atendida por *'+_ases+'*, quien'):'tu asesor')
       +' te contactará dentro del horario de atención para darte el detalle exacto. 🙌\n\n¿Hay algo más que quieras agregar?';
 }else{
+  // === EL CÓDIGO COMPRUEBA LO QUE EL MODELO ESCRIBIÓ (2026-08-26, caso "cerámica para piso") ===
+  // El 25-ago el modelo tuvo en la mano 10 cerámicas con precio y con existencias, y le escribió a la
+  // clienta "No pudimos confirmarte el precio ni la disponibilidad". La regla (3l) ya lo prohibía y
+  // estaba desplegada: pedirle al modelo que no esconda el dato NO ES UN CONTROL. Aquí sí lo es —
+  // `store.cotDatos[wa]` tiene lo que la página devolvió, y esto lo contrasta contra el texto:
+  //   1) producto nombrado (su enlace está en el texto) pero SIN su precio  -> se le pone el precio;
+  //   2) si TODO lo nombrado traía precio, la muletilla "no pudimos confirmar..." es falsa -> se borra;
+  //   3) lo que de verdad quedó dicho se guarda para la tarjeta del asesor.
+  try{
+    const _dat=(store.cotDatos && store.cotDatos[wa]) || {};
+    // El precio se escribe con los MISMOS centavos que pide el prompt ("el valor EXACTO del dato, con
+    // centavos si los trae"): si aquí redondeáramos, un renglón diría $84.042 y el de al lado $84.041,99.
+    const _ent=function(n){ return Math.floor(Number(n)||0).toString().replace(/\B(?=(\d{3})+(?!\d))/g,'.'); };
+    const _mil=function(n){ const _v=Number(n)||0; const _c=Math.round((_v-Math.floor(_v))*100);
+                            return _c>0 ? (_ent(_v)+','+String(_c).padStart(2,'0')) : _ent(_v); };
+    let _nombrados=0, _todoTraePrecio=true, _todoTraeDisp=true;
+    const _dichos=[];
+    Object.keys(_dat).forEach(function(_sku){
+      const _d=_dat[_sku];
+      if(!_d || !_d.url || t.indexOf(_d.url)<0) return;   // el modelo no nombró este producto
+      _nombrados++;
+      if(!_d.disp) _todoTraeDisp=false;
+      if(!(Number(_d.pre)>0)) _todoTraePrecio=false;
+      else _dichos.push({sku:_sku, nom:_d.nom, pre:Number(_d.pre), uni:'', t:Date.now()});
+    });
+    // PRIMERO se borra la muletilla, DESPUÉS se ponen los precios. El orden NO es cosmético: en el caso
+    // del tornillo (26-ago) el modelo metió el precio DENTRO de la frase — "un asesor te confirma si el
+    // valor de $3.599 corresponde..." — así que borrarla al final se habría llevado el único precio del
+    // mensaje. Borrando antes, el renglón queda sin precio y el paso siguiente lo repone donde debe ir.
+    // Y solo se borra cuando se puede DEMOSTRAR que es falsa: si de algún producto nombrado faltaba el
+    // precio de verdad, la frase es cierta y se respeta (no se le miente al cliente al revés).
+    if(_nombrados>0 && _todoTraePrecio && _todoTraeDisp){
+      t=t.replace(/\s*no\s+pudimos\s+(?:confirmar|confirmarte|validar|validarte)[^.]*?\b(?:precio|disponibilidad)\b[^.]*\.\s*/gi,' ')
+         .replace(/[ \t]{2,}/g,' ').trim();
+    }
+    _dichos.forEach(function(_x){
+      const _d=_dat[_x.sku];
+      if(t.indexOf(_ent(_d.pre))>=0) return;              // el precio sobrevivió (o el modelo lo escribió bien)
+      t=t.split('🔗 Verlo en línea: '+_d.url)
+         .join('💲 $'+_mil(_d.pre)+' (precio de referencia con IVA)\n🔗 Verlo en línea: '+_d.url);
+    });
+    if(_dichos.length){                                   // la tarjeta del asesor, también en modo tienda
+      store.cotizado=store.cotizado||{};
+      const _prev=(store.cotizado[wa]||[]).filter(function(x){ return x && !_dichos.some(function(y){ return y.sku===x.sku; }); });
+      store.cotizado[wa]=_prev.concat(_dichos).slice(-8);
+    }
+    if(store.cotDatos) delete store.cotDatos[wa];         // ya se usó: no se hereda a la próxima consulta
+  }catch(e){}
   t=[...t].slice(0,3500).join('');   // 14-ago: una lista de 12 productos no cabe en 900 (WhatsApp aguanta 4096)
   st.cotHist=((st.cotHist||[]).concat([{role:'assistant', content:t}])).slice(-6);
   st.t=Date.now();
@@ -3931,28 +4254,338 @@ const _H=(this&&this.helpers)?this.helpers:null;
 const _cfg=$('Unir pendiente').first().json||{};
 let _sid=''; try{ const h=$input.first().json.headers||{}; _sid=String(h['mcp-session-id']||h['Mcp-Session-Id']||''); }catch(e){}
 const _tuses=$('""" + repartir + r"""').all().map(function(i){ return (i.json||{}).tuse||{}; });
-const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
-            'Authorization':'Bearer '+_cfg.cfg_mcp_token, 'mcp-session-id':_sid};
+const _hdrBase={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
+                'Authorization':'Bearer '+_cfg.cfg_mcp_token};
+// === UNA SESIÓN POR CONSULTA (2026-08-25, caso melaminas de Deicy) ===============================
+// MEDIDO hoy contra el servidor real, 4 precios a la vez:
+//   · compartiendo UNA sesión  -> contestó 1 en 1,6 s; las otras 3 colgadas hasta el tope. Total 30 s.
+//   · una sesión CADA UNA      -> las 4 con precio. Total 1,45 s.
+// El servidor MCP atiende UNA consulta a la vez por sesión: las demás quedan encoladas detrás. Como este
+// nodo las lanza todas en paralelo (para no pagar la suma de las esperas), estaban compitiendo por el
+// mismo carril y perdían todas menos una. Eso son las 152 "la herramienta no respondió" de la ejecución
+// 136877 — y los 2 minutos de espera. Abrir sesión cuesta ~0,3 s y se hace en paralelo con todo lo demás.
+let _libre=_sid;                       // la sesión que ya venía abierta: se le regala a la primera consulta
+const _nuevaSesion=async function(){
+  try{
+    const _r=await _tope(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdrBase, json:true,
+      body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
+        clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:5000}), 6000);
+    return (_r && _r.headers && (_r.headers['mcp-session-id']||_r.headers['Mcp-Session-Id']))||'';
+  }catch(e){ return ''; }
+};
 // 2026-08-20 (ejecución 123056: 'SAP consulta R2' colgada 284 s hasta que el techo la mató): el servidor
 // MCP a veces deja el stream SSE ABIERTO sin cerrar, y el `timeout` del httpRequest no corta un stream
 // que sigue vivo. Tope MANUAL con Promise.race: si en 30 s no cerró (el precio con cascada a veces legítimamente pasa de 20), se abandona esa llamada (el socket
 // muere solo) y el flujo sigue — un reintento y de resto "no respondió", que el modelo ya sabe manejar.
 const _tope=function(p,ms){ return Promise.race([p, new Promise(function(_r,_j){ setTimeout(function(){ _j(new Error('tope '+ms+'ms')); }, ms); })]); };
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+// === TODO SE CONSULTA A LA PÁGINA (2026-08-25, decisión de Deicy) =================================
+// Hasta hoy los datos del producto salían de SAP por el MCP. Eso trajo, en dos semanas: el token que se
+// vence cada hora y hay que re-autorizar a mano, sesiones que se estorban entre ellas (152 consultas
+// perdidas en una sola conversación), esperas de 30 s, y referencias del maestro de artículos que ya no
+// se venden ofrecidas como si se tuvieran (Cemex y Oriente, con 0 bultos).
+// La página no tiene ninguno de esos problemas: no pide credencial para consultar, responde en 0,2 s,
+// publica SOLO lo que se vende, y su precio es el que el cliente va a ver al abrir el enlace.
+// El puente sigue siendo el mismo: el SKU de la tienda ES el item_code de SAP.
+// Lo que la página NO sabe es la EXISTENCIA por bodega: eso se responde diciendo que el asesor confirma.
+// El interruptor vive en la BD (`config.fuente_datos`): volver a SAP es un UPDATE, no un despliegue.
+const _FUENTE = String(_cfg.cfg_fuente||'tienda').toLowerCase();
+const _TIENDAS_URL = {ardisa:'https://www.ardisa.com', carpincentro:'https://www.carpincentro.com'};
+const _MARCA_T = (function(){ try{ const _s=JSON.parse($('Cerebro conversacional').first().json.ses_out||'{}');
+  return String(_s.marca||'').toLowerCase(); }catch(e){ return ''; } })();
+const _CIU_T = (function(){ try{ const _s=JSON.parse($('Cerebro conversacional').first().json.ses_out||'{}');
+  return String(_s.ciudad||''); }catch(e){ return ''; } })();
+const _WEB_T = _TIENDAS_URL[_MARCA_T] || _TIENDAS_URL.ardisa;
+const _UA_T = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const _AT_T = 'custom_attributesV2(filters:{is_visible_on_front:true}){items{code ... on AttributeSelectedOptions{selected_options{label}}}}';
+const _AT_OK = ['color','tamano','espesor_calibre','textura','estilo','uso','categoria','presentacion','contenido','veta'];
+const _AT_ES = {tamano:'medida', espesor_calibre:'espesor', categoria:'tipo', presentacion:'presentación'};
+async function _gqlT(query){
+  if(!_H) return null;
+  const r=await _tope(_H.httpRequest({method:'POST', url:_WEB_T+'/graphql', json:true, timeout:9000,
+    headers:{'Content-Type':'application/json','User-Agent':_UA_T}, body:{query:query} }), 10000);
+  return (r && r.data && r.data.products) ? r.data.products : null;
+}
+// Los atributos vienen como identificadores ("color":"6912"); `selected_options{label}` los trae en palabras.
+function _atsT(i){
+  const _r={};
+  try{
+    (((i.custom_attributesV2||{}).items)||[]).forEach(function(a){
+      if(!a || _AT_OK.indexOf(a.code)<0) return;
+      const _v=((a.selected_options||[]).map(function(o){ return o.label; }).filter(Boolean)).join(', ');
+      if(_v) _r[_AT_ES[a.code]||a.code]=_v;
+    });
+  }catch(e){}
+  return Object.keys(_r).length ? _r : null;
+}
+// Un producto de la página con la MISMA forma que traía SAP: el resto del flujo no nota el cambio.
+function _prodT(i){
+  const _p=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
+  const _o={item_code:String(i.sku), item_name:String(i.name||'')};
+  if(Number(_p)>0) _o.precio_con_iva=Number(_p);
+  if(i.url_key) _o.url_tienda=_WEB_T+'/'+i.url_key+'.html';
+  const _at=_atsT(i); if(_at) _o.atributos_publicados=_at;
+  return _o;
+}
+const _CAMPOS_T='sku name url_key '+_AT_T+' price_range{minimum_price{final_price{value} } }';
+// === LA DISPONIBILIDAD TAMBIÉN SALE DE LA PÁGINA (2026-08-25, Deicy: "allá está sincronizado con SAP") ===
+// La tienda tiene un endpoint PROPIO que la web usa para pintar "Agotado"/"En existencia" en cada ficha:
+//     /inventorybycity/product/batchstockinfo?skus=A,B,C      (hasta 50 SKUs en UNA llamada)
+// No es el inventario de Magento —ese tiene stock infinito de relleno (1.039.339 bultos de cemento)—, es
+// el que la web mantiene sincronizado con SAP. Comprobado el 25-ago contra los tres cementos:
+//     10021733 ALION -> stock 2133, status in_stock      (SAP decía 2.388: el mismo orden)
+//     10014960 CEMEX -> stock 0,    status no_source     ← "solo tengo alion"
+//     10011990 CEMEX -> stock 0,    status no_source
+// Ojo: `stock:0` con `status:'in_stock'` NO es un error — es el producto que se trae sobre pedido. Manda
+// el `status`, no el número; por eso no se decide con `stock>0`.
+// La ciudad va por sesión de la web (hoy responde la 905, Bucaramanga). Mientras no se pueda pedir otra,
+// el dato es el de esa plaza: sirve para NO ofrecer lo descontinuado, no para prometer una entrega.
+// === Y POR LA CIUDAD DEL CLIENTE, NO POR LA DE LA CASA (2026-08-25, pregunta de Deicy) ==============
+// La existencia es POR CENTRO DE COSTO. Comprobado contra el panel de Magento del producto 10012043:
+//     CC - 1145: 3   ·   CC - 1445: 0   ·   Default Source: 48   ·   Salable Quantity: 51
+// y el endpoint, en sesión de Bucaramanga, devuelve 3 — o sea el CC-1145, NO la suma de 51. El dato ya
+// es por plaza; lo que faltaba era pedir la plaza del cliente. Medido con sesión limpia por ciudad:
+//     BUCARAMANGA(905) -> Koral 3, cemento 2073   ·   BOGOTÁ(1095) -> 0 y 0   ·   CALI(1061) -> 0 y 0
+// La ciudad va en la SESIÓN de la web, no en un parámetro: hay que (1) pedir una página sin caché para
+// que entregue PHPSESSID, (2) POST a savelocation con región+código postal, (3) preguntar el stock con
+// esa misma sesión. Son 2 peticiones extra, así que SOLO se hacen cuando el cliente NO es de Bucaramanga
+// (la plaza por defecto del sitio): para la mayoría no cuesta nada.
+// El form_key lo inventamos nosotros: Hyvä lo genera en el navegador y el servidor solo comprueba que el
+// del formulario coincida con el de la cookie. Sin esto, savelocation redirige a la portada en silencio.
+const _CIUDADES_T = {
+  BUCARAMANGA:{r:'648', pc:'68001'}, 'BOGOTÁ':{r:'702', pc:'11001'}, BOGOTA:{r:'702', pc:'11001'},
+  CALI:{r:'651', pc:'76001'}, BARRANQUILLA:{r:'625', pc:'08001'}, CARTAGENA:{r:'626', pc:'13001'},
+  'IBAGUÉ':{r:'650', pc:'73001'}, IBAGUE:{r:'650', pc:'73001'}, PEREIRA:{r:'646', pc:'66001'},
+  TUNJA:{r:'627', pc:'15001'}, DUITAMA:{r:'627', pc:'15238'} };
+function _sinTildes(t){ return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim(); }
+// Abre una sesión de la web YA FIJADA en la ciudad del cliente. Devuelve la cookie, o '' si no se pudo
+// (y entonces se consulta sin ella: mejor el dato de la plaza por defecto que ningún dato).
+async function _sesionCiudad(ciudad){
+  const _c=_sinTildes(ciudad);
+  let _d=null;
+  Object.keys(_CIUDADES_T).forEach(function(k){ if(!_d && _sinTildes(k)===_c) _d=_CIUDADES_T[k]; });
+  if(!_d || _c==='BUCARAMANGA') return '';            // sin mapa o ya es la plaza por defecto
+  try{
+    const _r1=await _tope(_H.httpRequest({method:'GET', url:_WEB_T+'/customer/account/login/',
+      headers:{'User-Agent':_UA_T}, returnFullResponse:true, json:false, timeout:7000}), 8000);
+    const _sc=((_r1 && _r1.headers && (_r1.headers['set-cookie']||_r1.headers['Set-Cookie']))||[]);
+    const _ss=(Array.isArray(_sc)?_sc:[String(_sc)]).map(function(x){ return String(x).split(';')[0]; })
+                .filter(function(x){ return /^PHPSESSID=/.test(x); })[0] || '';
+    if(!_ss) return '';
+    const _fk='bOtArDiSa'+String(Date.now()).slice(-7);
+    const _ck=_ss+'; form_key='+_fk;
+    await _tope(_H.httpRequest({method:'POST', url:_WEB_T+'/locationpopup/index/savelocation',
+      headers:{'User-Agent':_UA_T,'Content-Type':'application/x-www-form-urlencoded','Cookie':_ck,
+               'X-Requested-With':'XMLHttpRequest'},
+      body:'data[postcode]='+_d.pc+'&data[region]='+_d.r+'&data[city]='+encodeURIComponent(String(ciudad).toUpperCase())
+           +'&form_key='+_fk, json:false, timeout:8000}), 9000);
+    return _ck;
+  }catch(e){ return ''; }
+}
+// ¿La plaza que estamos consultando tiene inventario asignado en Magento? Hoy solo Bucaramanga (la
+// del sitio por defecto). En las demás, un "no hay" NO es un no: es que nadie les asignó fuentes.
+// El costo de equivocarse es asimétrico —decirle "no tenemos" a quien sí puede comprar cuesta la venta;
+// decir "tu asesor confirma" no cuesta nada— así que fuera de la plaza propia, los negativos no se creen.
+let _plazaPropia=true;
+async function _stockT(skus, ciudad){
+  const _l=(skus||[]).filter(Boolean).slice(0,50);
+  if(!_l.length || !_H) return {};
+  try{
+    const _ck=await _sesionCiudad(ciudad||_CIU_T);
+    _plazaPropia=!_ck;                       // sin cookie = la plaza por defecto = la que sí tiene datos
+    const _h={'User-Agent':_UA_T};
+    if(_ck) _h.Cookie=_ck;
+    const r=await _tope(_H.httpRequest({method:'GET', json:true, timeout:8000,
+      url:_WEB_T+'/inventorybycity/product/batchstockinfo?skus='+encodeURIComponent(_l.join(',')),
+      headers:_h }), 9000);
+    return (r && r.items) ? r.items : {};
+  }catch(e){ return {}; }
+}
+// Traduce el estado de la tienda a lo que el modelo tiene que hacer con él.
+function _stockNota(i){
+  const _st=String((i||{}).status||'');
+  if(_st==='in_stock')    return {ok:true,  txt:'con disponibilidad'};
+  if(_st==='backorder')   return {ok:true,  txt:'se trae sobre pedido'};
+  if(_st==='service')     return {ok:true,  txt:'es un servicio, no lleva inventario'};
+  if(_st==='out_of_stock'||_st==='no_source') return {ok:false, txt:'SIN existencias hoy'};
+  return {ok:true, txt:''};                       // sin dato: no se juzga (nunca se inventa un agotado)
+}
+async function _desdeTienda(t){
+  const _n=String(t.n||''), _a=t.a||{};
+  // La existencia por bodega NO está publicada: se dice, no se inventa ni se calla.
+  if(/^disponibilidad/.test(_n)){
+    const _skD=String(_a.item_code||'').replace(/["\\{}]/g,'');
+    if(!_skD) return 'ERROR: la herramienta no respondió';
+    const _r=await _stockT([_skD]);
+    const _i=_r[_skD];
+    // Sin dato NO se inventa un agotado: se dice que el asesor confirma. Un "no hay" falso pierde la venta.
+    if(!_i) return JSON.stringify({item_code:_skD, sin_dato:true,
+      nota:'No se pudo verificar la existencia. NO afirmes ni niegues stock: dile que su asesor se la '
+          +'confirma, y sigue dándole producto, precio y enlace.'});
+    const _n2=_stockNota(_i);
+    if(!_n2.ok && !_plazaPropia) return JSON.stringify({item_code:_skD, sin_dato:true,
+      nota:'En esa ciudad no se pudo verificar la existencia. NO afirmes ni niegues stock: dile que su '
+          +'asesor se la confirma, y sigue dándole producto, precio y enlace.'});
+    const _o={item_code:_skD, hay_disponibilidad:_n2.ok, estado:_n2.txt};
+    if(Number(_i.stock)>0) _o.disponible_total=Number(_i.stock);
+    _o.nota = _n2.ok
+      ? ('Sí se maneja y está disponible ('+_n2.txt+'). Al cliente se le habla SIN cifras de inventario: '
+        +'"lo tenemos disponible", nunca "hay 2.133". Su asesor confirma la entrega.')
+      : ('Hoy NO hay existencias de esta referencia. NO se la ofrezcas: busca alternativas publicadas con '
+        +'buscar_producto y ofrécele esas. Nunca le digas que "no lo manejamos".');
+    return JSON.stringify(_o);
+  }
+  if(_n==='precio_articulo' || _n==='disponibilidad'){
+    const _sku=String(_a.item_code||'').replace(/["\\{}]/g,'');
+    if(!_sku) return 'ERROR: la herramienta no respondió';
+    const p=await _gqlT('{products(filter:{sku:{eq:"'+_sku+'"}}){items{'+_CAMPOS_T+'} }}');
+    const i=((p||{}).items||[])[0];
+    if(!i) return JSON.stringify({item_code:_sku, total:0,
+      nota:'Ese código no está publicado. Busca por NOMBRE con buscar_producto y ofrece lo que sí esté.'});
+    const _o=_prodT(i);
+    // La existencia viaja PEGADA al precio: una sola consulta del modelo y ya tiene todo lo que necesita
+    // para armar el bloque completo (25-ago, caso Griflex: tenía el enlace y dijo que no pudo confirmar
+    // ni precio ni disponibilidad). Cada dato que llega por separado es un dato que se puede quedar atrás.
+    try{
+      const _i2=(await _stockT([_sku]))[_sku];
+      if(_i2){ const _n3=_stockNota(_i2);
+        if(_n3.ok || _plazaPropia){          // fuera de la plaza propia, un "no hay" no se cree
+          _o.se_vende=_n3.ok; _o.disponibilidad=_n3.txt;
+          if(Number(_i2.stock)>0) _o.disponible_total=Number(_i2.stock); } }
+    }catch(e){}
+    _o.nota_precio='Precio publicado en nuestra tienda en línea, con IVA. Es el MISMO que verá al abrir el '
+                  +'enlace. Su asesor le confirma el valor final.';
+    return JSON.stringify(_o);
+  }
+  if(_n==='buscar_producto'){
+    const _q=String(_a.q||'').replace(/["\\{}]/g,' ').trim();
+    if(_q.length<2) return JSON.stringify({query:_q, total:0, matches:[]});
+    const p=await _gqlT('{products(search:"'+_q+'",pageSize:10){total_count items{'+_CAMPOS_T+'} }}');
+    let _its=((p||{}).items||[]).map(_prodT);
+    // UNA llamada trae la existencia de los 10: el caso "Cemex y Oriente" se resuelve aquí, con dato.
+    const _sk=await _stockT(_its.map(function(m){ return m.item_code; }));
+    let _fuera=0;
+    _its.forEach(function(m){
+      const _i=_sk[m.item_code]; if(!_i) return;
+      const _n=_stockNota(_i);
+      m.disponibilidad=_n.txt; m.se_vende=_n.ok;
+      if(Number(_i.stock)>0) m.disponible_total=Number(_i.stock);
+    });
+    // === SI LA PLAZA NO TIENE DATO, NO SE HABLA DE EXISTENCIAS (2026-08-25) =========================
+    // Medido: el catálogo de la web es, en la práctica, el de BUCARAMANGA. Con la sesión puesta en otra
+    // ciudad, "cemento" pasa de 108 resultados a 12 y "grifería lavamanos" de 145 a CERO — porque a esas
+    // plazas no se les han asignado fuentes de inventario en Magento. Consecuencia: a un cliente de
+    // Bogotá TODO le saldría en `no_source`, y el bot le diría que no tenemos nada. Falso y carísimo.
+    // Regla: si NINGUNO de los resultados tiene existencia, el dato NO es confiable para esa plaza —
+    // se borran las etiquetas y se dice que el asesor confirma. Cuando la tienda asigne las fuentes de
+    // esa ciudad, esto empieza a funcionar solo, sin tocar una línea.
+    // === EL DATO QUEDA GUARDADO, PASE LO QUE PASE (2026-08-26, caso "cerámica para piso") ===
+    // El 25-ago a las 17:33 el modelo recibió los 10 productos CON `precio_con_iva` y con
+    // `disponibilidad:"con disponibilidad"`, y aun así escribió "No pudimos confirmarte el precio ni la
+    // disponibilidad". La regla (3l) del prompt YA se lo prohibía y estaba en vivo: una prohibición a mil
+    // líneas del dato no basta. Así que el dato se guarda aquí, y al final el CÓDIGO comprueba la
+    // respuesta contra él y la repara. Lo que se puede verificar, no se pide por favor.
+    try{
+      const _waD=$('Cerebro conversacional').first().json.wa_id;
+      const _sdD=$getWorkflowStaticData('global'); _sdD.cotDatos=_sdD.cotDatos||{};
+      const _mapa=_sdD.cotDatos[_waD]||{};
+      _its.forEach(function(m){
+        if(!m || !m.item_code) return;
+        _mapa[m.item_code]={nom:String(m.item_name||'').slice(0,70), pre:Number(m.precio_con_iva)||0,
+                            url:String(m.url_tienda||''), disp:String(m.disponibilidad||''), t:Date.now()};
+      });
+      // 40 referencias es techo de sobra para una conversación y evita que staticData engorde sin fin.
+      const _ks=Object.keys(_mapa); if(_ks.length>40) _ks.slice(0, _ks.length-40).forEach(function(k){ delete _mapa[k]; });
+      _sdD.cotDatos[_waD]=_mapa;
+    }catch(e){}
+    const _algunoHay=_its.some(function(m){ return m.se_vende===true; });
+    if(!_algunoHay){
+      _its.forEach(function(m){ delete m.se_vende; delete m.disponibilidad; delete m.disponible_total; });
+      return JSON.stringify({query:_q, total:_its.length, matches:_its,
+        total_catalogo:(p||{}).total_count||_its.length,
+        nota_stock:'La existencia de esta plaza no se pudo verificar. NO afirmes ni niegues disponibilidad '
+                  +'de NINGUNO: dile que su asesor se la confirma, y dale igual producto, precio y enlace.',
+        nota:'Resultados de nuestra tienda en línea. Cada uno trae su precio con IVA y su `url_tienda`: '
+            +'cierra cada bloque con "🔗 Verlo en línea: <url>".'});
+    }
+    // Se quitan los que NO se tienen, pero solo si queda algo que ofrecer: una lista vacía se leería como
+    // "no lo manejamos", que es justo lo que Deicy prohibió.
+    if(true){
+      const _antes=_its.length;
+      _its=_its.filter(function(m){ return m.se_vende!==false; });
+      _fuera=_antes-_its.length;
+    }
+    return JSON.stringify({query:_q, total:_its.length,
+      referencias_sin_existencias:_fuera||undefined,
+      nota_stock:_fuera?('Se quitaron '+_fuera+' referencias sin existencias: NO las menciones ni por marca.'):undefined,
+      matches:_its,
+      total_catalogo:(p||{}).total_count||_its.length,
+      nota:'Resultados de nuestra tienda en línea: TODOS están publicados y se venden. Cada uno trae su '
+          +'precio con IVA y su `url_tienda`. Ofrece SOLO estos y cierra cada bloque con "🔗 Verlo en '
+          +'línea: <url>". Si ninguno es lo que pidió, busca otra vez con otras palabras.'});
+  }
+  // Cartera, pedidos, ventas… no se consultan desde la página. Se dice sin exponer nada interno.
+  return JSON.stringify({no_disponible:true,
+    nota:'Ese dato no se consulta desde este canal: su asesor se lo confirma. Sigue con producto, precio y enlace.'});
+}
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
 const _llaves=_tuses.map(function(t){ return JSON.stringify({n:t.name||'', a:t.input||{}}); });
 const _unicos={};
 _llaves.forEach(function(k){ if(!(k in _unicos)) _unicos[k]=null; });
 await Promise.all(Object.keys(_unicos).map(async function(k){
   const t=JSON.parse(k);
-  if(!t.n || !_H || !_cfg.cfg_mcp_url){ _unicos[k]='ERROR: la herramienta no respondió'; return; }
-  const _va=function(){ return _tope(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:30000,
-    headers:_hdr, body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:t.n, arguments:t.a} })}), 30000); };
+  if(!t.n || !_H){ _unicos[k]='ERROR: la herramienta no respondió'; return; }
+  // === EL HÍBRIDO: TODO DE LA PÁGINA, LA EXISTENCIA DE SAP (2026-08-25) ===========================
+  // Medido: la tienda declara stock INFINITO (1.039.339 bultos de cemento, 99.999.999,9999 en un
+  // melamínico) para que nada salga agotado en la web. `is_in_stock` es `true` para todo. Usarlo sería
+  // prometerle existencias al cliente SIEMPRE — peor que no decir nada. El inventario de verdad solo lo
+  // tiene SAP (Alion 2.388, Cemex 0, el mismo día).
+  //   fuente_datos='tienda'      -> todo de la página; la existencia la confirma el asesor.
+  //   fuente_datos='tienda+sap'  -> todo de la página y SOLO la existencia por SAP (1 consulta, no 10).
+  if(_FUENTE.indexOf('tienda')===0){
+    const _esStock=/^disponibilidad/.test(String(t.n||''));
+    if(!(_esStock && _FUENTE==='tienda+sap')){
+      // Sin sesión, sin token, sin turnos: la página atiende todas a la vez y en 0,2 s cada una.
+      try{ _unicos[k]=await _desdeTienda(t); }
+      catch(e){ _unicos[k]='ERROR: la herramienta no respondió'; }
+      return;
+    }
+    // es una consulta de existencia en modo híbrido: sigue de largo y la resuelve SAP, abajo.
+  }
+  if(!_cfg.cfg_mcp_url){ _unicos[k]='ERROR: la herramienta no respondió'; return; }
+  // Tomar la sesión libre es SÍNCRONO (antes de cualquier await): en JavaScript nadie puede colarse en
+  // medio de estas dos líneas, así que dos consultas no pueden llevarse la misma sesión.
+  const _tocaLaVieja=!!_libre; if(_tocaLaVieja) _libre='';
+  const _mio = _tocaLaVieja ? _sid : (await _nuevaSesion());
+  const _hdr = Object.assign({'mcp-session-id':(_mio||_sid)}, _hdrBase);
+  // === CADA HERRAMIENTA ESPERA LO QUE VALE (2026-08-24, "se demora muchísimo en responder") ===
+  // Medido hoy: buscar 0,7 s · precio 2,9 s · disponibilidad 4,9 s. Pero el MCP da PICOS: dos consultas
+  // se comieron 30,0 s cada una (el tope del servidor) y una sola cotización tardó 96 s, de los cuales 60
+  // eran SAP esperando. Un tope único de 30 s hace que la consulta MENOS importante cueste lo mismo que la
+  // esencial. Ahora cada una espera según lo que cuesta perderla:
+  //   · disponibilidad_ciudad → 12 s: es el "dato bonito". Sin él el bot dice que el asesor lo confirma,
+  //     y el cliente igual recibe producto y precio. No vale 30 segundos de espera.
+  //   · precio_articulo → 25 s: la cascada de precios a veces pasa legítimamente de 20 s, y sin precio la
+  //     respuesta pierde su razón de ser.
+  //   · el resto → 15 s (buscar_producto responde en menos de 1 s cuando el servidor está sano).
+  // 2026-08-25 (Deicy: "está respondiendo en 2 minutos"): medido de nuevo, lo NORMAL es precio 1,0-1,6 s y
+  // buscar 0,4-0,5 s. Pero a las 11:48 dos consultas se comieron 25 s cada una — el tope que había — y una
+  // cotización tardó 87 s. Los topes se ajustan a la realidad medida, no a lo que podría llegar a tardar:
+  // 12 s para el precio son OCHO veces su mediana. Si el servidor se cuelga, el cliente pierde ese dato,
+  // no dos minutos de su vida.
+  const _TOPES={disponibilidad_ciudad:10000, precio_articulo:12000, buscar_producto:8000};
+  const _ms=_TOPES[t.n] || 10000;
+  const _va=function(){ return _tope(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:_ms,
+    headers:_hdr, body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:t.n, arguments:t.a} })}), _ms); };
   // Reintentar SOLO fallas rápidas (red, 5xx): si el servidor se quedó CALLADO los 30 s completos,
   // repetirle son 30 s más de un cliente esperando por la misma nada (prueba 11:02: 60 s exactos × 2
   // vueltas = 2 min de los 2:36). El modelo ya sabe decir "un asesor te confirma ese dato".
   const _t0=Date.now();
   try{ _unicos[k]=await _va(); }
   catch(e){
-    if((Date.now()-_t0) >= 27000){ _unicos[k]='ERROR: la herramienta no respondió'; }
+    // El umbral del reintento va pegado al tope de ESA herramienta: si se quedó callada hasta el final,
+    // repetirle es pagar la misma espera otra vez. Solo se reintenta lo que falló RÁPIDO (red, 5xx).
+    if((Date.now()-_t0) >= _ms*0.9){ _unicos[k]='ERROR: la herramienta no respondió'; }
     else { try{ _unicos[k]=await _va(); }catch(e2){ _unicos[k]='ERROR: la herramienta no respondió'; } }
   }
 }));
@@ -3968,7 +4601,50 @@ const req=$('""" + fuente_req + r"""').first().json.cot_req||{};
 const historia=(req.messages||[]).concat((resp.content&&resp.content.length)?[{role:'assistant', content:resp.content}]:[]);
 const usos=(resp.content||[]).filter(b=>b&&b.type==='tool_use');
 if(resp.error||resp.type==='error'||!usos.length){ return [{json:resp}]; }
-return usos.map(u=>({json:{tuse:{id:u.id, name:u.name, input:(u.input||{})}, historia:historia}}));
+// === LA CIUDAD DEL CLIENTE NO SIEMPRE ES UNA PLAZA (2026-08-24, caso Girón) ===
+// SAP solo conoce 11 plazas. Un cliente de Girón —a 15 minutos de Bucaramanga— hacía fallar la consulta
+// ("No se reconoce la ciudad 'giron santander'") y el bot le respondía "no pudimos validar disponibilidad"
+// con el producto en bodega. Regla de Deicy: se valida en la plaza más cercana y SE LE DA la información,
+// diciéndole en qué punto está. Se traduce aquí, antes de salir hacia SAP.
+const _PLAZAS=['barranquilla','bogota','bucaramanga','cali','cartagena','duitama','girardot','ibague',
+               'pereira','sogamoso','tunja','floridablanca'];   // floridablanca SÍ la reconoce SAP
+const _CERCA={'giron':'Bucaramanga','piedecuesta':'Bucaramanga','lebrija':'Bucaramanga',
+  'rionegro':'Bucaramanga','san gil':'Bucaramanga','socorro':'Bucaramanga','malaga':'Bucaramanga',
+  'barrancabermeja':'Bucaramanga','san vicente de chucuri':'Bucaramanga','sabana de torres':'Bucaramanga',
+  'cucuta':'Bucaramanga','pamplona':'Bucaramanga','ocana':'Bucaramanga','aguachica':'Bucaramanga',
+  'soacha':'Bogota','chia':'Bogota','zipaquira':'Bogota','cajica':'Bogota','mosquera':'Bogota',
+  'madrid':'Bogota','funza':'Bogota','facatativa':'Bogota','fusagasuga':'Bogota','villavicencio':'Bogota',
+  'soledad':'Barranquilla','malambo':'Barranquilla','puerto colombia':'Barranquilla','santa marta':'Barranquilla',
+  'sabanalarga':'Barranquilla','valledupar':'Barranquilla','sincelejo':'Cartagena','monteria':'Cartagena',
+  'yumbo':'Cali','palmira':'Cali','jamundi':'Cali','buga':'Cali','tulua':'Cali','buenaventura':'Cali','popayan':'Cali',
+  'dosquebradas':'Pereira','santa rosa de cabal':'Pereira','armenia':'Pereira','manizales':'Pereira',
+  'espinal':'Ibague','melgar':'Girardot','flandes':'Girardot','paipa':'Duitama','nobsa':'Sogamoso',
+  'chiquinquira':'Tunja','villa de leyva':'Tunja','medellin':'Bogota','bello':'Bogota','itagui':'Bogota'};
+function _plazaDe(c){
+  const _n=String(c||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z ]/g,' ')
+    .replace(/\b(santander|cundinamarca|valle|del|cauca|atlantico|boyaca|tolima|risaralda|norte|antioquia|magdalena|bolivar|cesar|sucre|cordoba|quindio|caldas|meta|colombia|departamento|ciudad|municipio|dpto)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+  if(!_n) return null;
+  for(const p of _PLAZAS) if(_n===p || _n.indexOf(p)>=0) return null;   // ya es plaza: no se toca
+  if(_CERCA[_n]) return _CERCA[_n];
+  for(const k in _CERCA) if(_n.indexOf(k)>=0) return _CERCA[k];
+  return 'Bucaramanga';                       // desconocida: la casa matriz, y se le DICE al cliente
+}
+return usos.map(function(u){
+  const _in=Object.assign({}, u.input||{});
+  let _nota='';
+  if(_in.ciudad){
+    const _p=_plazaDe(_in.ciudad);
+    if(_p){
+      _nota='El cliente está en '+String(_in.ciudad).slice(0,40)+', que no es uno de nuestros puntos: esta '
+           +'consulta se resolvió en '+_p+', el más cercano. DILE en qué punto tenemos el producto y que su '
+           +'asesor le confirma el despacho hasta donde está. PROHIBIDO decirle que no se pudo validar.';
+      _in.ciudad=_p;
+    }
+  }
+  return {json:{tuse:{id:u.id, name:u.name, input:_in, nota_ciudad:_nota}, historia:historia}};
+});
 """
 
 def _code_armar(repartir, fuente_req, final=False, empuje=None):
@@ -4086,6 +4762,9 @@ const _RELLENO=['de','del','la','el','los','las','un','una','unos','unas','para'
   'cotización','precio','precios','valor','tienen','tiene','hay','manejan','maneja','busco','buscando',
   'x','mm','cm','mt','mts','m2','kg','kilos','kilo','gr','pulgadas','pulgada','metros','metro','unidades','tambor','galon','galón','cuñete','cunete','caneca','balde','bulto','saco','rollo','caja','cajas','lamina','lámina','unidad','und','presentacion','presentación'];
 async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
+  // Este reintento descompone la frase para pelear con la búsqueda LITERAL de SAP. El buscador de la
+  // tienda es difuso (aguanta "melaminica" por "MELAMINICO"), así que en modo tienda no hace falta.
+  if(String(_cfg.cfg_fuente||'tienda').toLowerCase()==='tienda') return null;
   if(!_H || !_cfg.cfg_mcp_url || !_cfg.cfg_mcp_token) return null;
   const _limpia = t => String(t||'').toLowerCase().replace(/[^a-záéíóúñü0-9\s]/g,' ').split(/\s+/)
     .filter(function(w){ return w.length>2 && _RELLENO.indexOf(w)<0 && !/^\d+$/.test(w); });
@@ -4110,8 +4789,25 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
     else if(_v>=100 && _v<400 && _dims.indexOf(_n)<0) _dims.push(_n);   // ya viene en cm (183, 244)
     if(_v<10 && /[.,]/.test(_n0) && _esp.indexOf(_n)<0) _esp.push(_n);  // calibre/espesor (2.7, 2.5)
   });
+  // === EL FORMATO DE LÁMINA DEL CATÁLOGO (2026-08-25, "lámina de mdf de 5mm": claro que hay y dijo que no) ===
+  // Las láminas se venden por ESPESOR y el cliente dice "de 5mm" — pero el catálogo las nombra con la medida
+  // completa pegada: "MDF  183X244X5.5". Ni "lamina mdf" ni "mdf 5" la encuentran (la búsqueda es literal y
+  // el nombre trae DOS espacios). Con el formato del catálogo sí: comprobado, "183X244X5" devuelve 25 y el
+  // primero es el MDF de 5.5 — la comparación es por prefijo, así que no hay que adivinar el decimal.
+  // Solo se arma cuando el texto habla de lámina/tablero: en una grifería, "de 5" no es un espesor.
+  const _ESPESOR_LAMINA = /(l[aá]mina|tabler|mdf|mdp|aglomer|melamin|f[oó]rmica|formica|triplex|tripl|fondo|superboard|eterboard|yeso|drywall)/i;
+  if(_ESPESOR_LAMINA.test(String(q0+' '+(textoCliente||'')))){
+    (String(q0+' '+(textoCliente||'')).match(/\d+(?:[.,]\d+)?/g)||[]).forEach(function(_n0){
+      const _v=parseFloat(_n0.replace(',','.'));
+      if(_v>=3 && _v<=40){                       // espesores reales de lámina, en milímetros
+        const _e=String(_n0.replace(',','.'));
+        ['183X244X'+_e, '122X244X'+_e].forEach(function(_m){ if(_dims.indexOf(_m)<0) _dims.push(_m); });
+      }
+    });
+  }
   if(soloAfinar && !_dims.length) return null;         // afinar sin medidas no tiene sentido
   if(_pal.length<2 && !_dims.length) return null;      // de verdad no hay nada más que probar
+  const _palOrden = _pal.slice();          // copia en el orden en que el cliente las escribió
   _pal.sort(function(a,b){ return b.length-a.length; });   // primero las largas: las cortas suelen ser genéricas
   // El buscador de SAP busca la FRASE LITERAL dentro del nombre ("MDF crudo" da 0 porque el nombre es
   // "MDF 183X244X2.5 CRUDO"). Por eso el combo con medida se arma con CADA palabra, no solo la más
@@ -4127,6 +4823,10 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   // extractor de arriba lo botaba: el reintento buscó "183X244" a secas y cayó en 25 aglomerados.
   const _mXYZ=String(q0+' '+(textoCliente||'')).match(/(\d{2,3})\s*[xX×]\s*(\d{2,3})\s*[xX×]\s*(\d+(?:[.,]\d+)?)/);
   if(_mXYZ){ _combos.push(_mXYZ[1]+'X'+_mXYZ[2]+'X'+_mXYZ[3].replace(',','.')); }
+  // Las medidas COMPLETAS que armamos arriba (183X244X5) van solas y de primeras: pegadas, sin espacios,
+  // que es como están escritas en el catálogo. Emparejarlas con una palabra ("mdf 183X244X5") las rompería
+  // contra los espacios dobles del nombre real.
+  _dims.forEach(function(_d){ if(/X/i.test(_d) && _combos.indexOf(_d)<0) _combos.push(_d); });
   const _cmix=_dims.map(Number).filter(function(n){return n>=100&&n<400;}).sort(function(a,b){return a-b;});
   if(_cmix.length>=2){
     const _par=_cmix[0]+'X'+_cmix[1];
@@ -4134,6 +4834,17 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
     _combos.push(_par);
   }
   for(const _w of _pal.slice(0,3)){ for(const _d of _dims.slice(0,3)){ if(_combos.length<7) _combos.push(_w+' '+_d); } }
+  // === PAREJAS DE PALABRAS SEGUIDAS (2026-08-25) ===
+  // El buscador de SAP compara la frase LITERAL contra el nombre: "varilla roscada de 1/2 y de 5/8" da 0,
+  // pero "varilla roscada" encuentra VARILLA ROSCADA DE 1/2 — que es exactamente lo que el cliente pidió.
+  // Con palabras SUELTAS no alcanza: "varilla" y "roscada" devuelven 25 truncados cada una y gana cualquier
+  // cosa. Las parejas van PRIMERO porque son lo más parecido a como se llama el producto en el catálogo.
+  // Se arman en el ORDEN en que el cliente las escribió (no ordenadas por longitud): "sanitario laguna",
+  // "bisagra hidraulica", "melaminico duralam". Se comprobó contra 40 frases reales de clientes.
+  const _pares=[];
+  for(let _k=0; _k+1<_palOrden.length && _pares.length<4; _k++){
+    _pares.push(_palOrden[_k]+' '+_palOrden[_k+1]);
+  }
   const _hdr={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
               'Authorization':'Bearer '+_cfg.cfg_mcp_token};
   const _ini=await _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdr, json:true,
@@ -4144,17 +4855,35 @@ async function _reintentarBusqueda(q0, textoCliente, soloAfinar){
   // palabra genérica ("pintura") arrastra cientos de referencias y la específica ("drywall") unas pocas,
   // así que el conteo es un buen termómetro de cuál de las dos describe lo que el cliente pidió.
   // Las combinaciones con medida van PRIMERO: si "mdf 183" pega, ese es el producto.
-  const _cand=await Promise.all((soloAfinar ? _combos : _combos.concat(_pal.slice(0,3))).slice(0,8).map(function(_w){
+  const _cand=await Promise.all((soloAfinar ? _combos : _combos.concat(_pares).concat(_pal.slice(0,3))).slice(0,9).map(function(_w){
     return _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
         headers:Object.assign({'mcp-session-id':_sid}, _hdr),
         body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call',
-          params:{name:'buscar_producto', arguments:{q:_w, limit:40} } })}), 8000)
+          params:{name:'buscar_producto', arguments:{q:_w, limit:25} } })}), 8000)   // el servidor topa en 25: pedir 40 era pedir lo que no existe
       .then(function(t){ const o=JSON.parse(sacarTexto(t)); return (o && o.total>0) ? {w:_w, o:o} : null; })
       .catch(function(){ return null; });
   }));
   const _vivos=_cand.filter(Boolean);
   if(!_vivos.length) return null;
-  _vivos.sort(function(a,b){ return a.o.total-b.o.total; });
+  // === GANA LA PALABRA QUE ES PRODUCTO, NO LA QUE ES RARA (2026-08-25) ===
+  // Hasta hoy el desempate era "la que menos resultados devuelva", pensando que menos = más específica.
+  // Pero en la frase de un cliente la palabra rara casi nunca es el producto: en 40 frases reales ganaron
+  // `similar`, `completa`, `hidraulica`, `giratorio`, `referencia`, `superficies`… y el bot terminó
+  // ofreciendo un CODO HD JUNTA HIDRAULICA a quien pidió un brazo de bisagra. Ahora primero se mira si la
+  // candidata NOMBRA un producto; entre las que sí, gana la más específica (la de menos resultados).
+  const _ES_PROD=/^(cement|arena|gravilla|hierro|varilla|acero|malla|ladrillo|bloque|adoqu|loseta|drywall|superboard|eterboard|fibrocement|teja|tubo|tuber|pvc|ceramic|porcelan|enchape|azulejo|baldosa|grifer|sanitario|inodoro|lavamanos|lavaplato|ducha|meson|pintura|esmalte|estuco|vinilo|sika|impermeabiliz|tabler|mdf|mdp|melamin|formica|f[oó]rmica|triplex|tripl|contrachap|madera|perfil|policarbonat|domo|lamina|l[aá]mina|mueble|espejo|nevera|nevecon|estufa|cocina|horno|lavadora|calentador|aluminio|mosaico|lavadero|yeso|resina|adhesiv|sellador|silicona|pegante|masilla|mortero|concreto|aglomerad|herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|closet|repisa|estante|puerta|recebo|geotextil|caneca|tanque|sifon|sif[oó]n|piso|muro|pared|duratex|supert|duralam|arauco|novaflex|yumbolon|vesto|rehau|pintuco|colormagic)/i;
+  // El orden de prioridad, de más específico a menos:
+  //   0) la candidata trae una MEDIDA ("183X244X2.7", "mdf 183"): es lo más preciso que existe y no se
+  //      puede perder — fue lo que rescató el MDF 2.7 de Deicy el 20-ago (SKU 10023222).
+  //   1) la candidata NOMBRA un producto ("varilla roscada", "duralam").
+  //   2) el resto (adjetivos, palabras raras): último recurso.
+  // Dentro de cada grupo gana la de MENOS resultados, que sigue siendo buen termómetro de precisión.
+  const _rango=function(w){ return /\d/.test(w) ? 0 : (_ES_PROD.test(w) ? 1 : 2); };
+  _vivos.sort(function(a,b){
+    const _ra=_rango(a.w), _rb=_rango(b.w);
+    if(_ra!==_rb) return _ra-_rb;
+    return a.o.total-b.o.total;
+  });
   const _g=_vivos[0];
   _g.o.busqueda_original=q0; _g.o.busqueda_usada=_g.w;
   _g.o.nota= soloAfinar
@@ -4178,6 +4907,11 @@ const _MARCA_CLI = (function(){
   try{ const _s=JSON.parse($('Cerebro conversacional').first().json.ses_out||'null'); return (_s&&_s.marca)||'Ardisa'; }
   catch(e){ return 'Ardisa'; } })();
 const _WEB = _TIENDA[_MARCA_CLI] || _TIENDA.Ardisa;
+// La ciudad del cliente: el precio de SAP depende de la plaza (lista por ciudad), así que sin ella
+// n8n no puede pedir precios por su cuenta. Sale de la misma sesión de donde ya sale la marca.
+const _CIU_CLI = (function(){
+  try{ const _s=JSON.parse($('Cerebro conversacional').first().json.ses_out||'null'); return (_s&&_s.ciudad)||''; }
+  catch(e){ return ''; } })();
 // El sitio responde 403 a un cliente sin navegador; con esto pasa. Si algún día lo endurecen, todo esto
 // falla en silencio y la cotización sigue igual que antes (va dentro de try/catch).
 const _UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -4191,21 +4925,131 @@ async function _tiendaBuscar(q){
   const _q=String(q||'').replace(/["\\{}]/g,' ').trim(); if(_q.length<3) return null;
   const p=await _gql('{products(search:"'+_q+'",pageSize:8){total_count items{sku name url_key}}}');
   if(!p || !p.items || !p.items.length) return null;
-  return p.items.map(function(i){ return {item_code:i.sku, item_name:i.name, url:_WEB+'/'+i.url_key+'.html'}; });
+  // ⚠️ 2026-08-25 (melaminas de Deicy): el campo se llamaba `url` a secas. La regla (6b) del prompt dice
+  // "cuando traiga `url_tienda`, escribe el enlace" — con OTRO nombre, el modelo la cumplió al pie de la
+  // letra y no escribió ni un link, aunque los tenía delante. Las cuatro melaminas salieron sin enlace.
+  // Un mismo dato con dos nombres según de dónde venga es una trampa: se unifica en `url_tienda`.
+  return p.items.map(function(i){ return {item_code:i.sku, item_name:i.name,
+                                          url_tienda:_WEB+'/'+i.url_key+'.html'}; });
 }
-async function _tiendaUrl(sku, precioSap){
-  const p=await _gql('{products(filter:{sku:{eq:"'+String(sku).replace(/["\\{}]/g,'')+'"}}){items{sku url_key price_range{minimum_price{final_price{value} } } } }}');
+// === LA VERDAD DEL CATÁLOGO, POR REST (2026-08-24) ===
+// El GraphQL público solo sabe decir "aparece / no aparece". El REST autenticado (integración
+// `bot-ardisa`, solo lectura de Catálogo) dice si el producto está HABILITADO (`status`=1) y a qué
+// tienda pertenece (`website_ids`: 1=Ardisa, 2=Carpincentro; un producto puede estar en las dos).
+// Eso es lo que evita el link roto: la varilla que abre en ardisa.com y da 404 en carpincentro.com.
+// Es UN SOLO Magento sirviendo los dos dominios, así que el mismo token vale para ambos.
+// Si no hay token o el REST falla, devuelve null y todo sigue como antes (solo GraphQL).
+const _MAG_TOK = String((_cfg && _cfg.cfg_mag_token) || '');
+const _WEB_ID  = {Ardisa:1, Carpincentro:2};
+async function _magento(sku){
+  if(!_MAG_TOK || !_H) return null;
+  try{
+    const r = await _topeA(_H.httpRequest({method:'GET', json:true, timeout:7000,
+      url:_TIENDA.Ardisa+'/rest/V1/products/'+encodeURIComponent(String(sku)),
+      headers:{'Authorization':'Bearer '+_MAG_TOK, 'User-Agent':_UA} }), 8000);
+    if(!r || !r.sku) return null;
+    return {status:Number(r.status), visibility:Number(r.visibility),
+            webs:((r.extension_attributes||{}).website_ids)||[]};
+  }catch(e){ return null; }          // 404 = no existe; cualquier fallo = seguir sin esta ayuda
+}
+// === LOS ATRIBUTOS DEL PRODUCTO, EN PALABRAS (2026-08-25) ===
+// Magento guarda los atributos de lista como IDENTIFICADORES ("color":"6912"), no como texto. Pedirlos
+// con `custom_attributesV2` + `selected_options{label}` los devuelve traducidos —Blanco, 15, 2.15x2.44—
+// y sin credenciales (por REST haría falta el permiso de Atributos, que la integración no tiene).
+// Con esto el bot deja de adivinar el espesor leyendo el NOMBRE del producto: lo tiene como dato.
+// Se queda con los que le sirven a un cliente y se recortan: el resto solo gastaría espacio del modelo.
+const _AT_UTIL = ['color','tamano','espesor_calibre','textura','estilo','uso','categoria','presentacion','contenido','veta'];
+const _AT_NOMBRE = {tamano:'medida', espesor_calibre:'espesor', categoria:'tipo', presentacion:'presentación'};
+function _atributos(item){
+  try{
+    const _its = ((item.custom_attributesV2||{}).items)||[];
+    const _r = {};
+    _its.forEach(function(a){
+      if(!a || _AT_UTIL.indexOf(a.code)<0) return;
+      const _ops = a.selected_options||[];
+      const _v = _ops.map(function(o){ return String((o&&o.label)||''); }).filter(Boolean).join(', ');
+      if(_v && _v.length<=30) _r[_AT_NOMBRE[a.code]||a.code] = _v;
+    });
+    return Object.keys(_r).length ? _r : null;
+  }catch(e){ return null; }
+}
+const _AT_GQL = 'custom_attributesV2(filters:{is_visible_on_front:true}){items{code ... on AttributeSelectedOptions{selected_options{label}}}}';
+async function _tiendaUrl(sku){
+  const p=await _gql('{products(filter:{sku:{eq:"'+String(sku).replace(/["\\{}]/g,'')+'"}}){items{sku url_key '+_AT_GQL+' price_range{minimum_price{final_price{value} } } } }}');
   const i=(p && p.items && p.items[0]) || null;
   if(!i || !i.url_key) return null;
-  // El link solo se manda si el precio publicado coincide con el que acabamos de dar. Si no, el cliente
-  // abriría la página y vería OTRO número: peor que no mandar nada.
+  // El precio PUBLICADO en la tienda. Ya no filtra el enlace (eso se quitó el 25-ago), pero se devuelve
+  // para poder dárselo al cliente cuando SAP no entregue precio: es el mismo número que verá al abrir el link.
   const _pw=(((i.price_range||{}).minimum_price||{}).final_price||{}).value;
-  if(!(precioSap>0) || !(_pw>0) || Math.abs(_pw-precioSap)/precioSap > 0.01) return null;
-  return _WEB+'/'+i.url_key+'.html';
+  // === EL LINK VA SIEMPRE, CON PRECIO O SIN PRECIO (2026-08-25, decisión de Deicy) ===
+  // Desde el 21-ago el enlace solo salía si el precio publicado coincidía con el cotizado (±1%). La regla
+  // protegía de que el cliente abriera la página y viera otro número, pero en la práctica lo dejaba SIN
+  // enlace 4 de cada 5 veces (medido: 5 de 24 productos coincidían), y el objetivo de conectar el bot con
+  // la tienda es justamente que el cliente ENTRE a ver el producto. Decisión: el enlace va siempre.
+  // Lo que protege al cliente es la coletilla que el bot ya pone en TODO precio: "precio de referencia —
+  // un asesor te lo confirma". La diferencia entre la lista de la web y la de su plaza la resuelve el
+  // asesor, que es quien cierra la venta.
+  // Lo que NO se aflojó (sigue en el bloque de abajo): producto deshabilitado no se enlaza, y el enlace
+  // se arma en la tienda donde la ficha SÍ abre.
+  // Hasta hoy el link se armaba SIEMPRE con la web de la marca del cliente, y si la ficha vivía en la otra
+  // tienda el cliente abría un 404. Ahora se le pregunta al REST a qué website pertenece y se arma el link
+  // donde SÍ abre. Sin token (o si el REST falla) queda exactamente el comportamiento anterior.
+  const _m = await _magento(sku);
+  if(_m){
+    if(_m.status !== 1) return null;                      // deshabilitado: la ficha existe pero no abre
+    const _mio = _WEB_ID[_MARCA_CLI] || 1;
+    const _otroId = _mio === 1 ? 2 : 1;
+    // Devuelve {url, at}: el enlace Y los atributos, leídos en la MISMA consulta (no cuesta una llamada más).
+    if(_m.webs.indexOf(_mio) >= 0) return {url:_WEB+'/'+i.url_key+'.html', at:_atributos(i), pw:_pw};   // está en SU tienda
+    if(_m.webs.indexOf(_otroId) >= 0){                                        // solo en la otra: somos la misma casa
+      const _otraWeb = (_mio === 1) ? _TIENDA.Carpincentro : _TIENDA.Ardisa;
+      return {url:_otraWeb+'/'+i.url_key+'.html', at:_atributos(i), pw:_pw};
+    }
+    return null;                                          // no está publicado en ninguna: no hay link
+  }
+  return {url:_WEB+'/'+i.url_key+'.html', at:_atributos(i), pw:_pw};
+}
+// === LAS FICHAS DE TODA LA LISTA, EN UNA SOLA CONSULTA (2026-08-25, 2ª prueba de melaminas) ===
+// El bloque de abajo le pedía la ficha a la tienda producto por producto y con tope de 6. Cuando SAP
+// devuelve 25 resultados ordenados alfabéticamente, esos 6 son "CAJON", "CAVA", "CORTE TABLEROS"... y
+// los melamínicos de verdad —que están en la M— no se consultaban nunca: el cliente veía MADECOR y FINSA
+// sin un solo enlace. Subir el tope a 25 serían 25 consultas; en su lugar se piden TODAS DE UNA:
+// GraphQL acepta `sku:{in:[...]}`, así que 25 fichas cuestan UNA petición en vez de 25.
+async function _tiendaLote(skus){
+  const _l=(skus||[]).filter(Boolean).slice(0,25)
+             .map(function(x){ return '"'+String(x).replace(/["\\{}]/g,'')+'"'; });
+  if(!_l.length) return {};
+  const p=await _gql('{products(filter:{sku:{in:['+_l.join(',')+']}},pageSize:25){items{sku url_key '
+                     +_AT_GQL+' price_range{minimum_price{final_price{value} } } } }}').catch(function(){ return null; });
+  const _m={};
+  ((p||{}).items||[]).forEach(function(i){
+    if(i && i.sku && i.url_key) _m[String(i.sku)]={key:i.url_key, at:_atributos(i),
+      pw:(((i.price_range||{}).minimum_price||{}).final_price||{}).value};
+  });
+  return _m;
 }
 const _txt=items.map(function(it){ return compactar(sacarTexto(it.json)); });
 for(let _i=0; _i<_txt.length; _i++){
   try{
+    // === SI SAP NO CONTESTA, CONTESTA LA PÁGINA (2026-08-24, caso Eterboard de Deicy) ===
+    // A las 15:38 las búsquedas de "eterboard" y "fibrocemento" murieron con "la herramienta no respondió"
+    // (el MCP se pasó de los 27 s). Al modelo solo le llegaron "drywall" y "122X244", y con eso improvisó:
+    // le dijo a la clienta que NO teníamos Eterboard —hay 16 fichas publicadas— y le ofreció MDP. La tienda
+    // responde el mismo dato en 0,2 s y su sku ES el item_code de SAP: cuando la herramienta se cae, se le
+    // pregunta a ella en vez de dejar al modelo adivinando.
+    if(((tuses[_i]||{}).name)==='buscar_producto' && /^ERROR/.test(String(_txt[_i]||''))){
+      const _qf=((tuses[_i]||{}).input||{}).q || '';
+      const _wf=_qf ? await _tiendaBuscar(_qf).catch(function(){ return null; }) : null;
+      if(_wf && _wf.length){
+        _txt[_i]=JSON.stringify({query:_qf, total:0, catalogo_tienda:_wf.slice(0,5),
+          nota:'La consulta al catálogo interno no respondió a tiempo, pero estas fichas SÍ están publicadas '
+              +'y su item_code es el mismo del sistema: pide con ellos precio y disponibilidad. PROHIBIDO '
+              +'decirle al cliente que no manejamos esto y PROHIBIDO ofrecerle un producto distinto en su '
+              +'lugar. NO uses precios de esta lista (no los trae) y no menciones ninguna falla. '
+              +'CADA producto de esta lista trae `url_tienda`: cierra su bloque con "🔗 Verlo en línea: <url>". '
+              +'Aunque no consigas su precio, el enlace SÍ se le da: es lo que le permite verlo.'});
+      }
+    }
     const _o=JSON.parse(_txt[_i]);
     if(!_o || !Array.isArray(_o.matches)) continue;
     const _q0=((tuses[_i]||{}).input||{}).q || _o.query || '';
@@ -4213,16 +5057,32 @@ for(let _i=0; _i<_txt.length; _i++){
     const _txtCli=(function(){ try{ const m=(req.messages||[])[0];
       return (m && typeof m.content==='string') ? m.content : ''; }catch(e){ return ''; } })();
     if(_o.total===0){
-      const _mejor=await _reintentarBusqueda(_q0, _txtCli);
-      if(_mejor){ _txt[_i]=_mejor; continue; }
-      const _web=await _tiendaBuscar(_q0);
-      if(_web){
-        _txt[_i]=JSON.stringify({query:_q0, total:0, catalogo_tienda:_web,
-          nota:'Nuestro buscador interno no encontró nada con esas palabras, pero el catálogo de la tienda '
-              +'en línea SÍ. Estos item_code son válidos y son los mismos del sistema: consulta con ellos '
-              +'precio y disponibilidad como con cualquier otro producto. NO le digas al cliente que no lo '
-              +'manejamos, y NO uses los precios de esta lista (no los trae).'});
+      // === EL BUSCADOR DE LA TIENDA ES NUESTRO CORRECTOR DE ORTOGRAFÍA (2026-08-24, "sanitario Elongado") ===
+      // El catálogo dice "ALONGADO" y el cliente escribe "elongado": la búsqueda de SAP es literal y da CERO.
+      // El reintento interno entonces descomponía el mensaje, se quedaba con "sanitario" —25 genéricos— y con
+      // ese "acierto" hacía `continue`, saltándose la ÚNICA pieza que sabe corregir: el buscador de la tienda
+      // (motor difuso), que con "elongado" devuelve los 12 Alongado con su item_code, que es el MISMO de SAP.
+      // Ahora se preguntan las dos cosas A LA VEZ y el modelo recibe ambas; no se pierde ni una ni otra.
+      // Cada una con su RED: Promise.all falla en bloque —si la tienda revienta se perdería también el
+      // resultado bueno del reintento, que antes (en serie) no podía pasar. El `.catch` las independiza.
+      const _dos=await Promise.all([
+        _reintentarBusqueda(_q0, _txtCli).catch(function(){ return null; }),
+        _tiendaBuscar(_q0).catch(function(){ return null; })
+      ]);
+      const _mejor=_dos[0], _web=_dos[1];
+      const _notaWeb='El cliente escribió "'+String(_q0).slice(0,40)+'" y así NO existe en el catálogo. Estos '
+          +'son los nombres tal como están escritos en el sistema (la tienda corrige lo mal escrito) y sus '
+          +'item_code son válidos: consulta con ellos precio y disponibilidad como con cualquier otro producto. '
+          +'NO le digas al cliente que no lo manejamos, NO uses los precios de esta lista (no los trae) y NO le '
+          +'comentes que escribió mal ni de dónde salió el dato. CADA uno trae `url_tienda`: cierra su bloque '
+          +'con "🔗 Verlo en línea: <url>" SIEMPRE, tenga precio o no — el enlace nunca se omite.';
+      if(_mejor){
+        if(_web){ try{ const _om=JSON.parse(_mejor); _om.catalogo_tienda=_web; _om.nota=_notaWeb;
+                       _txt[_i]=JSON.stringify(_om); }catch(e){ _txt[_i]=_mejor; } }
+        else { _txt[_i]=_mejor; }
+        continue;
       }
+      if(_web){ _txt[_i]=JSON.stringify({query:_q0, total:0, catalogo_tienda:_web, nota:_notaWeb}); }
     } else if(_o.truncated && !/\d/.test(_q0)){
       // 2026-08-20 (MDF 2.7 de Deicy, 2ª ronda): "MDF" devolvió 25 FONDOs truncados y se aceptaron —
       // el reintento solo corría con CERO resultados. Si la lista viene recortada y el cliente dio
@@ -4230,7 +5090,193 @@ for(let _i=0; _i<_txt.length; _i++){
       const _fino=await _reintentarBusqueda(_q0, _txtCli, true);
       if(_fino) _txt[_i]=_fino;
     }
+    // === LA PÁGINA OPINA SIEMPRE, NO SOLO CUANDO SAP FALLA (2026-08-24, decisión de Deicy) ===
+    // El buscador de la tienda encuentra por NOMBRE lo que el de SAP no: "eterboard" da 16 fichas allá y 3
+    // acá, y con "efecto madera" pegado SAP da cero. Su `sku` ES el item_code del sistema, así que sus
+    // fichas entran como PISTA de identificación —el precio se sigue pidiendo a SAP con ese item_code—.
+    // Se salta si ya venían (la rama de arriba las trajo) para no preguntar dos veces lo mismo.
+    try{
+      const _oF=JSON.parse(_txt[_i]);
+      if(_oF && !_oF.catalogo_tienda){
+        const _wS=await _tiendaBuscar(_q0).catch(function(){ return null; });
+        if(_wS && _wS.length){
+          _oF.catalogo_tienda=_wS.slice(0,5);
+          _oF.nota_tienda='Fichas publicadas en nuestra tienda en línea; su item_code es el MISMO del '
+              +'sistema. Si alguna corresponde mejor a lo que pidió el cliente que los resultados de arriba, '
+              +'ÚSALA: pide precio y disponibilidad con ese item_code. NO uses los precios de esta lista (no '
+              +'los trae) y no menciones de dónde salió.';
+          _txt[_i]=JSON.stringify(_oF);
+        }
+      }
+    }catch(e){}
   }catch(e){}
+}
+// === LOS PRECIOS LOS TRAE n8n, NO LAS VUELTAS DEL MODELO (2026-08-24) ===
+// Deicy: "este es para que dé precios, no para que le diga que un asesor se los da". El modelo tiene
+// vueltas contadas (R2, R3 y R4 ya sin herramientas): si una consulta se cuelga, se le acaban antes de
+// preguntar el precio y termina diciendo "un asesor te confirma" con el dato disponible en SAP —lo
+// comprobamos con el MDF Duratex, que sí tenía precio. Aquí n8n le pide el precio a los 3 primeros
+// resultados de cada búsqueda, EN PARALELO y con tope corto, y se lo entrega ya resuelto. Es el mismo
+// principio del bloque de "otras ciudades": el trabajo pesado lo hace la plataforma, no el modelo.
+if(_CIU_CLI && _H && _cfg.cfg_mcp_url){
+  // El servidor MCP EXIGE sesión: hay que abrirla aquí (cada función de este nodo abre la suya, no hay
+  // una compartida). Si no abre en 6 s, este bloque se salta y el modelo pide los precios como siempre.
+  let _sidP='';
+  // 2026-08-25: con `fuente_datos='tienda'` no se abre sesión con SAP. Los dos bloques que dependen de
+  // `_sidP` (precios anticipados y cruce de existencias) se saltan solos: no hay `if` repetido en tres
+  // sitios, basta con no darles la sesión. Los enlaces NO cuelgan de aquí (error corregido esta mañana).
+  const _FUENTE_A = String(_cfg.cfg_fuente||'tienda').toLowerCase();
+  // Cabeceras propias: `_hdr` vive DENTRO de las otras funciones de este nodo, no aquí. Usarlo desde
+  // afuera lanzaba ReferenceError, el try lo atrapaba y el bloque se saltaba EN SILENCIO — el peor tipo
+  // de falla: todo "funcionaba", pero los precios nunca llegaban.
+  const _hdrP={'Content-Type':'application/json','Accept':'application/json, text/event-stream',
+               'Authorization':'Bearer '+String(_cfg.cfg_mcp_token||'')};
+  try{
+    if(_FUENTE_A==='tienda') throw new Error('fuente=tienda');
+    const _iniP=await _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdrP, json:true,
+      body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
+        clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:4000}), 5000);
+    _sidP=(_iniP && _iniP.headers && (_iniP.headers['mcp-session-id']||_iniP.headers['Mcp-Session-Id']))||'';
+  }catch(e){ _sidP=''; }
+  const _porPrecio=[], _objs={}, _porLink=[];
+  // Los resultados viajan como TEXTO. Si se parsea, se modifica y se bota el objeto, el cambio se pierde:
+  // hay que conservar cada objeto (_objs) y volver a serializarlo al final. Es la trampa clásica de
+  // trabajar sobre una copia creyendo que se trabaja sobre el original.
+  _txt.forEach(function(t,ix){
+    try{
+      const o=JSON.parse(t);
+      if(!o || !Array.isArray(o.matches) || !o.matches.length) return;
+      _objs[ix]=o;
+      o.matches.slice(0,25).forEach(function(m,_k){
+        if(!m || !m.item_code) return;
+        // La FICHA se le busca a TODOS (la tienda no depende de SAP); el PRECIO solo al que no lo trae.
+        _porLink.push({ix:ix, m:m});
+        if(_k<3 && !(Number(m.precio_con_iva)>0)) _porPrecio.push({ix:ix, m:m});
+      });
+    }catch(e){}
+  });
+  let _libreP=_sidP;
+  const _nuevaSesionP=async function(){
+    try{
+      const _r=await _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, headers:_hdrP, json:true,
+        body:{jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-03-26', capabilities:{},
+          clientInfo:{name:'bot-ardisa', version:'2'} } }, returnFullResponse:true, timeout:5000}), 6000);
+      return (_r && _r.headers && (_r.headers['mcp-session-id']||_r.headers['Mcp-Session-Id']))||'';
+    }catch(e){ return ''; }
+  };
+  if(_sidP) await Promise.all(_porPrecio.slice(0,6).map(async function(_f){
+    try{
+      // Igual que en el ejecutor: una sesión por consulta. Compartiendo `_sidP` estas 6 se estorbaban
+      // entre ellas y solo la primera traía precio (medido: 4 en paralelo = 1 respuesta y 3 colgadas).
+      const _tocaP=!!_libreP; if(_tocaP) _libreP='';
+      const _sesP = _tocaP ? _sidP : (await _nuevaSesionP());
+      if(!_sesP) return;
+      // 2026-08-25: este bloque es un EXTRA (si no llega el precio, el modelo lo pide con sus vueltas), así
+      // que no puede costarle 10 s al cliente. Con la mediana en 1,0-1,6 s, 6 s son cuatro veces de margen.
+      const _r=await _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:6000,
+        headers:Object.assign({'mcp-session-id':_sesP}, _hdrP),
+        body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:'precio_articulo',
+          arguments:{item_code:_f.m.item_code, ciudad:_CIU_CLI} } })}), 6000);
+      const _o=JSON.parse(sacarTexto(_r));
+      if(_o && Number(_o.precio_con_iva)>0){
+        _f.m.precio_con_iva=_o.precio_con_iva;
+        _f.m.unidad_venta=(_o.unidad_venta||{}).descripcion||'';
+        _f.m.precio_lo_trajo_n8n=true;
+      }
+    }catch(e){}                      // sin precio: el modelo lo pide por su cuenta si le quedan vueltas
+  }));
+  // === Y SU FICHA TAMBIÉN (2026-08-25, prueba de los 5 vinilos: precios sí, links no) ===
+  // El bloque que pega el enlace mira `o.item_code`, o sea SOLO los productos que el modelo cotizó uno por
+  // uno. Estos vienen dentro de `matches` de una búsqueda: recibían precio y se quedaban sin ficha, y el
+  // cliente veía una lista de 5 vinilos sin un solo enlace. Se les busca aquí, en paralelo, aprovechando
+  // que ya sabemos sus item_code. La misma consulta trae el enlace Y los atributos publicados.
+  // ⚠️ 2026-08-25 (caso melaminas de Deicy): este bloque vivía DENTRO del `if(_sidP)` y solo recorría
+  // `_porPrecio`. Dos fallas en una: (a) si el MCP no daba sesión —SAP caído, token vencido— se perdían
+  // TAMBIÉN los links, que salen de la tienda y no tienen nada que ver con SAP; el cliente recibía una
+  // lista de 4 melaminas sin precio Y sin un solo enlace. (b) al producto que SÍ traía precio de SAP
+  // nunca se le buscaba ficha. La ficha es independiente: se le busca a todos, pase lo que pase con SAP.
+  // Una sola consulta trae las fichas de TODA la lista; después solo queda comprobar por REST cuáles
+  // están habilitadas y en la web de ESTA marca (eso sí es uno por uno, pero en paralelo y solo para
+  // los que la tienda reconoció, que siempre son muchos menos que los que devuelve SAP).
+  const _fichas=await _tiendaLote(_porLink.map(function(_f){ return _f.m.item_code; })).catch(function(){ return {}; });
+  // El lote es un ATAJO para no preguntar 25 veces, NO una condición: si la consulta por lote falla (la
+  // tienda caída, un cambio de esquema en GraphQL), se vuelve al modo de siempre —uno por uno, los 8
+  // primeros—. Colgar los enlaces de que el atajo funcione sería repetir el error del `if(_sidP)`.
+  const _huboLote=Object.keys(_fichas).length>0;
+  const _aBuscar = _huboLote
+    ? _porLink.filter(function(_f){ return _fichas[String(_f.m.item_code)]; }).slice(0,15)
+    : _porLink.slice(0,8);
+  await Promise.all(_aBuscar.map(async function(_f){
+    try{
+      if(_f.m.url_tienda) return;
+      const _lk=await _tiendaUrl(_f.m.item_code);
+      if(_lk && _lk.url){
+        _f.m.url_tienda=_lk.url;
+        _f.m.nota_link='ESTE producto tiene ficha publicada: cierra su bloque con el renglón "🔗 Verlo en línea: <url>" TAL CUAL. No lo omitas.';
+        if(_lk.at) _f.m.atributos_publicados=_lk.at;
+        if(!(Number(_f.m.precio_con_iva)>0) && Number(_lk.pw)>0){
+          _f.m.precio_publicado_web=_lk.pw;
+          _f.m.nota_precio_web='Sin precio de SAP, pero PUBLICADO en nuestra tienda a ese valor: puedes darlo '
+            +'diciendo que es el precio publicado y que el asesor confirma el final.';
+        }
+      }
+    }catch(e){}
+  }));
+  // === NO SE OFRECE LO QUE NO SE TIENE (2026-08-25, "solo tengo alion") ===============================
+  // Deicy pidió cemento y el bot le ofreció "Cemex, Alion y Oriente". No se las inventó: los tres están
+  // en SAP como códigos válidos. Pero medido en el momento: ALION 2.388 bultos, CEMEX 0, ORIENTE 0. Son
+  // referencias que existen en el maestro de artículos y que hoy no se venden — ofrecerlas es prometerle
+  // al cliente algo que el asesor va a tener que desmentir.
+  // La búsqueda de SAP devuelve el CATÁLOGO; lo que el cliente puede comprar es el catálogo ∩ inventario.
+  // Aquí se cruza: se le pregunta la existencia a cada uno (en paralelo, cada uno con su sesión) y, si
+  // alguno tiene, los de CERO salen de la lista. Decide el CÓDIGO, no el modelo: una regla en el prompt
+  // se puede ignorar; una lista de la que el producto no está, no.
+  if(_sidP){
+    const _porStock=[];
+    Object.keys(_objs).forEach(function(ix){
+      const o=_objs[ix];
+      if(o && Array.isArray(o.matches) && o.matches.length>1){
+        o.matches.slice(0,12).forEach(function(m){ if(m && m.item_code) _porStock.push({ix:ix, m:m}); });
+      }
+    });
+    await Promise.all(_porStock.slice(0,12).map(async function(_f){
+      try{
+        const _tocaS=!!_libreP; if(_tocaS) _libreP='';
+        const _sesS = _tocaS ? _sidP : (await _nuevaSesionP());
+        if(!_sesS) return;
+        const _r=await _topeA(_H.httpRequest({method:'POST', url:_cfg.cfg_mcp_url, json:false, timeout:7000,
+          headers:Object.assign({'mcp-session-id':_sesS}, _hdrP),
+          body:JSON.stringify({jsonrpc:'2.0', id:2, method:'tools/call', params:{name:'disponibilidad_ciudad',
+            arguments:{item_code:_f.m.item_code, ciudad:_CIU_CLI} } })}), 7000);
+        const _o=JSON.parse(sacarTexto(_r));
+        let _tot=0;
+        ((_o||{}).almacenes||[]).forEach(function(a){
+          if(/AVER/i.test(String(a.tipo_almacen||''))) return;      // avería no se vende
+          _tot+=Number(a.disponible)||0;
+        });
+        _f.m.disponible_total=_tot;
+      }catch(e){}
+    }));
+    // El filtro: solo si SABEMOS que alguno tiene. Si a ninguno le llegó el dato (SAP lento, tope), no se
+    // toca la lista — quedarse callado por no haber podido preguntar sería peor que ofrecer de más.
+    Object.keys(_objs).forEach(function(ix){
+      const o=_objs[ix];
+      if(!o || !Array.isArray(o.matches)) return;
+      const _hayDato=o.matches.some(function(m){ return m && m.disponible_total!=null; });
+      const _hayStock=o.matches.some(function(m){ return m && Number(m.disponible_total)>0; });
+      if(!_hayDato || !_hayStock) return;
+      const _antes=o.matches.length;
+      o.matches=o.matches.filter(function(m){ return !(m && m.disponible_total!=null && Number(m.disponible_total)===0); });
+      if(o.matches.length<_antes){
+        o.nota_stock='Se quitaron '+(_antes-o.matches.length)+' referencias SIN existencias: están en el '
+                    +'sistema pero hoy no se venden. Ofrece SOLO lo que quedó en esta lista y NO menciones '
+                    +'marcas ni referencias que no aparezcan aquí.';
+      }
+    });
+  }
+  Object.keys(_objs).forEach(function(ix){
+    try{ _txt[ix]=JSON.stringify(_objs[ix]); }catch(e){}
+  });
 }
 const _sinStock=[];
 _txt.forEach(function(t,ix){ try{ const o=JSON.parse(t);
@@ -4251,13 +5297,111 @@ await Promise.all(_sinStock.slice(0,3).map(async function(_f){
 await Promise.all(_txt.map(async function(_t,_j){
   try{
     const o=JSON.parse(_t);
-    if(!o || !o.item_code || !(Number(o.precio_con_iva)>0)) return;
-    const _u=await _tiendaUrl(o.item_code, Number(o.precio_con_iva));
-    if(_u){ o.url_tienda=_u; _txt[_j]=JSON.stringify(o); }
+    if(!o || !o.item_code) return;                 // 25-ago: sin precio TAMBIÉN se busca ficha (ver _tiendaUrl)
+    const _u=await _tiendaUrl(o.item_code);
+    // === LO COTIZADO QUEDA GUARDADO PARA EL ASESOR (2026-08-25, pedido de Deicy) ===
+    // Hasta hoy la tarjeta llevaba lo que el CLIENTE escribió; el asesor no sabía qué le habíamos dicho ya.
+    // Aquí es donde están los datos buenos —código, nombre y precio exactos— así que se guardan en la
+    // memoria y `cerrarLead` los anexa. Así el asesor retoma sabiendo qué precio vio el cliente y de qué SKU,
+    // en vez de empezar de cero (o peor: dar otro número).
+    try{
+      if(o.item_code && Number(o.precio_con_iva)>0){
+        const _waC=$('Cerebro conversacional').first().json.wa_id;
+        const _sd=$getWorkflowStaticData('global'); _sd.cotizado=_sd.cotizado||{};
+        const _lista=(_sd.cotizado[_waC]||[]).filter(function(x){ return x && x.sku!==o.item_code; });
+        _lista.push({sku:o.item_code, nom:String(o.item_name||'').slice(0,60), pre:Number(o.precio_con_iva),
+                     uni:String((o.unidad_venta||{}).descripcion||o.unidad_venta||'').slice(0,20), t:Date.now()});
+        _sd.cotizado[_waC]=_lista.slice(-8);          // solo lo último: una tarjeta no puede ser un catálogo
+      }
+    }catch(e){}
+    if(_u && _u.url){
+      o.url_tienda=_u.url;
+      // La instrucción viaja PEGADA al dato (2026-08-25). La regla del enlace vive en el prompt, a mil
+      // líneas de aquí, y cuando la respuesta se complica el modelo la pierde: el 25-ago a las 11:48 tenía
+      // el link del cemento en la mano y no lo escribió. Una orden a diez líneas del dato se obedece mucho
+      // mejor que una a mil — el mismo truco que ya funciona con `nota_plaza` y `nota_similares`.
+      o.nota_link='ESTE producto tiene ficha publicada: cierra su bloque con el renglón "🔗 Verlo en línea: <url>" TAL CUAL. No lo omitas.';
+      // === SIN PRECIO DE SAP, VALE EL PRECIO PUBLICADO (2026-08-25, decisión de Deicy) ===
+      // "en el precio no se lo dio, pero en la página está, debió sacarlo de allá". Si SAP no respondió o no
+      // tiene precio para esa plaza, negarle un valor que el cliente puede ver de un clic en el MISMO enlace
+      // que le mandamos no tiene sentido. Se entrega ETIQUETADO como precio publicado, nunca como el de SAP.
+      if(!(Number(o.precio_con_iva)>0) && Number(_u.pw)>0){
+        o.precio_publicado_web=_u.pw;
+        o.nota_precio_web='SAP no entregó precio para este producto, pero está PUBLICADO en nuestra tienda a '
+          +'ese valor. Puedes dárselo diciendo que es el precio publicado en nuestra tienda en línea y que su '
+          +'asesor le confirma el valor final. NUNCA lo presentes como precio de lista ni inventes descuentos.';
+      }
+      // Los atributos publicados (color, medida, espesor, textura…) viajan al modelo para que describa el
+      // producto con DATOS y no interpretando el nombre. Ahí nació el error del 24-ago: tituló un renglón
+      // "215x244x18" leyendo el nombre de otra referencia. La medida ahora es un campo, no una lectura.
+      if(_u.at) o.atributos_publicados=_u.at;
+      _txt[_j]=JSON.stringify(o); return;
+    }
+    // === SI ESE NO TIENE FICHA, MOSTRARLE LOS QUE SÍ (2026-08-24, Deicy: "debe buscar similitudes y
+    // decirle mira tenemos estos y el link") ===
+    // El Melamínico Vesto RH Roble Americano que cotizamos NO está publicado (lo comprobé por código en las
+    // dos tiendas), y la clienta se quedó sin nada que abrir. La tienda sí publica el mismo Vesto RH en
+    // Blanco. OJO: buscar por el nombre a lo bruto devuelve CANTOS DE PVC entre los primeros —lo que separa
+    // un similar de verdad de un canto son las PALABRAS QUE COMPARTE con lo cotizado—: se exige el sustantivo
+    // principal ("melaminico") MÁS otra palabra distintiva ("vesto"). Sin ese filtro ofreceríamos cualquier cosa.
+    const _tk=function(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .replace(/[^a-z0-9]+/g,' ').split(' ').filter(function(w){ return w.length>=4; }); };
+    const _mias=_tk(o.item_name); if(!_mias.length) return;
+    const _sim=await _tiendaBuscar(o.item_name).catch(function(){ return null; });
+    if(!_sim || !_sim.length) return;
+    const _buenos=_sim.filter(function(x){
+      const _suyas=_tk(x.item_name);
+      if(_suyas.indexOf(_mias[0])<0) return false;                        // mismo sustantivo principal
+      return _mias.slice(1).some(function(w){ return _suyas.indexOf(w)>=0; });   // + otra palabra en común
+    }).filter(function(x){ return String(x.item_code)!==String(o.item_code); });
+    if(_buenos.length){
+      o.similares_tienda=_buenos.slice(0,2);
+      o.nota_similares='Este producto NO tiene ficha publicada, pero estos parecidos SÍ. Ofrécelos como '
+        +'alternativas para que los vea ("también manejamos estos, aquí los puedes ver"), con su enlace. '
+        +'NO les inventes precio: si el cliente se interesa en uno, consúltalo con su item_code. Y NUNCA '
+        +'digas que el que pidió no está publicado ni hables de la página web como si fuera otra empresa.';
+      _txt[_j]=JSON.stringify(o);
+    }
   }catch(e){}
 }));
+// La plaza que se sustituyó viaja pegada al resultado: el modelo tiene que decirle al cliente en qué
+// punto está el producto, no callarse ni inventar que no se pudo consultar (2026-08-24, caso Girón).
+_txt.forEach(function(t,ix){
+  try{
+    const _n=((tuses[ix]||{}).nota_ciudad)||''; if(!_n) return;
+    const o=JSON.parse(t); if(!o || typeof o!=='object') return;
+    o.nota_plaza=_n; _txt[ix]=JSON.stringify(o);
+  }catch(e){}
+});
+// === RECORTAR CON CRITERIO, NO CON TIJERA (2026-08-25, 2ª prueba de melaminas de Deicy) ===
+// El resultado se cortaba a 4.000 caracteres a lo bruto. "melaminico" devolvió 25 productos de SAP y la
+// lista de fichas de la tienda —que va al FINAL del JSON— quedó partida a la mitad:
+//     ...{"item_code":"10031840","i        <- así, cortado en seco
+// Dos daños: (a) los enlaces desaparecieron, que es lo que el cliente estaba esperando; (b) al modelo le
+// llegó un JSON ROTO y tuvo que adivinar qué decía. Un dato a medias es peor que un dato de menos.
+// Ahora, cuando no cabe, se quitan PRODUCTOS ENTEROS de la lista de SAP —de atrás hacia adelante— hasta
+// que quepa, y se le AVISA al modelo cuántos se dejaron fuera. Las fichas de la tienda no se tocan: son
+// las únicas que traen enlace, y sin enlace no hay nada que mostrarle al cliente.
+const _CUPO=4000;
+function _recortar(t){
+  const _s=String(t||'');
+  if([..._s].length<=_CUPO) return _s;
+  let o=null; try{ o=JSON.parse(_s); }catch(e){ return [..._s].slice(0,_CUPO).join(''); }
+  if(!o || !Array.isArray(o.matches)) return [..._s].slice(0,_CUPO).join('');
+  const _habia=o.matches.length;
+  // El aviso se pone ANTES de medir, en cada vuelta: si se pusiera al final, su propio texto volvería a
+  // pasarse del cupo y la tijera de emergencia partiría el JSON otra vez — que es justo lo que se evita.
+  while(o.matches.length>1){
+    o.recorte='De '+_habia+' resultados caben '+o.matches.length+'. Si ninguno es lo que pidió el cliente, '
+             +'busca otra vez con palabras más precisas en vez de darle esta lista.';
+    if([...JSON.stringify(o)].length<=_CUPO) break;
+    o.matches.pop();
+  }
+  const _f=JSON.stringify(o);
+  return ([..._f].length<=_CUPO) ? _f : [..._f].slice(0,_CUPO).join('');
+}
 const resultados=items.map((it,ix)=>({type:'tool_result', tool_use_id:(tuses[ix]||{}).id||'',
-  content:[{type:'text', text:[..._txt[ix]].slice(0,4000).join('')}]}));
+  content:[{type:'text', text:_recortar(_txt[ix])}]}));
 """ + (r"""
 // ÚLTIMA VUELTA (2026-08-15). Antes, si el modelo seguía pidiendo herramientas en la última vuelta, se
 // devolvía type:'error' ("tope de vueltas") y el cliente iba al asesor — aunque ya tuviéramos TODO. Le
@@ -4627,6 +5771,17 @@ try{
         entrada:'(links tienda)', salida:cuerpo.slice(0,2000), etapa:'tienda_links',
         media_id:null, media_tipo:null}}});
     }
+    // === EN DEMO, EL SILENCIO NO SIRVE (2026-08-24, Deicy: "aún no veo nada en demo") ===
+    // Cuando la tienda no publica el producto, esta rama se calla —correcto con un cliente— pero quien
+    // está PROBANDO no puede distinguir "no hay ficha" de "esto no funciona". A los números de prueba se
+    // les dice qué se buscó y qué devolvió la página. El cliente real nunca ve este mensaje.
+    if(!out.length && j.web_demo){
+      const _av = '🧪 *(solo en demo)* Busqué *'+q.slice(0,60)+'* en la tienda en línea y no hay ficha publicada con precio.\n\n'
+                + 'La rama sí corrió: el producto no está en la web, no es una falla del bot. Prueba con algo que sí esté publicado (lavamanos, grifería, eterboard).';
+      out.push({json:{msg:{messaging_product:'whatsapp', to:j.wa_id, type:'text', text:{body:_av}},
+        chat:{creado_en:FECHA, wa_id:j.wa_id, nombre:(j.web_nombre||''), entrada:'(tienda sin resultados)',
+        salida:_av.slice(0,2000), etapa:'tienda_vacia', media_id:null, media_tipo:null}}});
+    }
   }
 }catch(e){}
 return out;
@@ -4986,6 +6141,8 @@ for(const wa in S){
   if(st.humano && (NOW-st.humano)<45*60*1000) continue;   // chat híbrido: un humano atiende desde el panel — ni recordatorio ni cierre mientras tanto
   if(st.paso==='cerrado'||st.paso==='porCerrar') continue;
   if(st.declined) continue;   // el cliente dijo "No autorizo" -> no lo molestamos con recordatorios
+  if(st.despachado) continue; // ya se le dio su salida (empleo -> ayuda@, reclamo -> Servicio al Cliente):
+                              // no tiene solicitud comercial abierta, así que ni recordatorio ni cierre ni rescate
   if(store.done && store.done[wa] && (NOW-(store.done[wa].t||0))<3*3600000) continue;   // ya tiene lead cerrado -> NO recordatorio (evita el "¿sigues en línea?" que reiniciaba y duplicaba)
   if(store.leads && store.leads.some(function(l){return l && l.wa===wa && (NOW-(l.ts||0))<3*3600000;})) continue;   // 2ª señal (2026-07-21, caso Patricia): si hay un lead reciente de este número, NO recordatorio (aunque store.done se haya perdido en una carrera)
   if(MID.indexOf(st.paso===undefined?'':st.paso)<0) continue;
@@ -5022,6 +6179,42 @@ for(const wa in S){
                   || (store.leads && store.leads.some(function(l){return l && l.wa===wa && (NOW-(l.ts||0))<3*3600000;}));
     if(_resc && _resc.lead && !_yaTiene && !(store.pendCierre && store.pendCierre[wa])){
       const _tk=NOW;
+      // === COBRAR EL TURNO DEL RESCATE (2026-08-24, caso Natalia 45 vs Karina 36) ===
+      // El paquete se armó en un simulacro que DIO REVERSA al contador de rotación: el asesor quedó elegido
+      // pero su turno nunca se gastó. Al entregarlo aquí, sin cobrarlo, ese mismo asesor seguía siendo "el
+      // siguiente" y se llevaba TAMBIÉN el próximo cliente en vivo: dos leads por un turno. Los 6 rescates
+      // de Acabados cayeron todos en Natalia y así se abrió la diferencia. Si el contador sigue donde lo
+      // dejó el simulacro, se avanza; si ya se movió (pasó otro cliente entre medias), se le anota la deuda
+      // y la rotación lo salta una vez — el mecanismo que ya existía para los leads fuera de turno.
+      try{
+        const _r = _resc.rot;
+        if(_r && _r.key){
+          store.rot = store.rot || {};
+          if((store.rot[_r.key]||0) === _r.idx) store.rot[_r.key] = _r.idx + 1;
+          else if(_r.num){ store.rotDeuda = store.rotDeuda || {}; store.rotDeuda[_r.num] = (store.rotDeuda[_r.num]||0) + 1; }
+        }
+      }catch(_e){}
+      // === EL QUE VIO PRECIOS Y SE FUE CALLADITO TAMBIÉN LLEVA LO COTIZADO (2026-08-25) ===
+      // El paquete de rescate se armó ANTES de que la cotización respondiera, así que su tarjeta no sabe
+      // qué precios vio el cliente. Aquí, justo antes de entregarla, se le pega el mismo resumen: es
+      // precisamente el caso que más importa —al cliente le dimos un precio y se quedó pensándolo—.
+      try{
+        const _cz=(store.cotizado && store.cotizado[wa]) || [];
+        if(_cz.length){
+          const _res='🧾 *Ya cotizado por el bot* (confirmar y respetar):\n' + _cz.map(function(x){
+            const _p=Math.round(Number(x.pre)||0).toString().replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+            return '• ' + (x.nom||'') + ' — SKU *' + x.sku + '* — $' + _p + (x.uni?(' / '+x.uni):'');
+          }).join('\n');
+          if(_resc.aviso && _resc.aviso.text && _resc.aviso.text.body && String(_resc.aviso.text.body).indexOf('Ya cotizado')<0){
+            _resc.aviso.text.body = _resc.aviso.text.body + '\n\n' + _res;
+          }
+          const _plano=_res.replace(/\*/g,'').replace(/\n/g,' ');
+          if(String(_resc.lead.detalle||'').indexOf('Ya cotizado')<0){
+            _resc.lead.detalle=[...String((_resc.lead.detalle||'')+' · '+_plano)].slice(0,900).join('');
+          }
+          delete store.cotizado[wa];
+        }
+      }catch(_e){}
       store.pendCierre = store.pendCierre || {};
       store.pendCierre[wa] = Object.assign({}, _resc, {token:_tk, t:NOW});
       if(_resc.segTok && _resc.segData){ store.segPend = store.segPend || {}; store.segPend[_resc.segTok] = Object.assign({}, _resc.segData, {t:NOW}); }
@@ -5452,7 +6645,8 @@ connections = {
  "Verificar firma": {"main":[[{"node":"¿Firma válida?","type":"main","index":0}]]},
  "¿Firma válida?": {"main":[[{"node":"Extraer datos","type":"main","index":0}],[{"node":"Descartado (firma inválida)","type":"main","index":0}]]},
  "Extraer datos": {"main":[[{"node":"¿Es mensaje?","type":"main","index":0}]]},
- "¿Es mensaje?": {"main":[[{"node":"Tomar candado (MySQL)","type":"main","index":0}],[{"node":"Fin (no es mensaje)","type":"main","index":0}]]},
+ "¿Es mensaje?": {"main":[[{"node":"Tomar candado (MySQL)","type":"main","index":0}],[{"node":"¿Es estado de entrega?","type":"main","index":0}]]},
+ "¿Es estado de entrega?": {"main":[[{"node":"Guardar entrega (MySQL)","type":"main","index":0}],[{"node":"Fin (no es mensaje)","type":"main","index":0}]]},
  "Tomar candado (MySQL)": {"main":[[{"node":"Buscar pendiente (MySQL)","type":"main","index":0}]]},
  "Buscar pendiente (MySQL)": {"main":[[{"node":"Unir pendiente","type":"main","index":0}]]},
  "Unir pendiente": {"main":[[{"node":"¿Es imagen?","type":"main","index":0}]]},

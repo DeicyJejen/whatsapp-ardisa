@@ -95,5 +95,35 @@ const chequear = (n, cond, detalle) => { total++; if (cond) ok++;
   chequear('Lead completo: SIN nota de "por confirmar"', !/Por confirmar/.test(lead.detalle||''), lead.detalle||'(vacio)');
 }
 
+// ══ "COMUNICAME CON UN ASESOR" NO DICE QUÉ NECESITA (25-ago-2026, lead #378) ═══════════════════
+// El Club del Comercio de Bucaramanga respondió eso a "¿qué necesitas?" y el lead salió a Miguel Ángel con
+// ESE texto como detalle: el asesor empieza de cero y el cliente repite todo. Pedir un asesor es legítimo y
+// no se le niega —el mensaje se lo confirma—, pero primero se le pregunta UNA vez qué producto necesita.
+{
+  const pedir = (texto) => {
+    // el caso real: ya dio nombre, ciudad y perfil, y está en el paso donde se le pide el producto
+    const sd = nuevoSD(sesionDelCaso({ paso:'detalle', nombre:'Club Del Comercio', ciudad:'Bucaramanga',
+                                       ciudadId:'BUC', ocupacion:'🛠️ Ferretero', grupo:'ACABADOS',
+                                       interes:'Acabados', detalle:'' }));
+    const r = cerebro({ datos: msg(texto, null), sd, pend:{} });
+    return { hayLead: !!(sd.pendCierre[WA] || (r.lead && r.lead.nombre)),
+             pregunta: /qu[eé] producto/i.test(JSON.stringify(r.wpp_body || '')) };
+  };
+  for (const t of ['Comunicame con un asesor', 'Necesito un asesor',
+                   'Quiero hablar con alguien', 'que me llamen por favor']) {
+    const x = pedir(t);
+    chequear('"' + t + '" -> se le pregunta el producto, no se cierra a medias',
+             !x.hayLead && x.pregunta, 'lead=' + x.hayLead + ' pregunta=' + x.pregunta);
+  }
+  // Y con producto en el mismo mensaje NO se le interroga: se cierra como siempre.
+  const conProd = pedir('Comunicame con un asesor para cotizar cemento gris');
+  chequear('Si además dice el producto, se cierra normal (no se le pregunta de más)',
+           conProd.hayLead, 'lead=' + conProd.hayLead);
+  // Y al cliente MOLESTO no se le interroga: se le pasa el asesor de una (caso Edilberto, 19-ago).
+  const bravo = pedir('Usted es una puta máquina. Necesito una persona.');
+  chequear('Al cliente molesto se le pasa el asesor de una, sin preguntarle nada',
+           bravo.hayLead && !bravo.pregunta, 'lead=' + bravo.hayLead + ' pregunta=' + bravo.pregunta);
+}
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

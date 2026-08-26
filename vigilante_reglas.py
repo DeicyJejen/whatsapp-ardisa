@@ -16,6 +16,14 @@
 #   empleo -> ayuda@ardisa.com   horario -> le respondió el horario   compras -> le preguntó a qué área va
 ETAPAS_SIN_LEAD = {"proveedor", "info", "reclamo", "empleo", "horario", "compras"}
 
+# Etapas MECÁNICAS: aparecen en CASI TODA conversación y no dicen nada sobre si la persona quedó
+# atendida o se perdió (el saludo con el aviso de datos, el menú de marca, el recordatorio de
+# inactividad y el cierre). 2026-08-24 (caso Stefany Reyna, que solo buscaba trabajo): como el
+# recorrido real es "aviso_datos>marca>empleo>recordatorio>cierre_inactividad", la prueba de abajo
+# ("¿TODO el recorrido es de atendido-sin-lead?") no podía dar verdadera NUNCA y toda conversación
+# resuelta salía como sev1 con correo urgente. Se descuentan antes de juzgar.
+ETAPAS_MECANICAS = {"aviso_datos", "marca", "recordatorio", "cierre_inactividad"}
+
 
 def clasifica_perdido(wa_id, recorrido):
     """Decide la severidad de una alerta de 'cliente perdido'. Devuelve (severidad, nota, silencio).
@@ -32,7 +40,7 @@ def clasifica_perdido(wa_id, recorrido):
     La alerta nunca desaparece del registro (el punto ciego del vigilante ya nos costó un cliente,
     caso 573124639292): siempre queda en la tabla con el texto completo para poderla juzgar.
     """
-    etapas = set(e for e in str(recorrido or "").split(">") if e)
+    etapas = set(e for e in str(recorrido or "").split(">") if e) - ETAPAS_MECANICAS
     # 14-ago: un usuario con "username" de WhatsApp llega como BSUID ("CO.1352..."): CO = Colombia,
     # es un cliente colombiano con el número oculto, NO un extranjero.
     _wa = str(wa_id or "")
@@ -80,7 +88,13 @@ _PROD = (r"cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloq
          r"sellante|sellad|silicona|pegante|pegacor|masilla|pañete|panete|mortero|concreto|hormig|aglomerad|"
          r"herraj|canto|tapacanto|bisagra|corredera|riel|laca|roble|teca|cedro|pino|nogal|wengue|cerezo|"
          r"abedul|caoba|maple|closet|clóset|repisa|entrepaño|entrepano|estante|puerta|recebo|geotextil|"
-         r"acronal|caneca|toma|tanque|caballete|extractor|campana|cifon|sifon|sifón")
+         r"acronal|caneca|toma|tanque|caballete|extractor|campana|cifon|sifon|sifón|"
+         # 2026-08-24 (lead #374, Marcela): "tienen disponible para el PISO de una panadería" salió como
+         # "sin solicitud" y sonó la alerta — pero el bot SÍ lo entiende: su vocabulario (build_f1.py:2131)
+         # incluye piso/muro/pared. Eran DOS listas distintas para la misma pregunta, y la del vigilante
+         # iba por detrás. La gente pide por la SUPERFICIE ("piso", "muro", "pared", "fachada"), no siempre
+         # por el material ("cerámica", "porcelanato"). ⚠️ Si se agrega vocabulario allá, agregarlo aquí.
+         r"piso|pisos|muro|pared|fachada|banca|sauna|turco|cocina integral|barra|escalera|zócalo|zocalo")
 
 
 def lead_sin_solicitud(detalle):
@@ -125,3 +139,29 @@ def sin_solicitud_sev(detalle):
     palabras = [w for w in re.split(r"[^a-zñ]+", t) if w and not re.fullmatch(_RELLENO, w)]
     # Una sola palabra suelta tampoco es una solicitud ("Medellín", "Ibagué", el nombre del cliente).
     return 2 if len(palabras) >= 2 else 1
+
+
+# ── ¿La API de Anthropic rechazó por saldo? ─────────────────────────────────
+# 2026-08-26. La alerta `ia_sin_saldo` (nacida el 25-ago) se volvió a disparar DESPUÉS de recargar,
+# y siguió sonando cada hora con la cuenta llena. No era el saldo: era la alerta detectándose A SÍ MISMA.
+#
+# El vigilante buscaba el texto 'credit balance is too low' dentro de las ejecuciones de n8n. Pero el
+# MENSAJE de la alerta CITABA esa misma frase en inglés, y ese mensaje viaja por n8n cuando se le manda
+# al WhatsApp de Deicy. O sea: la ejecución que ENTREGA la alerta contiene la aguja que la alerta busca
+# → a la hora siguiente el vigilante la encuentra y crea otra alerta → que también se entrega → bucle.
+# De 23 "fallas" detectadas en 40 h, solo 8 fueron reales; las otras 15 eran su propio eco.
+#
+# Dos cierres independientes, para que ninguno solo cargue con el peso:
+#   1) La aguja pasa a ser la frase COMPLETA de la API. La cita de la alerta se corta antes de "to
+#      access", así que el eco ya no coincide aunque alguien vuelva a citar la frase corta.
+#   2) El texto de la alerta ya NO cita nada en inglés (ver vigilante.py), así que no hay eco que buscar.
+AGUJA_SIN_SALDO = "credit balance is too low to access"
+
+
+def es_rechazo_de_saldo(blob):
+    """¿Este volcado de una ejecución de n8n contiene un rechazo REAL de la API por falta de saldo?
+
+    `blob` es el JSON crudo de execution_data (un solo string gigante). Devuelve True solo si aparece
+    la frase completa que manda Anthropic — no la cita recortada que el propio vigilante escribe.
+    """
+    return AGUJA_SIN_SALDO in (blob or "")
