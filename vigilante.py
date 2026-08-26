@@ -18,7 +18,7 @@
 #       python3 vigilante.py --cerrar 7 -> cierra a mano la alerta #7 (las que no se cierran solas)
 #       python3 vigilante.py --semanal  -> manda el reporte de la semana que cerró (cron: lunes 7:20)
 #                                          (con --seco lo imprime en pantalla en vez de enviarlo)
-import subprocess, os, sys, ssl, smtplib, datetime, base64, json
+import subprocess, os, sys, ssl, smtplib, datetime, base64, json, socket, time, re
 from email.message import EmailMessage
 from vigilante_reglas import clasifica_perdido, etapa_cola, lead_sin_solicitud, sin_solicitud_sev, AGUJA_SIN_SALDO   # reglas puras (probadas en tests/test_vigilante_clasifica.py y test_vigilante_saldo.py)
 
@@ -44,14 +44,33 @@ def q(sql):
 def esc(s):
     return str(s).replace("\\","\\\\").replace("'","''").replace("\n"," ")[:400]
 
-def avisar_correo(asunto, cuerpo):
-    """Manda un correo de alerta. NO depende de MySQL (SMTP directo) -> sirve incluso con la BD caída."""
+def avisar_correo(asunto, cuerpo, intentos=3):
+    """Manda un correo de alerta. NO depende de MySQL (SMTP directo) -> sirve incluso con la BD caída.
+
+    2026-08-26: el DNS de este servidor falla a ratos (`socket.gaierror: [Errno -3] Temporary failure
+    in name resolution`, 4 veces en el log; el mismo tropiezo que hizo fallar dos `git push` el mismo
+    día). Sin reintento, un hipo de un segundo se llevaba el correo ENTERO de alertas — y como la
+    excepción subía sin control, se llevaba también el resto de la corrida del vigilante. La alerta
+    que avisa de los problemas no puede morirse por un problema.
+    Espera 5 s y luego 15 s: suficiente para un hipo de resolución, corto para un cron horario.
+    """
     msg = EmailMessage()
     msg["From"] = "Grupo Ardisa (Vigilante del Bot) <%s>" % SMTP_USER
     msg["To"] = ", ".join(DEST); msg["Subject"] = asunto; msg.set_content(cuerpo)
-    s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60); s.ehlo()
-    s.starttls(context=ssl.create_default_context()); s.ehlo(); s.login(SMTP_USER, SMTP_PASS)
-    s.send_message(msg); s.quit()
+    for n_int in range(1, intentos + 1):
+        try:
+            s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60); s.ehlo()
+            s.starttls(context=ssl.create_default_context()); s.ehlo(); s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg); s.quit()
+            if n_int > 1:
+                print("(correo enviado en el intento %d)" % n_int)
+            return True
+        except (socket.gaierror, OSError, smtplib.SMTPException) as e:
+            # El ÚLTIMO intento sí deja rastro; los de en medio no ensucian el log del cron.
+            if n_int == intentos:
+                print("⚠️ no se pudo enviar el correo tras %d intentos: %s" % (intentos, e))
+                return False
+            time.sleep(5 if n_int == 1 else 15)
 
 # ═══ DEAD-MAN: ¿LA BASE DE DATOS RESPONDE? (2026-08-12, auditoría de robustez) ═══
 # El modo de falla más grave y más invisible: si MySQL se cae, TODO el bot falla en silencio (leads,
@@ -373,9 +392,22 @@ for log in ("cron_reporte.log", "cron_seguimiento.log", "cron_duplicados.log", "
     ruta = BASE + "/reportes/" + log
     if not os.path.exists(ruta): continue
     if (AHORA - datetime.datetime.fromtimestamp(os.path.getmtime(ruta))).days > 2: continue
-    txt_ = open(ruta, errors="replace").read()[-4000:]
-    if "Traceback" in txt_ or "Error" in txt_:
-        ultima = [l for l in txt_.splitlines() if l.strip()][-1][:200]
+    txt_ = open(ruta, errors="replace").read()[-8000:]
+    # === SOLO LA ÚLTIMA CORRIDA (2026-08-26) ==================================================
+    # Estos logs son ACUMULATIVOS. Se miraban los últimos 4000 caracteres, así que un error de
+    # hace horas —ya resuelto— seguía disparando la alerta corrida tras corrida. Hoy pasó: el DNS
+    # falló a las 11:15, y a las 12:15 y 13:15 el correo salió perfecto y la alerta seguía sonando.
+    # Cada corrida escribe su cabecera "2026-08-26 13:15 | hallazgos: ...", así que se corta ahí:
+    # lo que importa es si falló LA ÚLTIMA vez, no si alguna vez falló.
+    _cab = [m.start() for m in re.finditer(r'(?m)^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\b', txt_)]
+    _ult = txt_[_cab[-1]:] if _cab else txt_
+    if "Traceback" in _ult or "Error" in _ult:
+        # ...y se reporta LA LÍNEA DEL ERROR, no la última del archivo. Antes decía cosas como
+        # "registró un error. Última línea: Correo de alerta enviado a: deicy.jejen@ardisa.com",
+        # que es un mensaje de ÉXITO: la alerta contaba mal lo que ella misma había encontrado.
+        _lineas = [l for l in _ult.splitlines() if l.strip()]
+        _errs = [l for l in _lineas if re.search(r'Traceback|Error|error|Exception', l)]
+        ultima = (_errs[-1] if _errs else _lineas[-1]).strip()[:200]
         anota("cron_fallido", 1, log + "|" + AHORA.strftime("%Y-%m-%d"),
               "La tarea automática %s registró un error. Última línea: %s" % (log, ultima))
 

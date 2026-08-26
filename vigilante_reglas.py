@@ -94,6 +94,27 @@ _PROD = (r"cemento|arena|gravilla|grava|hierro|varilla|acero|malla|ladrillo|bloq
          # incluye piso/muro/pared. Eran DOS listas distintas para la misma pregunta, y la del vigilante
          # iba por detrás. La gente pide por la SUPERFICIE ("piso", "muro", "pared", "fachada"), no siempre
          # por el material ("cerámica", "porcelanato"). ⚠️ Si se agrega vocabulario allá, agregarlo aquí.
+         # === 2026-08-26: las dos listas se habían SEPARADO otra vez ==========================
+         # Dos alertas amarillas el mismo día contra leads PERFECTOS: "Manejan disco para Rh" (#396)
+         # y "Zinc acesco" (#397). El bot los entendió bien —le respondió "Claro, buscas disco para
+         # canteadora RH" y cerró el lead sin re-preguntar—; el que se equivocó fue el vigilante.
+         # Medido: de las 121 palabras de producto que conoce el bot (sus KW_*), aquí faltaban 37.
+         # Cada una era una falsa alarma esperando turno, y una alerta que grita por leads BUENOS
+         # enseña a ignorar el panel — justo lo que costó arreglar en agosto.
+         # El aviso de abajo ("si se agrega allá, agregarlo aquí") lleva semanas escrito y no sirvió:
+         # un recordatorio no es un control. Ahora lo vigila tests/test_vocabulario_alineado.py, que
+         # compara las dos listas y FALLA si vuelven a separarse.
+         r"zinc|alambre|canaleta|grifo|lavaplatos|lavavajillas|licuadora|microondas|congelador|"
+         r"freidora|campana|campa[nñ]a|poceta|orinal|bide|bid[eé]|tina|ba[nñ]era|regadera|jacuzzi|"
+         r"hidromasaje|porcelanato|porcel[aá]nato|porcelanic|porcel[aá]nic|baldosin|baldos[ií]n|"
+         r"losa|viga|vigueta|columna|cimiento|estribo|fleje|formaleta|andamio|puntilla|triturado|"
+         r"cascajo|durock|viniltex|carpinter|"
+         # "disco" no estaba ni en la lista del bot: ahí lo salvó la IA. Se suma con sus vecinos.
+         r"disco|discos|pulidora|esmeril|abrasiv|lija|lijas|"
+         # Lead #398 el mismo día ("Revestimiento de interiores Prodema"): NINGUNA de las dos
+         # listas conocía "revestimiento". No es que se hubieran separado — es que a las dos
+         # les faltaba. La prueba de alineación no lo habría cazado: solo vigila la DERIVA.
+         r"revestimiento|revestir|fachaleta|enchapad|prodema|celosia|celosía|panel|paneles|"
          r"piso|pisos|muro|pared|fachada|banca|sauna|turco|cocina integral|barra|escalera|zócalo|zocalo")
 
 
