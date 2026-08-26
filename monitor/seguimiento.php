@@ -300,7 +300,8 @@ function lnk($ov=[]){
   $ENT=[]; $ent_tot=['env'=>0,'ok'=>0,'leid'=>0,'fall'=>0];
   $qe=$c->query("SELECT l.asesor quien, l.asesor_tel tel,
                         SUM(e.estado='sent') env, SUM(e.estado='delivered') ok,
-                        SUM(e.estado='read') leid, SUM(e.estado='failed') fall
+                        SUM(e.estado='read') leid, SUM(e.estado='failed') fall,
+                        SUM(e.estado='failed' AND e.motivo LIKE '%Re-engagement%') vent
                  FROM entregas e
                  JOIN (SELECT DISTINCT asesor_tel, asesor FROM leads
                         WHERE asesor_tel IS NOT NULL AND asesor_tel<>'') l
@@ -328,9 +329,22 @@ function lnk($ov=[]){
         $env=(int)$e['env']; $ok=(int)$e['ok']; $leid=(int)$e['leid']; $fall=(int)$e['fall'];
         // El semáforo dice QUÉ hacer, no solo cómo va: el rebote se arregla con el número; que no lo abra,
         // hablando con la persona.
-        if($fall>0){ $nota='⚠️ no le está llegando'; $col='#c0392b'; }
-        elseif($ok>0 && $leid===0){ $nota='le llega, pero no lo abre'; $col='#b7791f'; }
-        elseif($ok>0 && $leid>0){ $nota='✔'; $col='#237a4b'; }
+        $vent=(int)$e['vent'];
+        // === EL VEREDICTO TIENE QUE SER PROPORCIONAL (2026-08-26, pregunta de Deicy) ==============
+        // Karime salía en rojo con "⚠️ no le está llegando" teniendo 14 ENTREGADOS y 2 rebotes.
+        // Le llegaban 14 de 16: lo que NO hacía era abrirlos (0 leídos). El semáforo escondía el
+        // problema real detrás de uno que casi no existía, porque `$fall>0` mandaba sobre todo lo
+        // demás sin mirar cuántos SÍ habían llegado.
+        // Y los 2 rebotes tenían motivo "Re-engagement message": es la ventana de 24 h de Meta
+        // cerrada, no un número malo. Se arregla de otra forma —la asesora le escribe al bot— así
+        // que el semáforo lo dice, porque un aviso que no dice qué hacer no sirve de nada.
+        if($ok===0 && $fall>0){        $nota='⚠️ no le está llegando'; $col='#c0392b'; }
+        elseif($vent>0 && $leid===0){  $nota='no lo abre · '.$vent.' fuera de ventana 24h'; $col='#c0392b'; }
+        elseif($vent>0){               $nota='✔ · '.$vent.' fuera de ventana 24h'; $col='#b7791f'; }
+        elseif($fall>0 && $leid===0){  $nota='no lo abre · '.$fall.' rebotes'; $col='#c0392b'; }
+        elseif($fall>0){               $nota='✔ · '.$fall.' rebotes'; $col='#b7791f'; }
+        elseif($ok>0 && $leid===0){    $nota='le llega, pero no lo abre'; $col='#b7791f'; }
+        elseif($ok>0 && $leid>0){      $nota='✔'; $col='#237a4b'; }
         else { $nota=''; $col='inherit'; }
       ?>
       <tr style="border-top:1px solid #eee">
@@ -342,7 +356,10 @@ function lnk($ov=[]){
       <?php endforeach; ?>
     </table>
     <div style="font-size:12.5px;opacity:.7;margin-top:6px">
-      &quot;Entregado&quot; = llegó al teléfono. &quot;Leído&quot; = lo abrió. Toca un asesor para ver sus mensajes uno por uno. El registro empezó el 25-ago.
+      &quot;Entregado&quot; = llegó al teléfono. &quot;Leído&quot; = lo abrió. &quot;Fuera de ventana 24h&quot; = Meta
+      rechazó el aviso porque esa persona no le ha escrito al bot en las últimas 24 horas; se destraba
+      cuando ella le escriba cualquier cosa al bot. Toca un asesor para ver sus mensajes uno por uno.
+      El registro empezó el 25-ago.
     </div>
     <?php
     // === DETALLE DEL ASESOR SELECCIONADO ===
