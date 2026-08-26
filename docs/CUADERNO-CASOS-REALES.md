@@ -560,6 +560,151 @@ pesa más que todo lo bueno que hiciste.
 
 ---
 
+# Caso 8 — El vigilante le gritaba a los leads buenos
+
+## El síntoma
+
+**26 de agosto, 1:20 p.m.** Llegan tres alertas al WhatsApp. Dos dicen:
+
+> 🟡 El lead #396 salió a Karime **SIN decir qué necesita** — Detalle: *"Manejan disco para Rh"*
+> 🟡 El lead #397 salió a Yormy **SIN decir qué necesita** — Detalle: *"Zinc acesco"*
+
+Léelas otra vez. **Los dos clientes SÍ dijeron qué necesitaban.** Uno pidió un disco, el otro zinc.
+
+## 🔍 Tu turno: averígualo
+
+**Paso 1 — ¿el bot también se confundió, o solo el vigilante?** Esta es LA pregunta: si el bot
+falló, se pierde el cliente; si solo falló la alerta, el cliente está bien y lo que sobra es ruido.
+
+```bash
+sudo -n mysql bot_ardisa -e "SELECT creado_en, etapa, LEFT(entrada,45) AS ent, LEFT(salida,60) AS sal \
+  FROM mensajes WHERE wa_id='573224137311' ORDER BY id\G"
+```
+
+Busca qué le contestó el bot al mensaje *"Manejan disco para Rh"*. **Anótalo antes de seguir.**
+
+**Paso 2 — pregúntale a la regla, directamente.** Las reglas del vigilante son funciones puras:
+entra texto, sale decisión. Se pueden llamar a mano:
+
+```bash
+python3 -c "
+import sys; sys.path.insert(0,'.')
+from vigilante_reglas import lead_sin_solicitud
+for c in ['Manejan disco para Rh','Zinc acesco','teja de zinc','Hola buenas tardes']:
+    print('  %-26s -> %s' % (c, 'ALERTA' if lead_sin_solicitud(c) else 'tiene solicitud'))
+"
+```
+
+Fíjate en algo raro: *"teja de zinc"* pasa y *"zinc"* solo, no. **¿Qué te dice eso?**
+
+**Paso 3 — mide el hueco entero.** No arregles dos palabras: averigua cuántas faltan.
+
+```bash
+python3 tests/test_vocabulario_alineado.py
+```
+
+## ✅ Lo que era
+
+**El bot acertó.** Al *"Manejan disco para Rh"* le respondió:
+
+> *"Claro, buscas disco para canteadora RH."*
+
+Y cerró el lead sin re-preguntar nada. **El que se equivocó fue el vigilante**, que tiene su
+**propia** lista de palabras (`_PROD` en `vigilante_reglas.py`), distinta de la del bot (`KW_*` en
+`build_f1.py`). Las dos listas se habían **separado**:
+
+```
+vocabulario de producto del bot: 121 palabras
+que el vigilante NO reconocía:    37   ← zinc, grifo, microondas, porcelanato, viga, canaleta...
+```
+
+**37 falsas alarmas esperando turno.** Y una alerta que grita por leads buenos enseña a ignorar el
+panel — que es justo lo que costó arreglar en agosto.
+
+Pero lo grave no es el hueco. Es que en `vigilante_reglas.py` llevaba **semanas** escrito esto:
+
+```python
+# ⚠️ Si se agrega vocabulario allá, agregarlo aquí.
+```
+
+Estaba ahí. Nadie lo leyó cuando tocaba. **Un recordatorio no es un control** — es la misma lección
+del Caso 1, donde la regla del prompt tampoco bastó.
+
+El arreglo de verdad no fue agregar "disco" y "zinc": fue una **prueba** que extrae el vocabulario
+del bot y falla si el vigilante no lo reconoce. Ahora separarse **rompe la suite** en vez de gritarle
+a un cliente bien atendido.
+
+```python
+def concreta(trozo):
+    """Vuelve PALABRA un trozo de regex del bot: 'ba[nñ]o' -> 'baño'."""
+    return re.sub(r'\[([^\]]+)\]', lambda m: m.group(1)[-1], trozo).replace('\\', '')
+```
+- **`re.sub(patrón, función, texto)`** — cuando el reemplazo es una **función**, se la llama con cada
+  coincidencia y se usa lo que devuelva. Es lo que permite decidir carácter por carácter.
+- **`m.group(1)[-1]`** — `group(1)` es lo que casó el primer paréntesis (el contenido del corchete);
+  `[-1]` toma el **último**, que en esta casa es siempre el acentuado (`[nñ]` → `ñ`).
+
+Y la prueba tiene un freno contra sí misma:
+
+```python
+if len(voc) < 60:
+    print("❌ solo se extrajeron %d palabras: cambió el formato de las KW_* y esta prueba se quedó ciega")
+    sys.exit(1)
+```
+**Si mañana alguien cambia cómo se escriben las listas del bot, el extractor sacaría 0 palabras, no
+encontraría ningún hueco y la prueba pasaría en verde probando NADA.** Esa es la peor falla posible
+en una prueba. Por eso se le exige un mínimo.
+
+## El tercer hallazgo, del mismo día
+
+La tercera alerta decía:
+
+> 🔴 La tarea automática `cron_vigilante.log` registró un error. Última línea:
+> **"Correo de alerta enviado a: deicy.jejen@ardisa.com"**
+
+Léela despacio. Anuncia un error… y muestra un mensaje de **éxito**. Dos defectos a la vez:
+
+1. **Miraba todo el log, no la última corrida.** El log es acumulativo: un fallo de DNS a las 11:15
+   seguía disparando la alerta a las 12:15 y a las 13:15, con el correo saliendo perfecto.
+2. **Reportaba la última línea del archivo**, no la del error.
+
+El arreglo: cortar en la cabecera de la última corrida (`2026-08-26 13:15 | hallazgos: ...`) y buscar
+la línea del error, no la última.
+
+**Ejercicio.** ¿Ves el parecido con el Caso 2? En los dos, un detector leía **datos viejos** y
+alertaba de algo ya resuelto. Escribe con tus palabras qué tienen en común y en qué se diferencian.
+
+## 🎤 Para la entrevista
+
+> "Duplicar una regla de negocio en dos lugares garantiza que se van a separar. Cuando no se puede
+> compartir el código —aquí uno genera JavaScript y el otro es Python— se pone una prueba que compare
+> las dos copias y falle cuando divergen. Un comentario que dice 'acuérdate de actualizar el otro' no
+> es un control: es una esperanza."
+
+**Y la otra, que vale doble:**
+
+> "Un falso positivo en monitoreo no es un error menor: entrena al equipo a ignorar las alertas. El
+> costo no se paga el día del falso positivo, se paga el día de la alerta de verdad."
+
+## Y una que decidí NO arreglar
+
+En la misma corrida quedó esto:
+
+> 🔴 Edinson Uribe escribió 12 veces y NO quedó registrado — recorrido:
+> `aviso_datos>marca>nombre>ciudad>ocuArd>detalle>empleo>info>cierre>...`
+
+Parece la cuarta falsa alarma: pidió **empleo** y se le atendió. Pero llenó **todo el formulario**
+antes —nombre, ciudad, ocupación, detalle—, así que la conversación tiene forma de cliente y termina
+en empleo. **Es ambiguo, y ante la duda un vigilante debe fallar por el lado ruidoso.**
+
+Silenciarla habría hecho la lista más limpia y el sistema peor: la próxima vez que un cliente de
+verdad se pierda con un recorrido parecido, nadie se entera.
+
+> **Regla:** un *watchdog* falla **ruidoso**, no silencioso. Bajar el ruido está bien mientras se
+> pueda demostrar que lo que se calla es falso. Cuando no se puede demostrar, se deja sonando.
+
+---
+
 # Los cinco conceptos, en una página
 
 Si solo te llevas una hoja de este cuaderno, que sea esta.
@@ -573,6 +718,8 @@ Si solo te llevas una hoja de este cuaderno, que sea esta.
 | 5 | Caché por prefijo | Lo estable primero, lo volátil al final | `cache_read = 0` |
 | 6 | Codificación ≠ contenido | Los bytes están bien; falta declararlos | El mojibake |
 | 7 | Publicar es irreversible | Mira qué hay dentro antes, no solo si compila | Los 81 clientes |
+| 8 | Regla duplicada = regla que se separa | Si no se puede compartir, se prueba la coincidencia | El vigilante y sus 37 palabras |
+| 9 | Un watchdog falla ruidoso | Callar sin poder demostrar que es falso, no | La alerta de Edinson |
 
 **Y el hilo que los une todos**, que es lo que de verdad aprendimos en estos tres días:
 
