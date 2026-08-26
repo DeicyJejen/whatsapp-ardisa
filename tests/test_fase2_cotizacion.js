@@ -333,5 +333,38 @@ const chequear = (n, cond, det) => { total++; if (cond) ok++;
   if (!corta) fallos++;
 })();
 
+
+// ══ RENDIMIENTO: EN MODO TIENDA NO SE GASTAN TURNOS PIDIENDO LO QUE YA SE TIENE (26-ago-2026) ══
+// Medido: el cliente espera ~28 s por su cotización y la TIENDA solo se lleva 0,9. El resto son
+// turnos de IA, y la secuencia venía de SAP, donde precio y disponibilidad eran tools aparte.
+// En modo tienda `buscar_producto` ya devuelve todo, así que el plan son DOS turnos, no cuatro.
+(function turnosSegunFuente(){
+  const pedir = (fuente) => {
+    const sd = base();
+    sd.ses[DEMO] = { paso:'cotizacion', t:Date.now(), consent:true, nombre:'Deicy', ciudad:'Bucaramanga',
+                     ciudadId:'BUCARAMANGA', marca:'Ardisa', ocupacion:'🏠 Cliente final', cotN:1,
+                     cotHist:[{role:'user',content:'cemento gris'}] };
+    const r = correr({ datos:{ wa_id:DEMO, profileName:'Deicy', texto:'y también teja de zinc', mtype:'',
+                       media_id:'', btn_id:'', btn_title:'', es_media:false, ia:null },
+                       sd, pend: Object.assign({}, CFG, { cfg_fuente: fuente }) });
+    return sysTxt(r.cot_req || {});
+  };
+  const tienda = pedir('tienda');
+  const sap    = pedir('mcp');
+  const chk = (c, n, extra) => { console.log('  ' + (c ? '✅' : '❌') + ' ' + n + (c || !extra ? '' : '\n      ' + extra));
+                                 if (!c) fallos++; };
+  chk(/RESPONDE EN CUANTO TENGAS LOS DATOS/.test(tienda),
+      'tienda · se le pide responder en cuanto tenga los datos', tienda.slice(0, 90));
+  chk(/DOS\s+turnos/.test(tienda), 'tienda · el plan normal son DOS turnos, no cuatro');
+  chk(/No vuelvas a consultar lo que ya está en el resultado/.test(tienda),
+      'tienda · y no repetir consultas de lo que ya vino');
+  chk(/ADMINISTRA TUS TURNOS/.test(sap) && !/DOS\s+turnos/.test(sap),
+      'SAP · conserva la secuencia vieja (allá precio y disponibilidad SÍ son tools aparte)', sap.slice(0, 90));
+  // lo que NO puede perderse en ninguna de las dos
+  [['0b', /vuelve a buscar ESE producto UNA/], ['5b', /otras ciudades|otra ciudad/i]].forEach(function(r){
+    chk(r[1].test(tienda), 'tienda · sigue estando la regla (' + r[0] + ')');
+  });
+})();
+
 console.log('\n' + ok + '/' + total + ' pruebas pasan');
 process.exit(ok === total ? 0 : 1);

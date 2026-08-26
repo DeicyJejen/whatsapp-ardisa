@@ -1223,12 +1223,33 @@ function armarRescate(stReal){
 // emergencia contra bucles y contra el gasto de saldo, NO un límite a lo que el cliente puede preguntar.
 const COT_MAX = 20;
 function _cotReq(stC){
+  const _FUENTE_COT = String(PEND.cfg_fuente||'tienda').toLowerCase();
   const _toolPrecio=String(PEND.cfg_precio_tool||'').trim();
   const _hayPrecio=_toolPrecio!=='';
   const _sys='Haces parte del equipo de atención al cliente de '+(stC.marca||'Grupo Ardisa')+' (Grupo Ardisa, Colombia). '
     +'Un cliente pregunta por productos. El cliente está en la ciudad de '+(stC.ciudad||'Bucaramanga')+'. REGLAS ESTRICTAS: '
-    +'(0) ADMINISTRA TUS TURNOS — tienes máximo 3 turnos de herramientas y un 4º turno en el que YA NO '
-    +'podrás consultar nada y tendrás que responder con lo que tengas: 1º busca con buscar_producto '
+    // === RENDIMIENTO (2026-08-26, Deicy: "la página igual se demora, debemos mirar el rendimiento") ===
+    // Medido de punta a punta: el cliente espera ~28 s desde que escribe hasta que le llega la
+    // cotización. De esos 28 s, la TIENDA se lleva 0,9 (0,8 la búsqueda + 0,09 las existencias).
+    // Todo lo demás son turnos de la IA. Y la secuencia de turnos venía diseñada para SAP, donde el
+    // precio y la disponibilidad eran DOS herramientas aparte: por eso mandaba "1º busca, 2º pide
+    // precio y disponibilidad, 3º mira otras ciudades, 4º responde".
+    // En modo TIENDA eso sobra: `buscar_producto` ya devuelve en la MISMA llamada precio con IVA,
+    // disponibilidad, existencias, enlace, atributos y medidas. Pedirlos otra vez es gastar dos
+    // turnos de IA —los segundos que el cliente ve pasar— para recibir lo que ya se tiene.
+    +(_FUENTE_COT.indexOf('tienda')===0
+      ? ('(0) RESPONDE EN CUANTO TENGAS LOS DATOS — cada turno tuyo son varios segundos que el cliente '
+        +'ve pasar mirando el chat. `buscar_producto` te devuelve TODO de una vez: precio con IVA, '
+        +'disponibilidad, existencias, enlace, atributos y medidas. Así que el plan normal son DOS '
+        +'turnos: 1º busca (todos los productos EN PARALELO, una llamada por producto en el mismo '
+        +'turno), 2º RESPONDE. No vuelvas a consultar lo que ya está en el resultado. Solo gasta un '
+        +'turno más si de verdad falta algo: una búsqueda que dio 0 y hay que repetir con menos '
+        +'palabras (regla 0b), o mirar otras ciudades cuando en la del cliente no hay (regla 5b). '
+        +'Tienes un techo de 3 turnos de herramientas y un 4º sin herramientas para responder, pero '
+        +'llegar al 4º significa que gastaste el doble de tiempo del cliente por nada. 1º busca con buscar_producto ')
+      : ('(0) ADMINISTRA TUS TURNOS — tienes máximo 3 turnos de herramientas y un 4º turno en el que YA NO '
+        +'podrás consultar nada y tendrás que responder con lo que tengas: 1º busca con buscar_producto '))
+    +
     +'usando SOLO el nombre de cada producto, SIN cantidades, medidas de compra ni presentaciones '
     +'(busca "cemento gris", NUNCA "cemento gris 25kg" ni "cemento gris bulto" — la presentación la eliges '
     +'entre los resultados); si el cliente pidió VARIOS productos, haz TODAS las búsquedas EN PARALELO en ese '
