@@ -123,5 +123,44 @@ sd = conStock('');
 b = entregar(sd, TEJA).wpp_body.text.body;
 ok(!/disponibilidad en tu ciudad/i.test(b), '(8) sin dato de existencias no se afirma nada', b.slice(-140));
 
+// ── 9) LA MULETILLA SE DICE DE MUCHAS FORMAS (26-ago 17:41, prueba en vivo de Deicy) ────────
+// La primera versión solo cazaba "no pudimos". El modelo escribió "aunque en este momento NO
+// LOGRAMOS confirmar precio ni disponibilidad" y pasó entera, con los precios cuatro renglones
+// más abajo. Anclarse a una redacción exacta falla a la primera variante.
+const UC = 'https://www.ardisa.com/piso-cer-mica-hara.html';
+const conCer = () => ({ ses:{}, cotDatos:{ [WA]: { '10018475':
+  { nom:'Ceramica Hara 60X60 Beige', pre:84041.99, url:UC, disp:'con disponibilidad', t:Date.now() } } } });
+const cuerpoCer = '\n\n*Ceramica Para Piso Brillante Hara 60X60 Beige*\n'
+  + '💲 $84.041,99 (precio de referencia con IVA)\n🔗 Verlo en línea: ' + UC + '\n\n¿Cuál necesitas?';
+
+[['aunque en este momento no logramos confirmar precio ni disponibilidad de estas referencias: un asesor te los confirma con gusto.',
+  'Sí manejamos cerámica, ', '"no logramos" (el caso real de las 17:41)'],
+ ['No pudimos confirmarte el precio ni la disponibilidad en este momento, pero un asesor te los confirma.',
+  '¡Claro que sí! Manejamos cerámica. ', '"no pudimos" (el de ayer)'],
+ ['pero por ahora no podemos confirmar la disponibilidad en tu ciudad.',
+  'Manejamos ese producto, ', '"no podemos" + "por ahora"'],
+ ['Por el momento no nos fue posible verificar las existencias.',
+  'Tenemos cerámica. ', '"no nos fue posible" + "existencias"'],
+].forEach(function(c){
+  const b = entregar(conCer(), c[1] + c[0] + cuerpoCer).wpp_body.text.body;
+  ok(!/no (pudimos|podemos|logramos|conseguimos|fue posible|nos fue posible)/i.test(b),
+     '(9) se borra: ' + c[2], b.slice(0, 130));
+  ok(b.includes('$84.041'), '(9) …y el precio sigue ahí: ' + c[2]);
+});
+
+// El punto de los MILES no puede partir la frase: al borrar dejaba tirado un "599 corresponde…"
+const UT2 = 'https://www.carpincentro.com/tornillo.html';
+sd = { ses:{}, cotDatos:{ [WA]: { '10012345': { nom:'Tornillo 6X1 Drywall', pre:3599, url:UT2,
+      disp:'con disponibilidad', t:Date.now() } } } };
+b = entregar(sd, 'Sí, tenemos ese producto. No pudimos validar en este momento el precio exacto, así '
+  + 'que un asesor te confirma si el valor de $3.599 corresponde a ese paquete de 100 unidades.\n'
+  + '🔗 Verlo en línea: ' + UT2).wpp_body.text.body;
+ok(!/599 corresponde/.test(b), '(9) el punto de los miles no parte la frase (no queda basura)', b);
+ok(b.includes('$3.599'), '(9) y el precio se repone igual');
+
+// y lo que NO es una muletilla no se toca
+b = entregar(conCer(), 'El cemento cuesta $34.999,99 y hay existencias. ¿Cuántos bultos necesitas?').wpp_body.text.body;
+ok(/hay existencias/.test(b) && /34\.999/.test(b), '(9) una frase normal con "existencias" NO se borra', b.slice(0,110));
+
 if (fallos) { console.log('test_precio_no_se_esconde: ' + fallos + ' FALLAS'); process.exit(1); }
 console.log('test_precio_no_se_esconde: TODAS PASAN');

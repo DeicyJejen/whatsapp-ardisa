@@ -4199,8 +4199,25 @@ if(fallo){
     // Y solo se borra cuando se puede DEMOSTRAR que es falsa: si de algún producto nombrado faltaba el
     // precio de verdad, la frase es cierta y se respeta (no se le miente al cliente al revés).
     if(_nombrados>0 && _todoTraePrecio && _todoTraeDisp){
-      t=t.replace(/\s*no\s+pudimos\s+(?:confirmar|confirmarte|validar|validarte)[^.]*?\b(?:precio|disponibilidad)\b[^.]*\.\s*/gi,' ')
-         .replace(/[ \t]{2,}/g,' ').trim();
+      // === TERCERA VERSIÓN DE ESTE BORRADO, Y LAS DOS ANTERIORES FALLARON IGUAL ==================
+      // (1) La primera solo cazaba "no pudimos" — y el 26-ago a las 17:41 el modelo escribió
+      //     "aunque en este momento NO LOGRAMOS confirmar precio ni disponibilidad" y pasó entera,
+      //     con los precios cuatro renglones más abajo. Me anclé a una redacción exacta OTRA VEZ.
+      // (2) La primera cortaba la frase en el primer PUNTO, y "$3.599" tiene un punto de MILES:
+      //     al borrar el tramo dejaba tirado un "599 corresponde a ese paquete." en medio del
+      //     mensaje. La prueba no lo cazó porque medía si el precio aparecía, no si sobraba basura.
+      // Ahora: (a) las formas de decirlo van en una lista, no una sola; (b) el conector que cuelga
+      // la muletilla de la frase anterior (", aunque", ", pero") entra en el borrado, si no queda
+      // una frase partida; (c) `\.(?=\d)` dice "un punto seguido de dígito NO termina la frase",
+      // que es lo que salva los miles.
+      const _RESTO='(?:[^.]|\\.(?=\\d))*';
+      const _RE_MULETILLA=new RegExp(
+        '\\s*(?:[,;]\\s*)?(?:aunque|pero|si bien|eso s[ií]|de momento)?[,\\s]*'+
+        '(?:en este momento|por el momento|por ahora|ahora mismo|en este instante)?[,\\s]*'+
+        'no\\s+(?:pudimos|podemos|logramos|conseguimos|alcanzamos|fue posible|nos fue posible)\\b'+
+        _RESTO+'\\b(?:precio|precios|disponibilidad|existencias|stock)\\b'+_RESTO+'\\.\\s*','gi');
+      t=t.replace(_RE_MULETILLA, function(m){ return /^\s*[,;]/.test(m) ? '. ' : ' '; })
+         .replace(/\s+\./g,'.').replace(/\.\s*\./g,'.').replace(/[ \t]{2,}/g,' ').trim();
     }
     // 2026-08-26: el precio se insertaba pegándose al TEXTO del enlace ("🔗 Verlo en línea: ...").
     // Se probó a cambiar esa frase y la reparación habría dejado de funcionar EN SILENCIO — el precio
