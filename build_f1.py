@@ -4722,7 +4722,17 @@ async function _desdeTienda(t){
   // Acierta en 16 de 18 consultas reales. Los dos que no: "tabla vinílica" (la tienda tiene pintura
   // VINÍLICA, misma palabra y otro producto — eso no lo arregla ningún filtro de letras) y
   // "tubería pvc" (el catálogo dice "Tubo"), que se cubre con la tabla de sinónimos de abajo.
-  const _STOP_T = ['de','del','la','el','los','las','para','con','por','en','un','una','y','o','que','mas','tipo','color'];
+  // === LOS CALIFICATIVOS NO MANDAN EN LA BÚSQUEDA (2026-08-27, Deicy: "lámina y media lámina") =====
+  // "media lámina" tiene dos palabras largas y el filtro se conformaba con que el producto casara con
+  // UNA cualquiera: por eso a quien pedía media lámina le salía "Griferia MEDIA Para Lavamanos". Media,
+  // grueso, delgado, estándar… describen CÓMO es la cosa, nunca QUÉ es: solos no pueden justificar un
+  // resultado. Sacándolos de las raíces, "media lámina" busca por LÁMINA, que es lo que el cliente quiere.
+  // Ojo: esto no pierde nada. "Media caña" sigue casando por CAÑA, que es el sustantivo de verdad.
+  const _STOP_T = ['de','del','la','el','los','las','para','con','por','en','un','una','y','o','que','mas','tipo','color',
+    'media','medio','medias','medios','grande','grandes','pequeno','pequena','pequenos','pequenas',
+    'delgado','delgada','grueso','gruesa','ancho','ancha','largo','larga','corto','corta','alto','alta',
+    'bajo','baja','fino','fina','sencillo','sencilla','estandar','normal','extra','super','calidad',
+    'bueno','buena','unidad','unidades','metro','metros','centimetros','pulgada','pulgadas'];
   const _SINON_T = {TUBER:'TUBO', CANER:'TUBO', LAMIN:'LAMIN', TEJAS:'TEJA', DISCO:'DISCO'};
   function _relevantes(_q, _lista){
     const _t = _sinTildes(_q).split(/[^A-Z0-9]+/).filter(function(w){
@@ -4741,13 +4751,21 @@ async function _desdeTienda(t){
     // `indexOf` suelto reabrió justo la fuga de ayer: "llanta" vive dentro de "se-LLANT-e", así que el
     // Sika volvía a salirle a quien pedía una llanta. Lo cazó la prueba, no el ojo. Buscar por inicio de
     // palabra distingue "FIBRO|cemento" (sí) de "se|LLANT|e" (no) sin necesitar un diccionario.
-    return _lista.filter(function(m){
+    // Se cuenta CUÁNTAS raíces casa cada producto, no solo si casa alguna. Sirve para dos cosas: filtrar
+    // (0 raíces = fuera) y ORDENAR. Como ahora la lista viaja entera al modelo, el orden importa: en
+    // "lamina fibrocemento" la tienda pone primero las tejas —que solo casan FIBRO— y la Lamina Eterboard
+    // —que casa LAMIN y FIBRO— quedaba enterrada. Poniendo delante lo que casa más, el modelo se topa
+    // primero con lo que el cliente pidió. `sort` en JavaScript es ESTABLE, así que entre productos con
+    // el mismo puntaje se respeta el orden de relevancia que trae la tienda; no se inventa un criterio.
+    const _puntos = function(m){
       let _h = _sinTildes(m.item_name||'');
       const _at = m.atributos_publicados;
       if(_at) for(const _k in _at){ _h += ' ' + _sinTildes(String(_at[_k]||'')); }
       const _pal = _h.split(/[^A-Z0-9]+/);
-      return _raices.some(function(r){ return _pal.some(function(w){ return w.indexOf(r)===0; }); });
-    });
+      return _raices.filter(function(r){ return _pal.some(function(w){ return w.indexOf(r)===0; }); }).length;
+    };
+    return _lista.filter(function(m){ return _puntos(m)>0; })
+                 .sort(function(a,b){ return _puntos(b)-_puntos(a); });
   }
   if(_n==='buscar_producto'){
     const _q=String(_a.q||'').replace(/["\\{}]/g,' ').trim();

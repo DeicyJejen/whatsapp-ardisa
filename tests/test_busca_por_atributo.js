@@ -66,6 +66,26 @@ ok(r.length === 0, '(2) "llanta de carro" no engancha nada de esta lista', JSON.
 r = relevantes('disco corte', LISTA);
 ok(!nombres(r).some(n => /Griferia/.test(n)), '(2) "disco corte" no devuelve grifería');
 
+// ── 2b) "media lámina" busca LÁMINAS, no la grifería "Media" (Deicy, 27-ago) ─────────────────
+// La tienda devuelve de verdad "Griferia Media Para Lavamanos Barcelona" cuando se busca "media lamina":
+// el calificativo engancha por su cuenta. Un adjetivo describe CÓMO es la cosa, nunca QUÉ es.
+const CON_MEDIA = LISTA.concat([
+  { item_name:'Griferia Media Para Lavamanos Barcelona Mateblack', atributos_publicados:{ marca:'Grival', material:'Metal' } },
+  { item_name:'Media Cana Pvc Blanca 3 Mts',                       atributos_publicados:{ marca:'Pavco',  material:'PVC' } },
+]);
+r = relevantes('media lamina', CON_MEDIA);
+ok(!nombres(r).some(n => /Griferia Media/.test(n)),
+   '(2b) "media lámina" ya NO devuelve la grifería "Media"', JSON.stringify(nombres(r)));
+ok(nombres(r).some(n => /Lamina Eterboard/.test(n)), '(2b) …y sí devuelve las láminas', JSON.stringify(nombres(r)));
+r = relevantes('media cana pvc', CON_MEDIA);
+ok(nombres(r).some(n => /Media Cana/.test(n)),
+   '(2b) pero "media caña" sigue saliendo: caña SÍ es el producto', JSON.stringify(nombres(r)));
+
+// ── 2c) lo que casa MÁS palabras va primero (la lista viaja entera al modelo) ─────────────────
+r = relevantes('lamina fibrocemento', LISTA);
+ok(/Lamina Eterboard/.test(r[0].item_name),
+   '(2c) "lámina fibrocemento" pone la LÁMINA primero, no la teja', JSON.stringify(nombres(r)));
+
 // ── 3) el buscador pide 20 y NO recorta a 10 ─────────────────────────────────────────────────
 ok(/pageSize:20/.test(TIENDA), '(3) la búsqueda pide 20 resultados, no 10',
    (TIENDA.match(/pageSize:\d+/g) || []).join(' '));
