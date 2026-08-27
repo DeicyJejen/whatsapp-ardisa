@@ -1255,7 +1255,7 @@ function _cotReq(stC){
     +'entre los resultados); si el cliente pidió VARIOS productos, haz TODAS las búsquedas EN PARALELO en ese '
     +'mismo primer turno (una llamada por producto, juntas). NUNCA repitas una búsqueda con variantes cuando '
     +'ya te salieron resultados: de los que hay, elige el o los que mejor encajen con lo pedido. '
-    +'(0b) LA ÚNICA repetición permitida: si una búsqueda devolvió total 0, vuelve a buscar ESE producto UNA '
+    +'(0a) LA FORMA DEL PRODUCTO NO ES LA PRESENTACIÓN, Y NO SE QUITA (2026-08-27). Al quitar la presentación se quitan el peso, el empaque y la medida ("25kg", "bulto", "caja", "x 6 metros"), NUNCA la palabra que dice QUÉ ES la cosa: lámina, teja, tubo, rollo, varilla, perfil, canto, tabla, panel, saco, disco. "14 láminas de fibrocemento de 12mm" se busca como "lamina fibrocemento", NO como "fibrocemento": sin la palabra lámina el buscador contesta con TEJAS de fibrocemento, que es otro producto, y le ofrecerías un techo a quien está haciendo una fachada. Si la medida exacta no existe, ofrécele EL MISMO producto en la medida más cercana (una lámina lisa de 10 mm si pidió 12 mm), NUNCA una variante decorativa o de otra línea solo porque el número coincide. (0b) LA ÚNICA repetición permitida: si una búsqueda devolvió total 0, vuelve a buscar ESE producto UNA '
     +'sola vez con MENOS palabras — quédate con 1 o 2 palabras clave y quita medidas, códigos, colores y '
     +'MARCAS (si "Melaminico Unicor Mdf Wengue Tex Madera 183X244X5.5" da 0, busca "melamina"; si "varilla '
     +'corrugada 1/2 x 6m" da 0, busca "varilla"; si "cemento Cemex" da 0, busca "cemento"). La marca es lo '
@@ -4683,6 +4683,27 @@ async function _desdeTienda(t){
     }catch(e){}
     _o.nota_precio='Precio publicado en nuestra tienda en línea, con IVA. Es el MISMO que verá al abrir el '
                   +'enlace. Su asesor le confirma el valor final.';
+    // === ESTE DATO TAMBIÉN SE GUARDA PARA QUE EL CÓDIGO PUEDA VERIFICAR (2026-08-27) ==============
+    // El 27-ago el modelo pidió precio y disponibilidad de la *Eterb. Cedar 10Mm* y le llegaron los dos
+    // ($173.709 y 20 unidades)… y le escribió a la clienta "No pudimos confirmar en este momento su
+    // precio ni su disponibilidad". La reparación de `Entregar cotización` no lo pudo arreglar porque
+    // solo conocía lo que devolvía `buscar_producto`: este producto vino de la lista de respaldo y su
+    // precio llegó POR AQUÍ, por la consulta individual. Un verificador ciego a la mitad de los datos no
+    // verifica nada. Ahora los dos caminos alimentan el mismo `store.cotDatos`.
+    try{
+      const _waP=$('Cerebro conversacional').first().json.wa_id;
+      const _sdP=$getWorkflowStaticData('global'); _sdP.cotDatos=_sdP.cotDatos||{};
+      const _mp=_sdP.cotDatos[_waP]||{};
+      const _prev=_mp[_o.item_code]||{};
+      // Se FUNDE con lo que ya hubiera: `disponibilidad` llega en una llamada y el precio en otra, y la
+      // segunda no puede borrar lo que trajo la primera (era exactamente el caso de esta clienta).
+      _mp[_o.item_code]={ nom:String(_o.item_name||_prev.nom||'').slice(0,70),
+                          pre:Number(_o.precio_con_iva)||Number(_prev.pre)||0,
+                          url:String(_o.url_tienda||_prev.url||''),
+                          disp:String(_o.disponibilidad||_prev.disp||''), t:Date.now() };
+      const _kp=Object.keys(_mp); if(_kp.length>40) _kp.slice(0,_kp.length-40).forEach(function(k){ delete _mp[k]; });
+      _sdP.cotDatos[_waP]=_mp;
+    }catch(e){}
     return JSON.stringify(_o);
   }
   // === EL BUSCADOR DE LA TIENDA DEVUELVE CUALQUIER COSA CON DOS PALABRAS (2026-08-26) ===========
@@ -4708,15 +4729,37 @@ async function _desdeTienda(t){
       return w.length>=4 && _STOP_T.indexOf(w.toLowerCase())<0; });
     if(!_t.length) return _lista;            // solo palabras cortas: no hay con qué juzgar, se deja pasar
     const _raices = _t.map(function(w){ const r=w.slice(0,5); return _SINON_T[r] || r; });
+    // === EL NOMBRE NO ES TODO LO QUE EL PRODUCTO ES (2026-08-27, caso "14 láminas de fibrocemento") ===
+    // Deicy: "de fibrocemento sí hay, en la página puede estar con otro nombre pero es lo mismo". Y tenía
+    // razón: la *Lamina Eterboard* ES fibrocemento —su atributo `material` dice "Lamina de fibrocemento"—
+    // pero la palabra no aparece en su nombre. Mi filtro de ayer, que solo leía el nombre, la tiraba a la
+    // basura y dejaba pasar las TEJAS, que sí se llaman así. El cliente pedía láminas y le ofrecimos tejas.
+    // Los atributos publicados (material, marca, color, tipo) son dato CURADO por la tienda, no ruido del
+    // buscador: sumarlos al pajar ensancha lo justo. Las fugas de ayer siguen tapadas — "llanta de carro"
+    // no engancha un Sika por ningún atributo, y "disco corte" no engancha grifería.
+    // La raíz debe caer al PRINCIPIO de una palabra, no en cualquier parte. Al sumar los atributos, un
+    // `indexOf` suelto reabrió justo la fuga de ayer: "llanta" vive dentro de "se-LLANT-e", así que el
+    // Sika volvía a salirle a quien pedía una llanta. Lo cazó la prueba, no el ojo. Buscar por inicio de
+    // palabra distingue "FIBRO|cemento" (sí) de "se|LLANT|e" (no) sin necesitar un diccionario.
     return _lista.filter(function(m){
-      const _n = _sinTildes(m.item_name||'');
-      return _raices.some(function(r){ return _n.indexOf(r)>=0; });
+      let _h = _sinTildes(m.item_name||'');
+      const _at = m.atributos_publicados;
+      if(_at) for(const _k in _at){ _h += ' ' + _sinTildes(String(_at[_k]||'')); }
+      const _pal = _h.split(/[^A-Z0-9]+/);
+      return _raices.some(function(r){ return _pal.some(function(w){ return w.indexOf(r)===0; }); });
     });
   }
   if(_n==='buscar_producto'){
     const _q=String(_a.q||'').replace(/["\\{}]/g,' ').trim();
     if(_q.length<2) return JSON.stringify({query:_q, total:0, matches:[]});
-    const p=await _gqlT('{products(search:"'+_q+'",pageSize:10){total_count items{'+_CAMPOS_T+'} }}');
+    // pageSize 20 y no 10: en "fibrocemento" las *Lamina Eterboard* —lo que el cliente de verdad pedía—
+    // salían en los puestos 10 al 12, detrás de las tejas. Con 10 ni siquiera llegaban para ser filtradas.
+    // El filtro de abajo recorta igual, así que al modelo no le llega más ruido: le llega más pajar donde
+    // buscar la aguja. NO se vuelve a cortar a 10: el buscador de la tienda ordena por su relevancia y en
+    // "fibrocemento" pone primero las TEJAS (que se llaman así) y deja las LÁMINAS del puesto 11 en
+    // adelante — cortar a 10 volvía a tirar justo lo que la clienta pedía. Ya filtrado, lo que queda es
+    // todo pertinente, así que pasa entero.
+    const p=await _gqlT('{products(search:"'+_q+'",pageSize:20){total_count items{'+_CAMPOS_T+'} }}');
     let _its=((p||{}).items||[]).map(_prodT);
     const _brutos=_its.length;
     _its=_relevantes(_q, _its);
