@@ -67,6 +67,14 @@ const chequear = (n, cond, detalle) => { total++; if (cond) ok++;
   cerebro({ datos: msg('...'), sd, pend:{} });
   sd.ses[WA].recordado = Date.now() - 40*60*1000;
   sd.ses[WA].t         = Date.now() - 60*60*1000;
+  // 2026-08-27: este cliente tampoco dijo su ciudad, así que ahora el cron le hace una última pregunta
+  // (solo la ciudad) antes de entregar el lead. Si sigue callado 20 minutos, sale igual — que es lo que
+  // esta prueba defiende. Se simula ese silencio corriendo el cron otra vez con la pregunta ya vencida.
+  const outPreg = cron(sd, Date.now());
+  chequear('Antes de entregarlo, se le pregunta la ciudad UNA vez',
+           /ciudad_ultima/.test(JSON.stringify(outPreg)) && !!sd.ses[WA].ciudadUlt,
+           JSON.stringify(outPreg).slice(0,200));
+  sd.ses[WA].ciudadUlt = Date.now() - 21*60*1000;                    // 21 min callado tras la pregunta
   const out = cron(sd, Date.now());
   chequear('El lead NO se pierde: se entrega igual', /cierre_rescate/.test(JSON.stringify(out)) && !!sd.pendCierre[WA],
            JSON.stringify(out).slice(0,200));

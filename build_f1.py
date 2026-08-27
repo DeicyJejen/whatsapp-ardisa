@@ -6353,7 +6353,10 @@ function _diasHabiles(fromE, toE){ const d0=_colDate(fromE), d1=_colDate(toE); c
 // Si se cambia una, cambiar la otra. Regla Deicy 2026-08-03: se recuerda 8 días calendario y se acabó.
 const SEG_DIAS = 8, SEG_DIAS_FOLLOW = 8;
 const MID=['','marca','nombre','ciudad','ciudadOtra','ocupacion','ocuArd','punto','detalle','confirmGrupo','consent'];
-const REMIND=12*60*1000, CLOSE=18*60*1000, WINDOW=24*3600*1000, MAXREM=60*60*1000;   // 2026-07-29: recordatorio a los 12 min, cierre 18 min después (~30 min total).
+const REMIND=12*60*1000, CLOSE=18*60*1000, WINDOW=24*3600*1000, MAXREM=60*60*1000;
+// 2026-08-27 (Deicy, caso del cliente que solo mandó una foto): antes de entregar un lead SIN CIUDAD se le
+// hace UNA última pregunta, solo por la ciudad, y se le dan 20 minutos más. Si sigue callado, se entrega igual.
+const CIU_ULT=20*60*1000;   // 2026-07-29: recordatorio a los 12 min, cierre 18 min después (~30 min total).
 // Antes eran 7+8 = 15 min y eso costaba clientes: Stephanie Naffah (27-jul) se demoró 7 min eligiendo su perfil, el bot la cerró,
 // al saludar la reinició desde cero y su lead terminó con el asesor equivocado. Quien está midiendo un espacio o consultando un
 // precio con su jefe se demora más de 15 min. MAXREM sube a 60 min para que siga por encima del cierre.
@@ -6443,6 +6446,36 @@ for(const wa in S){
     // Aquí solo se asciende a store.pendCierre y la tubería de siempre entrega la tarjeta y guarda el lead.
     // No se duplica nada de la lógica de ruteo: el paquete se armó con el cierre real.
     const _resc = store.rescate && store.rescate[wa];
+    // === ÚLTIMA PREGUNTA: SOLO LA CIUDAD (2026-08-27, decisión de Deicy) =========================
+    // Un cliente escribió "Buenas", eligió Ardisa, mandó UNA FOTO y no volvió a hablar. A los 31 minutos
+    // el rescate le entregó el lead a una asesora de Bucaramanga — sin saber si el cliente era de
+    // Bucaramanga. En el último mes le pasó a 11 de 280 leads (4%): todos se repartieron como si fueran
+    // de aquí, porque la ciudad es el ancla del reparto. Deicy: "tampoco hay que enviar las solicitudes
+    // a medias". Así que antes de entregar se pregunta UNA vez más, y SOLO la ciudad: el recordatorio
+    // anterior pedía tres cosas a la vez (nombre, producto, ciudad) y a quien ya se distrajo una lista
+    // no lo trae de vuelta; una sola pregunta con botones sí. Va DENTRO de la ventana de 24 h, así que
+    // no cuesta nada. Si a los 20 minutos sigue callado, el lead sale igual — el cliente no se pierde,
+    // que es la otra regla de la casa —, con su ⚠️ de ciudad sin confirmar en la tarjeta.
+    if(_resc && _resc.lead && !st.ciudad && !st.ciudadUlt){
+      st.ciudadUlt=NOW;
+      const _q=(st.nombre?(String(st.nombre).split(' ')[0]+', para'):'Para')
+             +' asignarte el asesor correcto solo nos falta una cosa 👇\n\n📍 ¿En qué *ciudad* estás?';
+      // Ardisa reparte por ciudad y solo tiene tres opciones: caben en botones, que es un toque y no
+      // obliga a escribir. Carpincentro tiene nueve y hoy las atiende una sola persona, así que ahí la
+      // ciudad no cambia el reparto: se pregunta en texto plano y no se le arma un menú por gusto.
+      const _msg = (st.marca==='Ardisa')
+        ? {messaging_product:'whatsapp', to:wa, type:'interactive', interactive:{type:'button',
+            body:{text:_q}, action:{buttons:[
+              {type:'reply', reply:{id:'BUCARAMANGA',   title:'Bucaramanga'}},
+              {type:'reply', reply:{id:'FLORIDABLANCA', title:'Floridablanca'}},
+              {type:'reply', reply:{id:'OTRA',          title:'Otra ciudad'}}]}}}
+        : {messaging_product:'whatsapp', to:wa, type:'text', text:{body:_q}};
+      out.push({json:{msg:_msg, chat:{creado_en:FECHA, wa_id:wa, nombre:(st.nombre||''),
+        entrada:'(inactividad)', salida:'📍 Última pregunta antes de cerrar: solo la ciudad', etapa:'ciudad_ultima'}}});
+      continue;
+    }
+    // Ya se le preguntó y aún no contesta: se le respetan sus 20 minutos antes de entregar el lead.
+    if(st.ciudadUlt && !st.ciudad && (NOW-st.ciudadUlt)<CIU_ULT) continue;
     const _yaTiene = (store.done && store.done[wa] && (NOW-(store.done[wa].t||0))<3*3600000)
                   || (store.leads && store.leads.some(function(l){return l && l.wa===wa && (NOW-(l.ts||0))<3*3600000;}));
     if(_resc && _resc.lead && !_yaTiene && !(store.pendCierre && store.pendCierre[wa])){
