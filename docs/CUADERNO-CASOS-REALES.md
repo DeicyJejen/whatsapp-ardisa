@@ -578,7 +578,7 @@ falló, se pierde el cliente; si solo falló la alerta, el cliente está bien y 
 
 ```bash
 sudo -n mysql bot_ardisa -e "SELECT creado_en, etapa, LEFT(entrada,45) AS ent, LEFT(salida,60) AS sal \
-  FROM mensajes WHERE wa_id='573224137311' ORDER BY id\G"
+  FROM mensajes WHERE wa_id='573001119933' ORDER BY id\G"
 ```
 
 Busca qué le contestó el bot al mensaje *"Manejan disco para Rh"*. **Anótalo antes de seguir.**
@@ -705,6 +705,166 @@ verdad se pierda con un recorrido parecido, nadie se entera.
 
 ---
 
+# Caso 9 — La mejora que apagó el aviso
+
+## El síntoma
+
+**27 de agosto, 8:30 a.m.** Llega esta alerta:
+
+> 🟡 1 adjunto(s) de 1 cliente(s) llevan hasta 6 horas esperando a una asesora: su ventana de 24 h
+> está cerrada. El bot ya le envió **8 plantilla(s) de destrabe (última el 19/08 10:26)** y NO ha
+> respondido.
+
+Léela despacio y busca lo que **no** encaja. La alerta es de hoy. El último empujón del bot es del
+**19 de agosto**: ocho días antes. Si el bot manda una plantilla de destrabe cada 24 h mientras haya
+cola, y hoy hay cola… **¿por qué la última es de hace ocho días?**
+
+Ese hueco de ocho días es el caso. La alerta no está avisando de una asesora desconectada: está
+avisando, sin saberlo, de que **el bot dejó de avisar**.
+
+## 🔍 Tu turno: averígualo
+
+**Paso 0 — la predicción.** Antes de tocar nada, escribe tu respuesta a esto: *¿el adjunto que está
+esperando es una foto, o es otra cosa?* No es adivinar: es la primera bifurcación del diagnóstico.
+
+**Paso 1 — mira la cola de verdad.** La cola vive en el `staticData` del workflow (la memoria del
+bot entre ejecuciones), no en MySQL:
+
+```bash
+sudo python3 - <<'EOF'
+import sqlite3, json, datetime
+con = sqlite3.connect("file:/opt/n8n/data/database.sqlite?immutable=1", uri=True)
+row = con.execute("select staticData from workflow_entity where id='botArdisaFase1x'").fetchone()[0]
+g = json.loads(row)["global"]
+for dst, cola in (g.get("mediaPend") or {}).items():
+    for x in cola:
+        t = datetime.datetime.fromtimestamp(x["t"]/1000).strftime("%d/%m %H:%M")
+        print(" ", dst, x["m"]["type"], "|", x.get("cliente"), "|", t)
+print("mediaNudge:", g.get("mediaNudge"))
+EOF
+```
+
+Cada bandera y cada trozo, porque aquí no hay nada obvio:
+
+- `sqlite3.connect("file:…?immutable=1", uri=True)` — `uri=True` le dice a Python que lo de adentro
+  no es una ruta sino una URI con opciones. `immutable=1` es la opción: *«te juro que este archivo
+  no va a cambiar mientras lo leo»*. SQLite entonces **no crea archivos de journal ni pide bloqueos**.
+  Sin eso, abrir la base de n8n en caliente puede bloquear al bot en producción. Es la única forma
+  segura de mirar esta base, y por eso jamás se copia (pesa 3,1 GB).
+- `sudo` — el archivo es de root. Sin `sudo`, `unable to open database file`.
+- `<<'EOF' … EOF` — un *heredoc*: mete todo el bloque como entrada del comando. Las comillas en
+  `<<'EOF'` son lo importante: **impiden que bash toque el contenido**. Sin ellas, bash intentaría
+  expandir cosas como `$1` dentro del script de Python y lo rompería.
+- `["global"]` — el `staticData` tiene dos zonas: `global` (la que usa este bot) y `node:<nombre>`.
+- `x["t"]/1000` — el bot guarda milisegundos (`Date.now()` de JavaScript); Python cuenta en segundos.
+  Dividir entre 1000 es la traducción. Si se te olvida, la fecha te sale en el año 58.000.
+
+**Lo que salió:**
+
+```
+  57317xxxxxx text  | Jefer R.      | 25/08 12:03
+  57317xxxxxx audio | Alejandro Q.  | 26/08 11:54
+mediaNudge: {}
+```
+
+Dos cosas. La primera: **no es una foto, es un audio.** La segunda: `mediaNudge` está **vacío** — o
+sea, el bot no tiene registro de haberle empujado nunca a nadie. Y el empujón solo se salta si se
+mandó uno hace menos de 24 h. Si el registro está vacío… **nada le impedía mandarlo. Y aun así no
+salió.** Cuando lo que impide algo no está impidiéndolo, el código no está llegando ahí.
+
+**Paso 2 — busca la salida temprana.** Lee el bloque del cron y busca cada `continue`:
+
+```bash
+grep -n "continue;" build_f1.py | sed -n '1,40p'
+sed -n '6520,6560p' build_f1.py
+```
+
+- `grep -n` — `-n` = *number*: antepone el número de línea. Sin `-n` sabes que existe pero no dónde.
+- `sed -n '6520,6560p'` — `-n` aquí significa lo contrario: **no imprimas nada** por defecto; `p` de
+  *print* imprime solo el rango pedido. Sin el `-n`, `sed` imprime el archivo entero *y además* el
+  rango: 7.000 líneas en pantalla.
+
+**Paso 3 — pregúntate qué cambió el 19 de agosto.** Esa fecha ya la conoces de otro caso.
+
+## ✅ Lo que era
+
+El 19 de agosto se encendió la **plantilla con encabezado de imagen** (`config.tpl_foto`): la forma
+de entregarle al asesor la foto del cliente aunque su ventana de 24 h esté cerrada. Fue una mejora
+real y funcionó.
+
+El código quedó así:
+
+```js
+if(!_wOpen(_dst)){                       // la ventana del asesor está cerrada
+  if(_TPLF){                             // ¿hay plantilla de foto configurada?
+    _q.forEach(function(x){ ...manda cada FOTO por plantilla... });
+    if(_resto2.length){ store.mediaPend[_dst]=_resto2; } else { delete store.mediaPend[_dst]; }
+    continue;                            // ← aquí
+  }
+  ...
+  // EMPUJÓN: "tienes N archivos esperando, escribe cualquier cosa"   ← vive AQUÍ ABAJO
+}
+```
+
+`_resto2` es *lo que la plantilla no pudo mandar*: audios, PDF, notas de texto. Se guarda otra vez
+en la cola —bien, no se pierde— y después `continue` salta a la siguiente asesora. **El empujón vive
+más abajo, en el mismo `if`, y desde el 19 de agosto ya nadie llegaba hasta él.**
+
+Con la plantilla apagada, el audio disparaba el empujón. Con la plantilla encendida, no. **La mejora
+apagó el aviso**, y como el aviso era justamente lo que hacía visible el problema, nadie lo notó
+durante ocho días.
+
+### El arreglo
+
+```js
+if(!_resto2.length){ delete store.mediaPend[_dst]; continue; }
+_q = _resto2;
+if(_q.every(function(x){ return x && x.m && x.m.type==='text'; })){ store.mediaPend[_dst]=_q; continue; }
+// y aquí NO hay continue: sigue hacia abajo, al empujón
+```
+
+Línea por línea:
+
+- `if(!_resto2.length){ … continue; }` — `!` es *no*; `.length` es cuántos quedan. Junto: *«si no
+  quedó nada»*. Ese sí es un `continue` legítimo: no hay nada que empujar. `delete` borra la llave
+  entera del objeto para no dejar colas vacías engordando el `staticData`.
+- `_q = _resto2;` — de aquí en adelante «la cola» es solo lo que la plantilla no pudo llevarse. Sin
+  esta línea, el código de abajo contaría también las fotos que **ya salieron** y le diría a la
+  asesora que tiene 3 archivos esperando cuando tiene 1.
+- `.every(...)` — devuelve `true` solo si **todos** los elementos cumplen. Su pareja es `.some()`
+  (basta con uno). Aquí hace falta `every`: *«si TODO lo que queda son textos»*, no se gasta una
+  plantilla —cuesta plata y no dice nada que el asesor no tenga ya en la tarjeta del lead— y esos
+  textos se limpian solos a las 24 h. Con `.some()` un solo texto suelto habría disparado el aviso.
+- **No hay `continue` al final.** Esa ausencia *es* el arreglo: si lo que quedó es un audio o un
+  documento, la ejecución cae al bloque del empujón, que ya existía y ya funcionaba.
+
+**¿Por qué así y no moviendo el empujón para arriba?** Porque el empujón tiene tres condiciones más
+(más de 6 h de espera, ninguno enviado en las últimas 24 h, y que el destino no sea la línea de
+monitoreo). Duplicarlo arriba habría creado dos copias de la misma regla, y la próxima vez que
+alguien cambie una, se olvidará de la otra. **Un solo camino que llega a un solo bloque.**
+
+## 🎤 Para la entrevista
+
+> "Una mejora puede apagar un monitor. Habíamos añadido una ruta rápida para el caso frecuente —la
+> foto— y esa ruta salía del bucle con un `continue` antes del bloque que avisaba de los casos que no
+> cubría. No se rompió nada visible: simplemente el sistema dejó de quejarse, y ocho días después lo
+> que nos avisó fue un vigilante externo, no el bot. Desde entonces trato cada `continue` y cada
+> `return` temprano como una pregunta: **¿qué código estoy dejando atrás?**"
+
+**El nombre de libro:** *early return* / *guard clause* que se lleva por delante el código que sigue.
+Es primo del *dead code*, pero peor: el código no está muerto, está **inalcanzable solo a veces** —
+justo en la rama que menos se mira.
+
+> **Regla que quedó:** cuando una ruta rápida cubre *el caso común*, hay que preguntarse en voz alta
+> qué pasa con los casos que **no** cubre. Si la respuesta es «se guardan y ya», falta un aviso.
+
+**Y la lección de monitoreo:** el hueco no lo encontró nadie leyendo código. Lo delató una **fecha
+que no cuadraba** dentro de una alerta que hablaba de otra cosa. Por eso las alertas llevan datos
+(«última el 19/08») y no solo veredictos («la asesora no responde»): **el dato deja ver el error que
+el veredicto tapa.**
+
+---
+
 # Los cinco conceptos, en una página
 
 Si solo te llevas una hoja de este cuaderno, que sea esta.
@@ -720,6 +880,7 @@ Si solo te llevas una hoja de este cuaderno, que sea esta.
 | 7 | Publicar es irreversible | Mira qué hay dentro antes, no solo si compila | Los 81 clientes |
 | 8 | Regla duplicada = regla que se separa | Si no se puede compartir, se prueba la coincidencia | El vigilante y sus 37 palabras |
 | 9 | Un watchdog falla ruidoso | Callar sin poder demostrar que es falso, no | La alerta de Edinson |
+| 10 | Ruta rápida que salta el aviso | Un `continue` se lleva por delante lo que viene abajo | La mejora que apagó el aviso |
 
 **Y el hilo que los une todos**, que es lo que de verdad aprendimos en estos tres días:
 
@@ -747,6 +908,9 @@ Contesta con tus palabras. Si una no te sale, vuelve a su caso.
    lee?** ¿Y por qué buscar-y-reemplazar es la peor solución?
 8. Vas a subir tu proyecto a un repositorio **público** para mostrarlo en entrevistas.
    **¿Qué revisas antes, y con qué comando exacto?**
+9. Una alerta dice *"el bot ya le envió 8 avisos, el último el 19/08"* — pero la alerta es del 27/08 y
+   el aviso debía repetirse cada 24 h. **¿Qué es lo primero que sospechas, y dónde lo buscas en el
+   código?**
 
 > La 4, la 6 y la 8 son las que separan a alguien que programa de alguien en quien se confía para
 > operar un sistema en producción. Las tres salieron de errores que cometimos de verdad.

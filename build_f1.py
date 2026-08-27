@@ -6533,8 +6533,15 @@ for(const _dst in store.mediaPend){
       const _clientesOK = {};
       _q.forEach(function(x){ if(x && x.m && x.m.type==='image' && x.cliente) _clientesOK[x.cliente]=1; });
       const _resto2 = _resto.filter(function(x){ return !(x && x.m && x.m.type==='text' && x.cliente && _clientesOK[x.cliente]); });
-      if(_resto2.length){ store.mediaPend[_dst]=_resto2; } else { delete store.mediaPend[_dst]; }
-      continue;
+      // 2026-08-27 (audio de un cliente, 20 h en la cola de Karime): aquí había un `continue` seco. Con la
+      // plantilla de foto encendida (19-ago) TODA cola con la ventana cerrada salía por este camino, así que
+      // lo que la plantilla no puede cargar —un audio, un documento— se quedaba mudo: ni foto, ni empujón.
+      // Por eso el último destrabe fue el 19-ago. Ahora solo se corta si no queda nada, o si lo que queda son
+      // textos (esos se limpian solos a las 24 h y no valen una plantilla); un audio o un documento SIGUE
+      // abajo, donde vive el empujón al asesor.
+      if(!_resto2.length){ delete store.mediaPend[_dst]; continue; }
+      _q = _resto2;
+      if(_q.every(function(x){ return x && x.m && x.m.type==='text'; })){ store.mediaPend[_dst]=_q; continue; }
     }
     store.mediaPend[_dst]=_q;
     const _viejo = Math.min.apply(null, _q.map(function(x){return x.t||NOW;}));
