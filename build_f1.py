@@ -1330,7 +1330,7 @@ function _cotReq(stC){
         +'PROHIBIDO poner el precio de un item_code debajo del nombre de otro: si cotizaste el 10010954, el '
         +'renglón dice el nombre del 10010954. Un cliente que ve una medida con el precio de otra referencia '
         +'recibe una cotización falsa. '
-        +'(3l) LO QUE TIENES, SE DA. PROHIBIDO ESCONDERLO (2026-08-25, caso Griflex). Si un producto trae `precio_con_iva`, ESE PRECIO SE ESCRIBE, siempre, en su renglón 💲. Si trae `se_vende` o `disponibilidad`, ESE ESTADO SE ESCRIBE. Está PROHIBIDO decir "no pudimos confirmar el precio" o "no pudimos validar la disponibilidad" de un producto cuyos datos SÍ traen ese campo: el cliente se queda sin una información que tenemos delante y el asesor tiene que empezar de cero. Esa frase solo vale para el campo que REALMENTE falta, nombrándolo por separado — nunca los dos juntos cuando uno de los dos llegó. Y si de un producto falta el precio pero tienes el enlace, das el enlace igual: nunca se omite lo que sí hay por lo que no hay. '
+        +'(3l) LO QUE TIENES, SE DA. PROHIBIDO ESCONDERLO (2026-08-25, caso Griflex). Si un producto trae `precio_con_iva`, ESE PRECIO SE ESCRIBE, siempre, en su renglón 💲. Si trae `se_vende` o `disponibilidad`, ESE ESTADO SE ESCRIBE. Está PROHIBIDO decir "no pudimos confirmar el precio" o "no pudimos validar la disponibilidad" de un producto cuyos datos SÍ traen ese campo: el cliente se queda sin una información que tenemos delante y el asesor tiene que empezar de cero. Esa frase solo vale para el campo que REALMENTE falta, nombrándolo por separado — nunca los dos juntos cuando uno de los dos llegó. Y si de un producto falta el precio pero tienes el enlace, das el enlace igual: nunca se omite lo que sí hay por lo que no hay. PROHIBIDO TAMBIÉN la versión educada de esconderlo: "un asesor te confirma el valor" o "un asesor te confirma la disponibilidad" de algo cuyo precio y cuya disponibilidad TIENES delante. Eso es devolverle al cliente la pregunta que vino a hacer. El asesor va en la pregunta de cierre, como paso siguiente ("¿seguimos con tu pedido y te paso con un asesor?"), nunca como excusa. (3m) SI EL CLIENTE DIJO UNA CANTIDAD, COTÍZASELA. "Cotízame 10" pide un total, no una ficha: multiplica el precio por la cantidad y escribe el renglón "🧮 10 unidades: $X en total" debajo del precio unitario, aunque sea UN SOLO producto. Sin ese renglón no cotizaste: describiste. '
         +'(3k) SOLO EXISTE LO QUE ESTÁ EN LOS DATOS (2026-08-25). Las marcas, referencias y presentaciones que le nombras al cliente salen ÚNICAMENTE de los resultados de las herramientas: nunca de lo que sepas de la construcción por fuera de aquí. Si en los datos solo aparece una marca, di esa una — no completes la frase con las marcas que "suelen manejarse". Si un resultado trae `disponible_total` en 0 o una `nota_stock`, esa referencia NO se ofrece ni se menciona: está en el sistema pero hoy no se vende, y nombrarla obliga al asesor a desdecirnos. Cuando no tengas el dato, la salida es preguntar o decir que su asesor lo confirma, NUNCA rellenar con lo probable. '
         +'(3j) BUSCA COMO SE LLAMA EN EL CATÁLOGO, NO COMO LO DICE EL CLIENTE (2026-08-25). Nuestro buscador compara TEXTO LITERAL: pierde con cualquier muletilla en medio y con los espacios dobles del catálogo. Si una búsqueda vuelve vacía o trae cosas que no son, VUELVE A BUSCAR por tu cuenta —tienes vueltas para eso— cambiando la frase por el nombre del catálogo: (a) quita muletillas y deja marca + tipo ("MDF Duratex", "Vinilo Tipo 1"); (b) si hay MEDIDAS, escríbelas PEGADAS como el catálogo ("183X244X15", "122X244X18"): una lámina de 5 mm se busca "183X244X5", no "lamina de 5mm"; (c) usa la palabra del catálogo, no la regional (COCINA por estufa, TEJA por lámina de policarbonato, CANTO por tapacanto, ALONGADO por elongado); (d) prueba la marca sola ("Duralam", "Eterboard", "Colormagic"). NUNCA le digas al cliente que no lo manejamos por una búsqueda vacía: primero intenta con OTRO nombre. '
         +'(3e) UNA CONSULTA QUE FALLA NO ES UN "NO LO MANEJAMOS". Si un resultado dice ERROR o no trae datos, '
@@ -4205,6 +4205,22 @@ if(fallo){
                             return _c>0 ? (_ent(_v)+','+String(_c).padStart(2,'0')) : _ent(_v); };
     let _nombrados=0, _todoTraePrecio=true, _todoTraeDisp=true;
     const _dichos=[];
+    // === CUÁNTAS PIDIÓ (2026-08-27, "cotízame 10" del codo sanitario) ==========================
+    // El cliente dijo 10 y el modelo respondió "un asesor te confirma el valor para las 10 unidades":
+    // le devolvió la cuenta al cliente teniendo el precio unitario delante. La multiplicación la hace
+    // el código, que no se equivoca ni se le olvida. Solo se busca en el ÚLTIMO mensaje del cliente.
+    let _cantP=0;
+    try{
+      const _hu=(st.cotHist||[]).filter(function(x){ return x && x.role==='user'; });
+      let _u=String((_hu[_hu.length-1]||{}).content||'')
+              .replace(/\*[^*\n]*\*/g,' ')            // fuera el nombre del producto en *negrita*
+              .replace(/\bref\.?\s*\d+/gi,' ')        // fuera "Ref 2901224"
+              .replace(/\b\d{5,}\b/g,' ');            // fuera cualquier código largo suelto
+      const _m1=_u.match(/(?:cot[ií]za(?:me|r)?|necesito|quiero|requiero|ll[eé]vame|dame|ser[ií]an|son)\s+(?:unas?\s+)?(\d{1,5})\b/i);
+      const _m2=_u.match(/\b(\d{1,5})\s*(?:und|unds|unid|unidades|piezas|pzas|bultos?|cajas?|rollos?|l[aá]minas?|tejas?|bolsas?|gal(?:ones)?|kilos?|kg|metros?|mts?|m2)\b/i);
+      _cantP=Number((_m1&&_m1[1])||(_m2&&_m2[1])||0)||0;
+      if(_cantP<2 || _cantP>100000) _cantP=0;          // 1 no es "cantidad" y 100.000 es un dedazo
+    }catch(e){}
     Object.keys(_dat).forEach(function(_sku){
       const _d=_dat[_sku];
       if(!_d || !_d.url || t.indexOf(_d.url)<0) return;   // el modelo no nombró este producto
@@ -4231,14 +4247,48 @@ if(fallo){
       // la muletilla de la frase anterior (", aunque", ", pero") entra en el borrado, si no queda
       // una frase partida; (c) `\.(?=\d)` dice "un punto seguido de dígito NO termina la frase",
       // que es lo que salva los miles.
-      const _RESTO='(?:[^.]|\\.(?=\\d))*';
+      // === CUARTA VERSIÓN, Y LA TERCERA TAMBIÉN CORTÓ MAL ======================================
+      // 27-ago, codo sanitario. El modelo escribió: "No pudimos confirmar en este momento el precio ni
+      // la disponibilidad del *Codo Sanitario 90 Cxc 6Pulg. Ref 2901224*, pero sí tenemos la ficha
+      // publicada:" — y al cliente le llegó empezando por "Ref 2901224*, pero sí tenemos la ficha
+      // publicada:". El borrado se comió media frase. ¿Por qué? Porque cortaba en el primer punto, y
+      // "6Pulg." tiene un punto de ABREVIATURA dentro del nombre del producto. La versión anterior ya
+      // sabía que "$3.599" no termina una frase; no sabía que "6Pulg." tampoco.
+      // Tres cambios: (a) `\*[^*\n]*\*` — un tramo entre asteriscos se traga ENTERO, con sus puntos
+      // adentro, porque en WhatsApp los asteriscos son el nombre del producto; (b) la frase también
+      // puede terminar en DOS PUNTOS (esta terminaba en ":"), y el punto/dos puntos debe ir seguido de
+      // espacio o de fin, para que "www.ardisa.com" y "https://" no cuenten; (c) una RED DE SEGURIDAD:
+      // si el tramo que se iba a borrar tiene un número IMPAR de asteriscos, partió una negrita por la
+      // mitad — señal inequívoca de mal corte — y entonces no se borra nada. Vale más una muletilla de
+      // sobra que un mensaje que empieza a media palabra.
+      // Y una frase NO cruza un renglón: sin `\n` fuera del alcance, el borrado se llevaba por delante
+      // el "🔗 Verlo en línea:" de dos líneas más abajo (se vio en la primera corrida de la prueba) —
+      // el `*` de la búsqueda es codicioso y se estiraba hasta los dos puntos MÁS LEJANOS que encontrara.
+      const _RESTO='(?:\\*[^*\\n]*\\*|[^.*\\n]|\\*|\\.(?=\\d))*';
+      const _FIN='[.:](?=\\s|$)[ \\t]*';
+      const _sano=function(m){ return ((m.match(/\*/g)||[]).length % 2) === 0; };
       const _RE_MULETILLA=new RegExp(
-        '\\s*(?:[,;]\\s*)?(?:aunque|pero|si bien|eso s[ií]|de momento)?[,\\s]*'+
+        '[ \\t]*(?:[,;][ \\t]*)?(?:aunque|pero|si bien|eso s[ií]|de momento)?[,\\s]*'+
         '(?:en este momento|por el momento|por ahora|ahora mismo|en este instante)?[,\\s]*'+
         'no\\s+(?:pudimos|podemos|logramos|conseguimos|alcanzamos|fue posible|nos fue posible)\\b'+
-        _RESTO+'\\b(?:precio|precios|disponibilidad|existencias|stock)\\b'+_RESTO+'\\.\\s*','gi');
-      t=t.replace(_RE_MULETILLA, function(m){ return /^\s*[,;]/.test(m) ? '. ' : ' '; })
-         .replace(/\s+\./g,'.').replace(/\.\s*\./g,'.').replace(/[ \t]{2,}/g,' ').trim();
+        _RESTO+'\\b(?:precio|precios|disponibilidad|existencias|stock)\\b'+_RESTO+_FIN,'gi');
+      // === Y LA OTRA FORMA DE NO COTIZAR (2026-08-27, Deicy: "no está cotizando") ==============
+      // No hace falta decir "no pudimos" para dejar al cliente sin respuesta. "Un asesor te confirma el
+      // valor para las 10 unidades y la disponibilidad en Bucaramanga" hace exactamente lo mismo: le
+      // devuelve al cliente la pregunta que vino a hacer, con el precio y la existencia ya en la mano.
+      // Se borra solo cuando se puede DEMOSTRAR que sobra (tenemos precio y disponibilidad de todo lo
+      // nombrado). El asesor no desaparece: pasa a ser el paso siguiente, en la pregunta de cierre.
+      const _RE_ASESOR=new RegExp(
+        '[ \\t]*(?:[,;.][ \\t]*)?(?:un|el|la|tu|su)\\s+asesor(?:a)?\\s+(?:te|le|se lo)?\\s*'+
+        '(?:confirmar[aá]|confirma|puede confirmar(?:te|le)?|validar[aá]|valida|verificar[aá]|verifica)\\b'+
+        _RESTO+'\\b(?:valor|precio|precios|disponibilidad|existencias|stock)\\b'+_RESTO+_FIN,'gi');
+      const _quitar=function(m){ if(!_sano(m)) return m; return /^[ \t]*[,;]/.test(m) ? '. ' : ' '; };
+      t=t.replace(_RE_MULETILLA, _quitar).replace(_RE_ASESOR, _quitar)
+         .replace(/[ \t]{2,}/g,' ')      // dos espacios donde estaba la frase
+         .replace(/[ \t]+\n/g,'\n')     // espacio colgando al final del renglón
+         .replace(/\n[ \t]+/g,'\n')     // …y al principio del siguiente
+         .replace(/\n{3,}/g,'\n\n')     // el párrafo que quedó vacío no deja un hueco doble
+         .replace(/ +\./g,'.').replace(/\.[ \t]*\./g,'.').trim();
     }
     // 2026-08-26: el precio se insertaba pegándose al TEXTO del enlace ("🔗 Verlo en línea: ...").
     // Se probó a cambiar esa frase y la reparación habría dejado de funcionar EN SILENCIO — el precio
@@ -4254,6 +4304,20 @@ if(fallo){
           : _l;
       }).join('\n');
     });
+
+    // === LA CUENTA LA HACE EL CÓDIGO (2026-08-27, "cotízame 10") ================================
+    // El cliente pidió 10 codos. Tenemos el unitario ($91.828,18). Multiplicar es lo único que faltaba
+    // para que esto sea una COTIZACIÓN y no una ficha de producto. Se pone solo cuando NO hay ambigüedad:
+    // un solo producto nombrado (con dos, no se sabe a cuál iba el "10") y una cantidad de verdad.
+    // El renglón se ancla a la URL —el dato— y no a la frase del precio, por lo mismo de siempre: una
+    // reparación colgada de una redacción se rompe con la próxima redacción.
+    if(_cantP>1 && _dichos.length===1 && !/🧮|\ben total\b/i.test(t)){
+      const _d1=_dat[_dichos[0].sku];
+      if(_d1 && _d1.url && Number(_d1.pre)>0){
+        const _tot='🧮 '+_cantP+' unidades: $'+_mil(Number(_d1.pre)*_cantP)+' en total (precio de referencia con IVA)';
+        t=t.split('\n').map(function(_l){ return (_l.indexOf(_d1.url)>=0) ? (_tot+'\n'+_l) : _l; }).join('\n');
+      }
+    }
 
     // === LA DISPONIBILIDAD TAMPOCO SE PIDE POR FAVOR (2026-08-26, Deicy: "falta que diga la
     // disponibilidad, no veo que diga") ==========================================================
@@ -4274,6 +4338,32 @@ if(fallo){
       if(/\?\s*$/.test(_fin) && _bloques.length>1){ _bloques.splice(_bloques.length-1, 0, _linea); }
       else { _bloques.push(_linea); }
       t = _bloques.join('\n\n');
+    }
+    // === Y EL PRODUCTO SE LLAMA POR SU NOMBRE (2026-08-27) =====================================
+    // Al borrar la muletilla del codo sanitario se fue con ella el nombre en negrita, porque el modelo
+    // lo había metido DENTRO de la excusa ("...la disponibilidad del *Codo Sanitario 90 Cxc 6Pulg...*").
+    // El cliente quedaba con precio, total y enlace de algo sin nombre. El nombre está en el dato, así
+    // que se repone: encabeza el bloque, encima del 💲, que es donde lo pone el formato de la casa.
+    _dichos.forEach(function(_x){
+      const _d=_dat[_x.sku]; if(!_d || !_d.url) return;
+      const _nom=String(_d.nom||'').replace(/\s{2,}/g,' ').trim();
+      if(!_nom) return;
+      const _pl=function(z){ return String(z).replace(/\s+/g,' ').toLowerCase(); };
+      if(_pl(t).indexOf(_pl(_nom))>=0) return;            // el modelo ya lo nombró: no se repite
+      const _ls=t.split('\n');
+      let _i=-1; for(let _k=0;_k<_ls.length;_k++){ if(_ls[_k].indexOf(_d.url)>=0){ _i=_k; break; } }
+      if(_i<0) return;
+      while(_i>0 && /^\s*(?:💲|🧮)/.test(_ls[_i-1])) _i--;   // sube hasta encima del precio y del total
+      _ls.splice(_i, 0, '*'+_nom+'*');
+      t=_ls.join('\n');
+    });
+    // === Y SIEMPRE CIERRA PREGUNTANDO (regla de redacción de Deicy) ============================
+    // Si la frase que borramos arriba era justo la que cerraba el mensaje, éste terminaría en un dato
+    // suelto y el cliente no sabría qué se espera de él. La pregunta de cierre es además lo que Deicy
+    // pidió que reemplazara al "un asesor te confirma": primero se cotiza, y DESPUÉS se pregunta si
+    // sigue con la compra. Solo se añade si de verdad no quedó ninguna pregunta.
+    if(_nombrados>0 && _todoTraePrecio && _todoTraeDisp && !/\?\s*$/.test(t.trim())){
+      t=t.replace(/\s*$/,'')+'\n\n¿Seguimos con tu pedido y te paso con un asesor para dejarlo listo?';
     }
     if(_dichos.length){                                   // la tarjeta del asesor, también en modo tienda
       store.cotizado=store.cotizado||{};
