@@ -86,6 +86,46 @@ r = relevantes('lamina fibrocemento', LISTA);
 ok(/Lamina Eterboard/.test(r[0].item_name),
    '(2c) "lámina fibrocemento" pone la LÁMINA primero, no la teja', JSON.stringify(nombres(r)));
 
+// ── 2d) el vocabulario del cliente no es el del catálogo (medido contra la tienda) ───────────
+// "tapacanto" devuelve 289 fichas en ardisa.com y TODAS se llaman "Canto PVC"/"Canto ABS": el
+// buscador difuso sí las encuentra, quien las tiraba era este filtro. Igual con "baldosa" (son las
+// cerámicas de piso) y "thinner" (el catálogo lo escribe "Thiner", con una sola N).
+const CATALOGO = [
+  { item_name:'Canto PVC Rehau Riviera 19x1.5mm',            atributos_publicados:{ mgs_brand:'Rehau' } },
+  { item_name:'Ceramica Para Piso Brillante Hara 60X60',     atributos_publicados:{ material:'Ceramica' } },
+  { item_name:'Thiner Galon',                                atributos_publicados:{ mgs_brand:'Pintuco' } },
+  { item_name:'Sanitario Montecarlo Alongado Negro Mate',    atributos_publicados:{ marca:'Corona' } },
+  { item_name:'MDF Duratex 183X244X15',                      atributos_publicados:{ espesor:'15 mm' } },
+  { item_name:'Perfil Manija Toledo Spar 18Mm/15Mm',         atributos_publicados:{ mgs_brand:'Spar' } },
+];
+const casos = [
+  ['tapacanto',          /Canto PVC/,        'tapacanto → Canto PVC'],
+  ['baldosa para piso',  /Ceramica Para/,    'baldosa → Cerámica para piso'],
+  ['thinner',            /Thiner/,           'thinner → "Thiner" (el catálogo lo escribe con una N)'],
+  ['sanitario elongado', /Alongado/,         'elongado → Alongado'],
+];
+casos.forEach(function (c) {
+  const res = relevantes(c[0], CATALOGO);
+  ok(nombres(res).some(n => c[1].test(n)), '(2d) ' + c[2], JSON.stringify(nombres(res)));
+});
+
+// ── 2e) las siglas del oficio tienen 3 letras y no pueden quedar fuera ────────────────────────
+// Antes: con menos de 4 letras el filtro se quedaba SIN raíces y devolvía la lista ENTERA sin
+// filtrar — en una consulta de siglas el filtro no existía. Y con "mdf 15mm" se quedaba solo con
+// 15MM, dejando pasar un perfil de manija y tirando todos los MDF.
+r = relevantes('mdf', CATALOGO);
+ok(nombres(r).some(n => /MDF Duratex/.test(n)), '(2e) "mdf" encuentra los MDF', JSON.stringify(nombres(r)));
+ok(!nombres(r).some(n => /Thiner|Sanitario/.test(n)),
+   '(2e) …y sí FILTRA (antes pasaba la lista entera sin mirar)', JSON.stringify(nombres(r)));
+r = relevantes('mdf 15mm', CATALOGO);
+ok(nombres(r).some(n => /MDF Duratex/.test(n)),
+   '(2e) "mdf 15mm" no pierde el MDF por culpa de la medida', JSON.stringify(nombres(r)));
+// la sigla exige la palabra COMPLETA: un prefijo de 3 letras engancharía media tienda
+r = relevantes('pis', [{ item_name:'Pistola Para Silicona', atributos_publicados:{} },
+                       { item_name:'Piso Exterior Selci 60X60', atributos_publicados:{} }]);
+ok(r.length === 0, '(2e) una sigla no casa por prefijo: "pis" no devuelve Pistola ni Piso',
+   JSON.stringify(nombres(r)));
+
 // ── 3) el buscador pide 20 y NO recorta a 10 ─────────────────────────────────────────────────
 ok(/pageSize:20/.test(TIENDA), '(3) la búsqueda pide 20 resultados, no 10',
    (TIENDA.match(/pageSize:\d+/g) || []).join(' '));
@@ -97,6 +137,29 @@ ok(/precio_articulo[\s\S]{0,4000}cotDatos/.test(TIENDA),
    '(4) precio_articulo/disponibilidad también alimentan store.cotDatos');
 ok(/pre:Number\(_o\.precio_con_iva\)\|\|Number\(_prev\.pre\)\|\|0/.test(TIENDA),
    '(4) …y se FUNDE con lo anterior: la 2ª llamada no borra el precio que trajo la 1ª');
+
+// ── 5) CERO resultados nunca es "no lo manejamos" (regla para salir en vivo) ──────────────────
+// La tienda publica ~3.400 productos de un catálogo mucho mayor: medido hoy, "disco" y "pulidora"
+// devuelven CERO en la web, y esta semana un cliente pidió justo un disco. Decirle que no manejamos
+// discos es falso y obliga al asesor a desdecirnos delante de él.
+// Se miran solo las CADENAS que viajan al modelo, con los comentarios fuera. Si no, la prueba se
+// detecta a sí misma: el comentario que explica el arreglo cita el texto viejo entre comillas, así que
+// buscarlo en el archivo entero encuentra la explicación y grita que el error sigue ahí. Es el mismo
+// pecado de la alerta que se auto-alertaba (caso 5 del cuaderno) y volvió a aparecer aquí.
+// Y además se unen las cadenas partidas: en el nodo el mensaje se escribe en varios trozos
+//     …esto es lo ÚNICO que puedes decir: que no lo tenemos '
+//   + 'PUBLICADO EN LA TIENDA EN LÍNEA…
+// así que buscar la frase entera en el archivo no la encuentra aunque el modelo sí la reciba entera.
+// Se borra la costura ('+') para leer el texto como lo va a leer el modelo, no como está escrito.
+const SIN_COMENT = TIENDA.replace(/^[ \t]*\/\/.*$/gm, '').replace(/'\s*\+\s*'/g, '');
+const txtCero = extraer(SIN_COMENT, 'if(!_its.length)') || '';
+ok(!!txtCero, '(5) se encuentra el bloque de cero resultados');
+ok(/no lo tenemos PUBLICADO/i.test(txtCero),
+   '(5) el bot solo puede decir que no está PUBLICADO', txtCero.slice(0, 220));
+ok(/PROHIBIDO[\s\S]{0,200}no lo manejamos/.test(txtCero),
+   '(5) …y tiene prohibido decir "no lo manejamos"', txtCero.slice(0, 320));
+ok(!/dile con naturalidad que esa referencia no la manejamos/.test(SIN_COMENT),
+   '(5) la instrucción vieja ya no viaja al modelo');
 
 if (fallos) { console.log('test_busca_por_atributo: ' + fallos + ' FALLAS'); process.exit(1); }
 console.log('test_busca_por_atributo: TODAS PASAN');

@@ -1332,7 +1332,7 @@ function _cotReq(stC){
         +'recibe una cotización falsa. '
         +'(3l) LO QUE TIENES, SE DA. PROHIBIDO ESCONDERLO (2026-08-25, caso Griflex). Si un producto trae `precio_con_iva`, ESE PRECIO SE ESCRIBE, siempre, en su renglón 💲. Si trae `se_vende` o `disponibilidad`, ESE ESTADO SE ESCRIBE. Está PROHIBIDO decir "no pudimos confirmar el precio" o "no pudimos validar la disponibilidad" de un producto cuyos datos SÍ traen ese campo: el cliente se queda sin una información que tenemos delante y el asesor tiene que empezar de cero. Esa frase solo vale para el campo que REALMENTE falta, nombrándolo por separado — nunca los dos juntos cuando uno de los dos llegó. Y si de un producto falta el precio pero tienes el enlace, das el enlace igual: nunca se omite lo que sí hay por lo que no hay. PROHIBIDO TAMBIÉN la versión educada de esconderlo: "un asesor te confirma el valor" o "un asesor te confirma la disponibilidad" de algo cuyo precio y cuya disponibilidad TIENES delante. Eso es devolverle al cliente la pregunta que vino a hacer. El asesor va en la pregunta de cierre, como paso siguiente ("¿seguimos con tu pedido y te paso con un asesor?"), nunca como excusa. (3m) SI EL CLIENTE DIJO UNA CANTIDAD, COTÍZASELA. "Cotízame 10" pide un total, no una ficha: multiplica el precio por la cantidad y escribe el renglón "🧮 10 unidades: $X en total" debajo del precio unitario, aunque sea UN SOLO producto. Sin ese renglón no cotizaste: describiste. '
         +'(3k) SOLO EXISTE LO QUE ESTÁ EN LOS DATOS (2026-08-25). Las marcas, referencias y presentaciones que le nombras al cliente salen ÚNICAMENTE de los resultados de las herramientas: nunca de lo que sepas de la construcción por fuera de aquí. Si en los datos solo aparece una marca, di esa una — no completes la frase con las marcas que "suelen manejarse". Si un resultado trae `disponible_total` en 0 o una `nota_stock`, esa referencia NO se ofrece ni se menciona: está en el sistema pero hoy no se vende, y nombrarla obliga al asesor a desdecirnos. Cuando no tengas el dato, la salida es preguntar o decir que su asesor lo confirma, NUNCA rellenar con lo probable. '
-        +'(3j) BUSCA COMO SE LLAMA EN EL CATÁLOGO, NO COMO LO DICE EL CLIENTE (2026-08-25). Nuestro buscador compara TEXTO LITERAL: pierde con cualquier muletilla en medio y con los espacios dobles del catálogo. Si una búsqueda vuelve vacía o trae cosas que no son, VUELVE A BUSCAR por tu cuenta —tienes vueltas para eso— cambiando la frase por el nombre del catálogo: (a) quita muletillas y deja marca + tipo ("MDF Duratex", "Vinilo Tipo 1"); (b) si hay MEDIDAS, escríbelas PEGADAS como el catálogo ("183X244X15", "122X244X18"): una lámina de 5 mm se busca "183X244X5", no "lamina de 5mm"; (c) usa la palabra del catálogo, no la regional (COCINA por estufa, TEJA por lámina de policarbonato, CANTO por tapacanto, ALONGADO por elongado); (d) prueba la marca sola ("Duralam", "Eterboard", "Colormagic"). NUNCA le digas al cliente que no lo manejamos por una búsqueda vacía: primero intenta con OTRO nombre. '
+        +'(3j) BUSCA COMO SE LLAMA EN EL CATÁLOGO, NO COMO LO DICE EL CLIENTE (2026-08-25). Nuestro buscador compara TEXTO LITERAL: pierde con cualquier muletilla en medio y con los espacios dobles del catálogo. Si una búsqueda vuelve vacía o trae cosas que no son, VUELVE A BUSCAR por tu cuenta —tienes vueltas para eso— cambiando la frase por el nombre del catálogo: (a) quita muletillas y deja marca + tipo ("MDF Duratex", "Vinilo Tipo 1"); (b) si hay MEDIDAS, escríbelas PEGADAS como el catálogo ("183X244X15", "122X244X18"): una lámina de 5 mm se busca "183X244X5", no "lamina de 5mm"; (c) usa la palabra del catálogo, no la regional (COCINA por estufa, TEJA por lámina de policarbonato, CANTO por tapacanto, ALONGADO por elongado); (d) prueba la marca sola ("Duralam", "Eterboard", "Colormagic"). NUNCA le digas al cliente que no lo manejamos por una búsqueda vacía: primero intenta con OTRO nombre. (3k) LO QUE NO ESTÁ PUBLICADO NO ES LO QUE NO EXISTE — LA REGLA MÁS IMPORTANTE DE TODAS (2026-08-27). Estas consultas van a nuestra TIENDA EN LÍNEA, que publica solo una PARTE del catálogo de la empresa. Que una búsqueda vuelva vacía significa UNA sola cosa: que no hay ficha publicada. NO significa que no lo vendamos, y tú no tienes cómo saberlo. Así que después de reintentar con otros nombres (3j), lo máximo que puedes decir es: "no lo tenemos publicado en nuestra tienda en línea; un asesor te confirma si lo manejamos y su precio". PROHIBIDAS estas frases y cualquier parecida: "no lo manejamos", "no lo tenemos", "no trabajamos esa línea", "no está en nuestro catálogo", "no disponemos de". Decir que no vendemos algo que sí vendemos pierde al cliente y obliga al asesor a desdecirnos delante de él. Ante la duda, el asesor confirma; nunca cierres una puerta que no sabes si está cerrada. '
         +'(3e) UNA CONSULTA QUE FALLA NO ES UN "NO LO MANEJAMOS". Si un resultado dice ERROR o no trae datos, '
         +'eso significa que NO SE PUDO PREGUNTAR, no que el producto no exista: PROHIBIDO responder que no lo '
         +'manejamos y PROHIBIDO ofrecerle en su lugar otro producto distinto como si fuera equivalente. En ese '
@@ -4733,12 +4733,42 @@ async function _desdeTienda(t){
     'delgado','delgada','grueso','gruesa','ancho','ancha','largo','larga','corto','corta','alto','alta',
     'bajo','baja','fino','fina','sencillo','sencilla','estandar','normal','extra','super','calidad',
     'bueno','buena','unidad','unidades','metro','metros','centimetros','pulgada','pulgadas'];
-  const _SINON_T = {TUBER:'TUBO', CANER:'TUBO', LAMIN:'LAMIN', TEJAS:'TEJA', DISCO:'DISCO'};
+  // === COMO LO DICE EL CLIENTE vs. COMO SE LLAMA EN EL CATÁLOGO (2026-08-27) ======================
+  // Medido contra la tienda: "tapacanto" devuelve 289 fichas y TODAS se llaman "Canto PVC"/"Canto ABS";
+  // "baldosa" devuelve las cerámicas de piso; "thinner" devuelve "Thiner Galon" (el catálogo lo escribe
+  // con una sola N). El buscador difuso de la tienda YA los encuentra — el que los tiraba era mi filtro,
+  // que exige que la palabra del cliente aparezca. Por eso el arreglo va aquí y no en la búsqueda: es
+  // una línea de tabla, no una consulta más. Cada entrada se comprobó contra la tienda; NO se agregan
+  // sinónimos "de oído": lo que no se pudo verificar (zócalo, chazo, lija) devolvía ruido, y para eso
+  // ya está el filtro haciendo bien su trabajo.
+  // Una palabra puede tener VARIAS traducciones válidas: basta con que el producto case una.
+  const _SINON_T = {TUBER:'TUBO', CANER:'TUBO', LAMIN:'LAMIN', TEJAS:'TEJA', DISCO:'DISCO',
+                    TAPAC:'CANTO',                 // tapacanto -> Canto PVC / Canto ABS
+                    BALDO:['CERAM','PISO'],        // baldosa/baldosín -> Cerámica para piso
+                    ENCHA:['CERAM','PISO','FACHA'],// enchape -> cerámica, fachaleta
+                    THINN:'THINE', TINER:'THINE',  // thinner/tíner -> "Thiner" (así, con una N)
+                    EMBOQ:'BOQUI', BOQUI:'BOQUI',  // emboquillada -> Boquilla
+                    ESTUF:'COCIN', ELONG:'ALONG'}; // estufa -> Cocina; elongado -> Alongado
   function _relevantes(_q, _lista){
-    const _t = _sinTildes(_q).split(/[^A-Z0-9]+/).filter(function(w){
-      return w.length>=4 && _STOP_T.indexOf(w.toLowerCase())<0; });
-    if(!_t.length) return _lista;            // solo palabras cortas: no hay con qué juzgar, se deja pasar
-    const _raices = _t.map(function(w){ const r=w.slice(0,5); return _SINON_T[r] || r; });
+    const _todas = _sinTildes(_q).split(/[^A-Z0-9]+/).filter(function(w){
+      return w.length>=3 && _STOP_T.indexOf(w.toLowerCase())<0; });
+    let _t = _todas.filter(function(w){ return w.length>=4; });
+    // === LAS SIGLAS DEL OFICIO SON DE TRES LETRAS (2026-08-27) ====================================
+    // "MDF", "PVC", "RH", "ABS", "OSB" son productos enteros y no llegan a cuatro letras: el filtro se
+    // quedaba SIN raíces y devolvía la lista COMPLETA sin filtrar, o sea que en una consulta de siglas
+    // el filtro no existía. Ahora las de 3 letras entran como red de emergencia, pero exigiendo la
+    // palabra EXACTA (el `=` delante lo marca) en vez de un prefijo: un prefijo de 3 letras engancharía
+    // media tienda ("PIS" casaría PISO y PISTOLA), mientras que la palabra completa "MDF" solo casa MDF.
+    // Las siglas entran SIEMPRE, no solo cuando no hay palabras largas: en "mdf 15mm" la única raíz era
+    // 15MM y el filtro dejó pasar un "Perfil Manija Toledo 18Mm/15Mm" mientras tiraba TODOS los MDF.
+    // La sigla es justo la palabra que dice qué es el producto; ignorarla porque hay otra más larga al
+    // lado es descartar lo importante y quedarse con la medida.
+    const _exactas = _todas.filter(function(w){ return w.length===3; });
+    if(!_t.length && !_exactas.length) return _lista;   // ni siquiera hay con qué juzgar: pasa todo
+    // Cada palabra se convierte en una LISTA de raíces aceptables (la suya y sus sinónimos), porque
+    // "baldosa" vale tanto por CERAM como por PISO. `concat` aplana el sinónimo venga solo o en lista.
+    const _raices = _t.map(function(w){ const r=w.slice(0,5); return [].concat(_SINON_T[r] || r); })
+                      .concat(_exactas.map(function(w){ return ['='+w]; }));   // '=' = palabra completa
     // === EL NOMBRE NO ES TODO LO QUE EL PRODUCTO ES (2026-08-27, caso "14 láminas de fibrocemento") ===
     // Deicy: "de fibrocemento sí hay, en la página puede estar con otro nombre pero es lo mismo". Y tenía
     // razón: la *Lamina Eterboard* ES fibrocemento —su atributo `material` dice "Lamina de fibrocemento"—
@@ -4762,7 +4792,10 @@ async function _desdeTienda(t){
       const _at = m.atributos_publicados;
       if(_at) for(const _k in _at){ _h += ' ' + _sinTildes(String(_at[_k]||'')); }
       const _pal = _h.split(/[^A-Z0-9]+/);
-      return _raices.filter(function(r){ return _pal.some(function(w){ return w.indexOf(r)===0; }); }).length;
+      return _raices.filter(function(_alts){
+        return _alts.some(function(r){ return _pal.some(function(w){
+          return (r.charAt(0)==='=') ? (w===r.slice(1)) : (w.indexOf(r)===0); }); });
+      }).length;
     };
     return _lista.filter(function(m){ return _puntos(m)>0; })
                  .sort(function(a,b){ return _puntos(b)-_puntos(a); });
@@ -4781,15 +4814,30 @@ async function _desdeTienda(t){
     let _its=((p||{}).items||[]).map(_prodT);
     const _brutos=_its.length;
     _its=_relevantes(_q, _its);
-    if(_brutos && !_its.length){
-      // La tienda "encontró" cosas pero ninguna tiene que ver con lo que pidió. Decir que no lo
-      // manejamos es la respuesta CORRECTA y la barata: ofrecerle otra cosa obliga al asesor a
-      // desdecirnos, que es justo lo que Deicy prohibió.
+    if(!_its.length){
+      // === "NO ESTÁ PUBLICADO" NO ES "NO LO MANEJAMOS" (2026-08-27, antes de salir en vivo) =========
+      // Aquí decía: "dile con naturalidad que esa referencia no la manejamos". Es una afirmación que el
+      // bot NO PUEDE HACER: esta consulta va a la TIENDA EN LÍNEA, que publica ~3.400 productos de un
+      // catálogo mucho mayor. Medido hoy: "disco" y "pulidora" devuelven CERO en la web… y un cliente
+      // pidió justo un disco esta semana (lead #396). Con el texto viejo le habríamos dicho que no
+      // manejamos discos, que es falso, y el asesor tendría que desdecirnos delante del cliente.
+      // Deicy lo pidió así para el estreno: "debe responderle con total seguridad e información
+      // correcta". La seguridad de verdad es no afirmar lo que no se sabe. El catálogo publicado prueba
+      // lo que SÍ hay; no prueba nada de lo que no hay.
+      const _porRuido = _brutos>0;
       return JSON.stringify({query:_q, total:0, matches:[],
-        nota:'El buscador devolvió '+_brutos+' resultados pero NINGUNO corresponde a lo que pidió el '
-            +'cliente (el buscador de la tienda engancha palabras sueltas). Trátalo como CERO '
-            +'resultados: vuelve a buscar con OTRA palabra del producto, y si tampoco, dile con '
-            +'naturalidad que esa referencia no la manejamos y ofrécele pasarlo con un asesor.'});
+        nota:(_porRuido
+          ? ('El buscador devolvió '+_brutos+' resultados pero NINGUNO es lo que pidió el cliente (engancha '
+            +'palabras sueltas). Trátalo como CERO. ')
+          : 'La tienda en línea no tiene fichas publicadas para esa búsqueda. ')
+          +'PRIMERO vuelve a buscar con OTRO nombre (regla 3j: el del catálogo, no el regional; la marca '
+          +'sola; una sola palabra). Si tampoco sale, esto es lo ÚNICO que puedes decir: que no lo tenemos '
+          +'PUBLICADO EN LA TIENDA EN LÍNEA y que UN asesor se lo confirma ("un asesor", nunca "tu asesor": '
+          +'en la cotización todavía no se le ha asignado ninguno). TERMINANTEMENTE PROHIBIDO '
+          +'decir "no lo manejamos", "no lo tenemos", "no trabajamos esa línea" o cualquier cosa que '
+          +'suene a que la empresa no lo vende: esta búsqueda solo ve lo publicado en la web, que es una '
+          +'PARTE del catálogo, así que no lo sabes. Y PROHIBIDO ofrecerle otro producto en su lugar como '
+          +'si fuera lo que pidió.'});
     }
     // UNA llamada trae la existencia de los 10: el caso "Cemex y Oriente" se resuelve aquí, con dato.
     const _sk=await _stockT(_its.map(function(m){ return m.item_code; }));
